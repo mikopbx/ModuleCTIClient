@@ -2,7 +2,7 @@
     "name": "mikopbx/modulecti2client",
     "description": "ModuleCTIClient",
     "require": {
-        "mikopbx/core": "^2020.2.*"
+        "mikopbx/core": "^2020.2.757"
     },
     "autoload": {
         "psr-4": {
