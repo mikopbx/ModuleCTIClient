@@ -10,10 +10,12 @@ namespace Modules\ModuleCTIClient\Lib;
 
 use Exception;
 use MikoPBX\Common\Models\PbxSettings;
+use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore as WorkerSafeScriptsCore;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\System\System;
 use MikoPBX\Core\System\Util;
+use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 
 
@@ -184,6 +186,7 @@ class CTIClientConf extends ConfigClass
     {
         $amigoDaemons = new AmigoDaemons();
         $amigoDaemons->startAllServices();
+        PBX::dialplanReload();
     }
 
     /**
@@ -200,6 +203,24 @@ class CTIClientConf extends ConfigClass
         } catch (Exception $e) {
             Util::sysLogMsg($this->module_name, $e->getMessage());
         }
+        PBX::dialplanReload();
+    }
+
+    /**
+     * Кастомизация входящего контекста для конкретного маршрута.
+     *
+     * @param $rout_number
+     *
+     * @return string
+     */
+    public function generateIncomingRoutBeforeDial($rout_number): string
+    {
+        $conf = '';
+        if(!PbxExtensionUtils::isEnabled('ModulePT1CCore')){
+            $conf = "\t".'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})';
+        }
+        // Перехват на ответственного.
+        return $conf;
     }
 
 }
