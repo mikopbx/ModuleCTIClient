@@ -101,7 +101,8 @@ class ModuleCTIClientController extends BaseController
     /**
      * Получить список пользователей АТС с номерами и картинками в JSON
      *
-     * http://127.0.0.1/admin-cabinet/module-c-t-i-client/getExtensions
+     * Пример:
+     * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getExtensions"
      *
      */
     public function getExtensionsAction(): void
@@ -198,7 +199,8 @@ class ModuleCTIClientController extends BaseController
     /**
      * Получить список очередей и приложений с человекочитаемым названием
      *
-     * http://127.0.0.1/admin-cabinet/module-c-t-i-client/getIdMatchNamesList
+     * Пример:
+     * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getIdMatchNamesList"
      *
      */
     public function getIdMatchNamesListAction(): void
@@ -296,7 +298,12 @@ class ModuleCTIClientController extends BaseController
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserAvatar
      *
      * id -  идентификатор пользователя
-     *
+
+     * Пример:
+     * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserAvatar" \
+     *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+     * --data-urlencode "id=110" \
+     * --data-urlencode "img=data:image/png;base64,SDFGDSFGSDG"
      */
     public function updateUserAvatarAction()
     {
@@ -339,8 +346,13 @@ class ModuleCTIClientController extends BaseController
      *
      * POST запрос с параметрами id и newMobile на адрес
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserMobile
-     *
      * id -  идентификатор пользователя
+     *
+     * Пример:
+     * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserMobile" \
+     *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+     * --data-urlencode "id=110" \
+     * --data-urlencode "newMobile=79265244742"
      */
     public function updateUserMobileAction(): void
     {
@@ -362,11 +374,9 @@ class ModuleCTIClientController extends BaseController
         }
 
         $newMobile = preg_replace('/[^0-9]/', '', $this->request->getPost('newMobile'));
-        $userId    = $this->request->getPost('id');
-
-
-        $user = Users::findFirstById($userId);
-        if ($user !== null) {
+        $userId = $this->request->getPost('id');
+        $user   = Users::findFirstById($userId);
+        if ($user === null) {
             $data = json_encode(['error' => "Unknown user with id={$userId}"]);
             $this->response->setContent($data);
 
@@ -428,9 +438,14 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
-     * Возвращает картинку в Base64 по переданному ID пользователя
+     * Возвращает картинку в Base64 по переданному хешу картинки
+     *
+     * Пример:
+     * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getUserAvatar/0e6c772f5c977666aa03207927be1781"
+     *
+     * @param string $imgHash
      */
-    public function getUserAvatarAction($imgHash)
+    public function getUserAvatarAction(string $imgHash)
     {
         $this->view->disableLevel(
             [
@@ -497,6 +512,12 @@ class ModuleCTIClientController extends BaseController
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserEmail
      *
      * id -  идентификатор пользователя
+     *
+     * Пример:
+     * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserEmail" \
+     *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+     * --data-urlencode "id=110" \
+     * --data-urlencode "email=nb@mikopbx.com"
      *
      */
     public function updateUserEmailAction()
