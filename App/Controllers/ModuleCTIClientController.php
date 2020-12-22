@@ -19,6 +19,7 @@ use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 use Phalcon\Mvc\View;
 use MikoPBX\AdminCabinet\Controllers\BaseController;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
+
 use function MikoPBX\Common\Config\appPath;
 
 class ModuleCTIClientController extends BaseController
@@ -120,6 +121,7 @@ class ModuleCTIClientController extends BaseController
                 'number'   => 'Extensions.number',
                 'type'     => 'Extensions.type',
                 'avatar'   => 'Users.avatar',
+                'email'    => 'Users.email',
 
             ],
             'order'      => 'number',
@@ -147,6 +149,7 @@ class ModuleCTIClientController extends BaseController
                     $extensionTable[$extension->userid]['secret']   = $extension->secret;
                     $extensionTable[$extension->userid]['number']   = $extension->number;
                     $extensionTable[$extension->userid]['username'] = $extension->username;
+                    $extensionTable[$extension->userid]['email']    = $extension->email;
                     if ( ! empty($extension->avatar)) {
                         $extensionTable[$extension->userid]['avatar'] = md5($extension->avatar);
                     } else {
@@ -173,6 +176,7 @@ class ModuleCTIClientController extends BaseController
                 'username' => $extension['username'],
                 'mobile'   => $extension['mobile'],
                 'avatar'   => $extension['avatar'],
+                'email'    => $extension['email'],
             ];
         }
 
@@ -439,7 +443,7 @@ class ModuleCTIClientController extends BaseController
         );
         $this->response->setContentType('application/json', 'UTF-8');
         $imgCacheDir = appPath('sites/admin-cabinet/assets/img/cache');
-        $imgFile = "{$imgCacheDir}/$imgHash.jpg";
+        $imgFile     = "{$imgCacheDir}/$imgHash.jpg";
         if ( ! file_exists($imgFile)) {
             $users = Users::find();
             foreach ($users as $user) {
@@ -484,5 +488,50 @@ class ModuleCTIClientController extends BaseController
         fclose($ifp);
 
         return $output_file;
+    }
+
+    /**
+     * Обновление email пользователя
+     *
+     * POST запрос с параметрами id и email на адрес
+     * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserEmail
+     *
+     * id -  идентификатор пользователя
+     *
+     */
+    public function updateUserEmailAction()
+    {
+        $this->view->disableLevel(
+            [
+                View::LEVEL_ACTION_VIEW     => true,
+                View::LEVEL_LAYOUT          => true,
+                View::LEVEL_MAIN_LAYOUT     => true,
+                View::LEVEL_AFTER_TEMPLATE  => true,
+                View::LEVEL_BEFORE_TEMPLATE => true,
+            ]
+        );
+        $this->response->setContentType('application/json', 'UTF-8');
+        if ( ! $this->request->isPost()) {
+            $data = json_encode(['error' => 'Only post requests accepted']);
+            $this->response->setContent($data);
+
+            return;
+        }
+        $userId = $this->request->getPost('id');
+        $user   = Users::findFirstById($userId);
+        if ($user !== null) {
+            $user->email = $this->request->getPost('email');
+            if ($user->save() === false) {
+                $errors = $user->getMessages();
+                $data   = json_encode(['error' => $errors]);
+                $this->response->setContent($data);
+            } else {
+                $data = json_encode(['result' => 'ok']);
+                $this->response->setContent($data);
+            }
+        } else {
+            $data = json_encode(['error' => "Unknown user with id={$userId}"]);
+            $this->response->setContent($data);
+        }
     }
 }
