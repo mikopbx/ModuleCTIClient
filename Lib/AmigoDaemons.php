@@ -29,9 +29,11 @@ class AmigoDaemons extends Di\Injectable
 
     public function __construct()
     {
-        $module_settings = ModuleCTIClient::findFirst();
-        if ($module_settings !== null) {
-            $this->module_settings = $module_settings->toArray();
+        if (PbxExtensionUtils::isEnabled($this->moduleUniqueID)){
+            $module_settings = ModuleCTIClient::findFirst();
+            if ($module_settings !== null) {
+                $this->module_settings = $module_settings->toArray();
+            }
         }
         $this->mikoPBXConfig = new MikoPBXConfig();
 
