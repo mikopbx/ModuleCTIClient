@@ -19,6 +19,7 @@ use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 use Phalcon\Mvc\View;
 use MikoPBX\AdminCabinet\Controllers\BaseController;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
+
 use function MikoPBX\Common\Config\appPath;
 
 class ModuleCTIClientController extends BaseController
@@ -100,7 +101,8 @@ class ModuleCTIClientController extends BaseController
     /**
      * Получить список пользователей АТС с номерами и картинками в JSON
      *
-     * http://127.0.0.1/admin-cabinet/module-c-t-i-client/getExtensions
+     * Пример:
+     * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getExtensions"
      *
      */
     public function getExtensionsAction(): void
@@ -120,6 +122,7 @@ class ModuleCTIClientController extends BaseController
                 'number'   => 'Extensions.number',
                 'type'     => 'Extensions.type',
                 'avatar'   => 'Users.avatar',
+                'email'    => 'Users.email',
 
             ],
             'order'      => 'number',
@@ -147,6 +150,7 @@ class ModuleCTIClientController extends BaseController
                     $extensionTable[$extension->userid]['secret']   = $extension->secret;
                     $extensionTable[$extension->userid]['number']   = $extension->number;
                     $extensionTable[$extension->userid]['username'] = $extension->username;
+                    $extensionTable[$extension->userid]['email']    = $extension->email;
                     if ( ! empty($extension->avatar)) {
                         $extensionTable[$extension->userid]['avatar'] = md5($extension->avatar);
                     } else {
@@ -173,6 +177,7 @@ class ModuleCTIClientController extends BaseController
                 'username' => $extension['username'],
                 'mobile'   => $extension['mobile'],
                 'avatar'   => $extension['avatar'],
+                'email'    => $extension['email'],
             ];
         }
 
@@ -194,7 +199,8 @@ class ModuleCTIClientController extends BaseController
     /**
      * Получить список очередей и приложений с человекочитаемым названием
      *
-     * http://127.0.0.1/admin-cabinet/module-c-t-i-client/getIdMatchNamesList
+     * Пример:
+     * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getIdMatchNamesList"
      *
      */
     public function getIdMatchNamesListAction(): void
@@ -292,7 +298,12 @@ class ModuleCTIClientController extends BaseController
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserAvatar
      *
      * id -  идентификатор пользователя
-     *
+
+     * Пример:
+     * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserAvatar" \
+     *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+     * --data-urlencode "id=110" \
+     * --data-urlencode "img=data:image/png;base64,SDFGDSFGSDG"
      */
     public function updateUserAvatarAction()
     {
@@ -335,8 +346,13 @@ class ModuleCTIClientController extends BaseController
      *
      * POST запрос с параметрами id и newMobile на адрес
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserMobile
-     *
      * id -  идентификатор пользователя
+     *
+     * Пример:
+     * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserMobile" \
+     *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+     * --data-urlencode "id=110" \
+     * --data-urlencode "newMobile=79265244742"
      */
     public function updateUserMobileAction(): void
     {
@@ -358,11 +374,9 @@ class ModuleCTIClientController extends BaseController
         }
 
         $newMobile = preg_replace('/[^0-9]/', '', $this->request->getPost('newMobile'));
-        $userId    = $this->request->getPost('id');
-
-
-        $user = Users::findFirstById($userId);
-        if ($user !== null) {
+        $userId = $this->request->getPost('id');
+        $user   = Users::findFirstById($userId);
+        if ($user === null) {
             $data = json_encode(['error' => "Unknown user with id={$userId}"]);
             $this->response->setContent($data);
 
@@ -424,9 +438,14 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
-     * Возвращает картинку в Base64 по переданному ID пользователя
+     * Возвращает картинку в Base64 по переданному хешу картинки
+     *
+     * Пример:
+     * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getUserAvatar/0e6c772f5c977666aa03207927be1781"
+     *
+     * @param string $imgHash
      */
-    public function getUserAvatarAction($imgHash)
+    public function getUserAvatarAction(string $imgHash)
     {
         $this->view->disableLevel(
             [
@@ -439,7 +458,7 @@ class ModuleCTIClientController extends BaseController
         );
         $this->response->setContentType('application/json', 'UTF-8');
         $imgCacheDir = appPath('sites/admin-cabinet/assets/img/cache');
-        $imgFile = "{$imgCacheDir}/$imgHash.jpg";
+        $imgFile     = "{$imgCacheDir}/$imgHash.jpg";
         if ( ! file_exists($imgFile)) {
             $users = Users::find();
             foreach ($users as $user) {
@@ -484,5 +503,56 @@ class ModuleCTIClientController extends BaseController
         fclose($ifp);
 
         return $output_file;
+    }
+
+    /**
+     * Обновление email пользователя
+     *
+     * POST запрос с параметрами id и email на адрес
+     * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserEmail
+     *
+     * id -  идентификатор пользователя
+     *
+     * Пример:
+     * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserEmail" \
+     *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+     * --data-urlencode "id=110" \
+     * --data-urlencode "email=nb@mikopbx.com"
+     *
+     */
+    public function updateUserEmailAction()
+    {
+        $this->view->disableLevel(
+            [
+                View::LEVEL_ACTION_VIEW     => true,
+                View::LEVEL_LAYOUT          => true,
+                View::LEVEL_MAIN_LAYOUT     => true,
+                View::LEVEL_AFTER_TEMPLATE  => true,
+                View::LEVEL_BEFORE_TEMPLATE => true,
+            ]
+        );
+        $this->response->setContentType('application/json', 'UTF-8');
+        if ( ! $this->request->isPost()) {
+            $data = json_encode(['error' => 'Only post requests accepted']);
+            $this->response->setContent($data);
+
+            return;
+        }
+        $userId = $this->request->getPost('id');
+        $user   = Users::findFirstById($userId);
+        if ($user !== null) {
+            $user->email = $this->request->getPost('email');
+            if ($user->save() === false) {
+                $errors = $user->getMessages();
+                $data   = json_encode(['error' => $errors]);
+                $this->response->setContent($data);
+            } else {
+                $data = json_encode(['result' => 'ok']);
+                $this->response->setContent($data);
+            }
+        } else {
+            $data = json_encode(['error' => "Unknown user with id={$userId}"]);
+            $this->response->setContent($data);
+        }
     }
 }
