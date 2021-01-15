@@ -163,7 +163,6 @@ class AmigoDaemons extends Di\Injectable
      */
     public function startAllServices($restart = false): void
     {
-        $this->generateConfFiles();
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
 
         // GNATS
@@ -179,6 +178,7 @@ class AmigoDaemons extends Di\Injectable
         $speechd                 = "{$this->dirs['binDir']}/speechd";
 
         if ($moduleEnabled) {
+            $this->generateConfFiles();
             if ($restart) {
                 Processes::processWorker(
                     $nats,
