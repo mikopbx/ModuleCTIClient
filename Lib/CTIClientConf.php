@@ -216,9 +216,13 @@ class CTIClientConf extends ConfigClass
     public function generateIncomingRoutBeforeDial($rout_number): string
     {
         $conf = '';
+        // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
         if(!PbxExtensionUtils::isEnabled('ModulePT1CCore')){
             $conf = "\t".'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})';
         }
+        //
+
+        $conf .= "\t".'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})';
         // Перехват на ответственного.
         return $conf;
     }
