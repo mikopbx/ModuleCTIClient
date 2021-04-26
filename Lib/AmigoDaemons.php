@@ -625,24 +625,34 @@ class AmigoDaemons extends Di\Injectable
     {
         $res            = new PBXApiResult();
         $res->processor = __METHOD__;
+
+        $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
+        if (!$moduleEnabled){
+            $res->data['statuses'] = 'Module disabled';
+            return $res;
+        }
+
+        $statusMonitor  = $this->checkMonitorStatus();
         $statusNats     = $this->checkNatsStatus();
         $status1C       = $this->checkWorkerStatus('1c');
         $statusAuth     = $this->checkWorkerStatus('auth');
         $statusAsterisk = $this->checkWorkerStatus('asterisk');
         $statusSpeech = $this->checkWorkerStatus('speech');
 
-        $res->success = $status1C['state'] === 'ok'
+        $res->success = $statusMonitor==='ok'
+            &&$status1C['state'] === 'ok'
             && $statusAuth['state'] === 'ok'
             && $statusAsterisk['state'] === 'ok'
             && $statusSpeech['state'] === 'ok'
             && $statusNats['state'] === 'ok';
 
         $res->data['statuses'] = [
-            $status1C,
+            $statusMonitor,
+            $statusNats,
             $statusAuth,
             $statusAsterisk,
             $statusSpeech,
-            $statusNats,
+            $status1C,
         ];
 
         return $res;
@@ -721,6 +731,27 @@ class AmigoDaemons extends Di\Injectable
                 'name'  => $workerName,
                 'state' => 'unknown',
             ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Возвращает статус монитора
+     *
+     *
+     * @return array
+     */
+    private function checkMonitorStatus(): array
+    {
+        $result = [
+             'name'  => 'monitord',
+             'state' => 'unknown',
+        ];
+        $pid     = Processes::getPidOfProcess('monitord');
+        if (!empty($pid)) {
+            $result['state']='ok';
+            $result['pid']= $pid;
         }
 
         return $result;

@@ -28,7 +28,8 @@ return [
     'mod_cti_Disconnected'        => 'Отключен',
     'mod_cti_ConnectionProgress'  => 'Запускаются сервисы модуля',
     'mod_cti_ConnectionError'     => 'Ошибка работы модуля',
-    'mod_cti_ConnectionTo1CError' => 'Нет связи с базой 1С',
+    'mod_cti_ConnectionTo1CError' => 'Нет удалось подключиться к вебсервису 1С',
     'mod_cti_UpdateStatus'        => 'Обновление статуса',
+    'mod_cti_ConnectionWait'      => 'Ожидаем подключения к MikoPBX со стороны 1С',
 
 ];
