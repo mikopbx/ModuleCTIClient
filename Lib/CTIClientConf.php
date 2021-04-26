@@ -227,4 +227,27 @@ class CTIClientConf extends ConfigClass
         return $conf;
     }
 
+    /**
+     * Генерация дополнительных контекстов.
+     *
+     * @return string
+     */
+    public function extensionGenContexts(): string
+    {
+        $PBXRecordCalls = $this->generalSettings['PBXRecordCalls'];
+        $rec_options    = ($PBXRecordCalls === '1') ? 'r' : '';
+        $conf = "[miko_cti2]\n";
+        $conf .= 'exten => 10000107,1,Answer()' . "\n\t";
+        $conf .= 'same => n,Set(CHANNEL(hangup_handler_wipe)=hangup_handler_meetme,s,1)' . "\n\t";
+        $conf .= 'same => n,AGI(cdr_connector.php,meetme_dial)' . "\n\t";
+        $conf .= 'same => n,Set(CALLERID(num)=Conference_Room)' . "\n\t";
+        $conf .= 'same => n,Set(CALLERID(name)=${mikoconfcid})' . "\n\t";
+        $conf .= 'same => n,Meetme(${mikoidconf},' . $rec_options . '${mikoparamconf})' . "\n\t";
+        $conf .= 'same => n,Hangup()' . "\n\n";
+
+        return $conf;
+    }
+
+
+
 }
