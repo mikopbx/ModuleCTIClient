@@ -79,7 +79,6 @@ class AmigoDaemons extends Di\Injectable
 
         //ResourcesDir
         $resourcesDir = $moduleDir . '/Resources';
-        Util::mwMkdir($binDir);
 
         return [
             'logDir'    => $logDir,
@@ -175,7 +174,7 @@ class AmigoDaemons extends Di\Injectable
         $amid                 = "{$this->dirs['binDir']}/amid";
         $authd                = "{$this->dirs['binDir']}/authd";
         $crmd                 = "{$this->dirs['binDir']}/crmd";
-        $speechd                 = "{$this->dirs['binDir']}/speechd";
+        $speechd              = "{$this->dirs['binDir']}/speechd";
 
         if ($moduleEnabled) {
             $this->generateConfFiles();
@@ -637,7 +636,7 @@ class AmigoDaemons extends Di\Injectable
         $status1C       = $this->checkWorkerStatus('1c');
         $statusAuth     = $this->checkWorkerStatus('auth');
         $statusAsterisk = $this->checkWorkerStatus('asterisk');
-        $statusSpeech = $this->checkWorkerStatus('speech');
+        $statusSpeech   = $this->checkWorkerStatus('speech');
 
         $res->success = $statusMonitor==='ok'
             &&$status1C['state'] === 'ok'
