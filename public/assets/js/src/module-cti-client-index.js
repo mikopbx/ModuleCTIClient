@@ -14,6 +14,7 @@
 const moduleCTIClientConnectionCheckWorker = {
 	$formObj: $('#module-cti-client-form'),
 	$statusToggle: $('#module-status-toggle'),
+	$longPoolToggle: $('#web-service-mode-toggle'),
 	$debugToggle: $('#debug-mode-toggle'),
 	$moduleStatus: $('#status'),
 	$submitButton: $('#submitbutton'),
@@ -60,8 +61,7 @@ const moduleCTIClientConnectionCheckWorker = {
 							} else {
 								moduleCTIClientConnectionCheckWorker.$formObj
 									.after(`<div class="ui error message ajax">
-									<i class="spinner loading icon"></i>${globalTranslate.mod_cti_trying}
-									${moduleCTIClientConnectionCheckWorker.errorCounts} ...						
+									<i class="spinner loading icon"></i>${globalTranslate.mod_cti_trying}						
 									<pre style='white-space: pre-wrap'>${visualErrorString}</pre>										  
 								</div>`);
 							}
@@ -85,9 +85,13 @@ const moduleCTIClientConnectionCheckWorker = {
 								if (typeof (value.name) !== 'undefined'
 									&& value.name === 'crm-1c'
 									&& value.state !== 'ok') {
-									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CError');
+									if (moduleCTIClientConnectionCheckWorker.$longPoolToggle.checkbox('is checked')) {
+										moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CError');
+									} else {
+										moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CWait');
+									}
 								} else if (typeof value.state !== 'undefined' && value.state !== 'ok') {
-									if (moduleCTIClientConnectionCheckWorker.errorCounts < 5) {
+									if (moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
 										moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
 									} else {
 										moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
@@ -132,6 +136,11 @@ const moduleCTIClientConnectionCheckWorker = {
 				moduleCTIClientConnectionCheckWorker.$moduleStatus
 					.addClass('yellow')
 					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_ConnectionProgress}`);
+				break;
+			case 'ConnectionTo1CWait':
+				moduleCTIClientConnectionCheckWorker.$moduleStatus
+					.addClass('yellow')
+					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_ConnectionWait}`);
 				break;
 			case 'ConnectionTo1CError':
 				moduleCTIClientConnectionCheckWorker.$moduleStatus
@@ -223,7 +232,9 @@ const moduleCTIClient = {
 			moduleCTIClientConnectionCheckWorker.initialize();
 		} else {
 			moduleCTIClient.$moduleStatus.hide();
+			moduleCTIClient.$moduleStatus.hide();
 			$('.disability').addClass('disabled');
+			$('.message.ajax').remove();
 		}
 	},
 	/**

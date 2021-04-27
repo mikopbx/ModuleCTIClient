@@ -69,8 +69,8 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
                 'n,Playback(silence/1)' . "\n" .
                 'n,Playback(silence/1)' . "\n" .
                 'n,Hangup';
-            $d_app->name             = $this->locString('mod_cti_AuthApp_Name');
-            $d_app->description      = $this->locString('mod_cti_AuthApp_Description');
+            $d_app->name             = $this->translation->_('mod_cti_AuthApp_Name');
+            $d_app->description      = $this->translation->_('mod_cti_AuthApp_Description');
             $d_app->applicationlogic = base64_encode($logic);
             $d_app->type             = 'plaintext';
 
