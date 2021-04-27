@@ -725,6 +725,13 @@ class AmigoDaemons extends Di\Injectable
             && is_array($data['result'])
         ) {
             $result = $data['result'];
+            // Move state and name on the first position
+            if (key_exists('state', $result)){
+                $result = [ 'state' => $result[ 'state' ] ] + $result;
+            }
+            if (key_exists('name', $result)) {
+                $result = ['name' => $result['name']] + $result;
+            }
         } else {
             $result = [
                 'name'  => $workerName,
