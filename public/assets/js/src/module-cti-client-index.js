@@ -14,7 +14,7 @@
 const moduleCTIClientConnectionCheckWorker = {
 	$formObj: $('#module-cti-client-form'),
 	$statusToggle: $('#module-status-toggle'),
-	$longPoolToggle: $('#web-service-mode-toggle'),
+	$webServiceToggle: $('#web-service-mode-toggle'),
 	$debugToggle: $('#debug-mode-toggle'),
 	$moduleStatus: $('#status'),
 	$submitButton: $('#submitbutton'),
@@ -81,23 +81,33 @@ const moduleCTIClientConnectionCheckWorker = {
 						if (typeof (response.data) !== 'undefined'
 							&& typeof (response.data.statuses) !== 'undefined'
 						) {
+							let countHealthy = 0;
+							let status1C = 'undefined';
+
 							$.each(response.data.statuses, (key, value) => {
 								if (typeof (value.name) !== 'undefined'
-									&& value.name === 'crm-1c'
-									&& value.state !== 'ok') {
-									if (moduleCTIClientConnectionCheckWorker.$longPoolToggle.checkbox('is checked')) {
-										moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CError');
-									} else {
-										moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CWait');
-									}
-								} else if (typeof value.state !== 'undefined' && value.state !== 'ok') {
-									if (moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
-										moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
-									} else {
-										moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
-									}
+								&& value.state === 'ok'){
+									countHealthy++;
+								}
+								if (typeof (value.name) !== 'undefined'
+									&& value.name === 'crm-1c') {
+									status1C = value.state;
 								}
 							});
+							if (status1C !== 'ok' && countHealthy === 5 ) {
+								if (moduleCTIClientConnectionCheckWorker.$webServiceToggle.checkbox('is checked')) {
+									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CError');
+								} else {
+									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CWait');
+								}
+							} else if (countHealthy < 5) {
+								if (moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
+									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
+								} else {
+									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
+								}
+							}
+
 						} else { // Unknown
 							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
 						}

@@ -188,7 +188,7 @@ class AmigoDaemons extends Di\Injectable
      *
      * @param bool $restart
      */
-    public function startAllServices($restart = false): void
+    public function startAllServices(bool $restart = false): void
     {
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
 
