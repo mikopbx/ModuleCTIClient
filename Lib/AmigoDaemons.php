@@ -22,6 +22,13 @@ use Throwable;
 
 class AmigoDaemons extends Di\Injectable
 {
+    public const SERVICE_GNATS = 'gnatsd-cti';
+    public const SERVICE_CRM = 'crmd';
+    public const SERVICE_AUTH = 'authd';
+    public const SERVICE_AMI = 'amid';
+    public const SERVICE_SPEECH = 'speechd';
+    public const SERVICE_MONITOR = 'monitord';
+
     public array $dirs;
     private array $module_settings = [];
     private string $moduleUniqueID = 'ModuleCTIClient';
@@ -156,63 +163,65 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
+     * Остановка сервисов панели
+     */
+    public function stopAllServices(): void
+    {
+        $nats                 = "{$this->dirs['binDir']}/".self::SERVICE_GNATS;
+        $monitord             = "{$this->dirs['binDir']}/".self::SERVICE_MONITOR;
+        $amid                 = "{$this->dirs['binDir']}/".self::SERVICE_AMI;
+        $authd                = "{$this->dirs['binDir']}/".self::SERVICE_AUTH;
+        $crmd                 = "{$this->dirs['binDir']}/".self::SERVICE_CRM;
+        $speechd              = "{$this->dirs['binDir']}/".self::SERVICE_SPEECH;
+
+        Processes::processWorker($nats, '',self::SERVICE_GNATS, 'stop');
+        Processes::processWorker($monitord, '', self::SERVICE_MONITOR, 'stop');
+        Processes::processWorker($amid, '', self::SERVICE_AMI, 'stop');
+        Processes::processWorker($authd, '', self::SERVICE_AUTH, 'stop');
+        Processes::processWorker($crmd, '', self::SERVICE_CRM, 'stop');
+        Processes::processWorker($speechd, '', self::SERVICE_SPEECH, 'stop');
+    }
+
+
+    /**
      * Запуск или перезапуск всех сервисов
      *
      * @param bool $restart
      */
-    public function startAllServices($restart = false): void
+    public function startAllServices(bool $restart = false): void
     {
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
 
         // GNATS
         $nats_process_log = $this->dirs['logDir'] . '/gnats_process.log';
-        $nats             = "{$this->dirs['binDir']}/gnatsd-cti";
+        $nats                 = "{$this->dirs['binDir']}/".self::SERVICE_GNATS;
 
         // Monitord
         $monitord_process_log = $this->dirs['logDir'] . '/monitord_process.log';
-        $monitord             = "{$this->dirs['binDir']}/monitord";
-        $amid                 = "{$this->dirs['binDir']}/amid";
-        $authd                = "{$this->dirs['binDir']}/authd";
-        $crmd                 = "{$this->dirs['binDir']}/crmd";
-        $speechd              = "{$this->dirs['binDir']}/speechd";
+        $monitord             = "{$this->dirs['binDir']}/".self::SERVICE_MONITOR;
+
 
         if ($moduleEnabled) {
             $this->generateConfFiles();
             if ($restart) {
-                Processes::processWorker(
-                    $nats,
-                    "--config {$this->dirs['confDir']}/nats.conf",
-                    'gnatsd-cti',
-                    'stop',
-                    $nats_process_log
-                );
-                Processes::processWorker($monitord, '', 'monitord', 'stop', $monitord_process_log);
-                Processes::processWorker($amid, '', 'amid', 'stop');
-                Processes::processWorker($authd, '', 'authd', 'stop');
-                Processes::processWorker($crmd, '', 'crmd', 'stop');
-                Processes::processWorker($speechd, '', 'speechd', 'stop');
+                $this->stopAllServices();
             }
             Processes::processWorker(
                 $nats,
                 "--config {$this->dirs['confDir']}/nats.conf",
-                'gnatsd-cti',
+                self::SERVICE_GNATS,
                 'start',
                 $nats_process_log
             );
             Processes::processWorker(
                 $monitord,
                 "-c {$this->dirs['confDir']}/monitord.json",
-                'monitord',
+                self::SERVICE_MONITOR,
                 'start',
                 $monitord_process_log
             );
         } else {
-            Processes::processWorker($nats, '', 'gnatsd-cti', 'stop', $nats_process_log);
-            Processes::processWorker($monitord, '', 'monitord', 'stop', $monitord_process_log);
-            Processes::processWorker($amid, '', 'amid', 'stop');
-            Processes::processWorker($authd, '', 'authd', 'stop');
-            Processes::processWorker($crmd, '', 'crmd', 'stop');
-            Processes::processWorker($speechd, '', 'speechd', 'stop');
+            $this->stopAllServices();
         }
     }
 
@@ -638,7 +647,7 @@ class AmigoDaemons extends Di\Injectable
         $statusAsterisk = $this->checkWorkerStatus('asterisk');
         $statusSpeech   = $this->checkWorkerStatus('speech');
 
-        $res->success = $statusMonitor==='ok'
+        $res->success = $statusMonitor['state'] === 'ok'
             &&$status1C['state'] === 'ok'
             && $statusAuth['state'] === 'ok'
             && $statusAsterisk['state'] === 'ok'

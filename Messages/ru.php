@@ -19,7 +19,7 @@ return [
     'mod_cti_Password'                   => 'Пароль для авторизации в 1С',
     'mod_cti_PublicationName'            => 'Имя публикации',
     'mod_cti_PublicationOverWebServices' => 'На сервере 1С опубликован веб-сервис интеграции (необязательно)',
-    'mod_cti_trying'                     => ' Попытка соединения №',
+    'mod_cti_trying'                     => ' Отладочная информация о службах',
     'mod_cti_AuthApp_Name'               => 'Регистрация внешней панели',
     'mod_cti_AuthApp_Description'        => 'Позволяет привязать панель к SIP учетке по цифровому коду',
     'mod_cti_EnableDebugMode'            => 'Включить режим отладки модуля и логирования всех событий',

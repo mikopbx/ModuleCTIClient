@@ -185,7 +185,7 @@ class CTIClientConf extends ConfigClass
     public function onAfterModuleDisable():void
     {
         $amigoDaemons = new AmigoDaemons();
-        $amigoDaemons->startAllServices();
+        $amigoDaemons->stopAllServices();
         PBX::dialplanReload();
     }
 
@@ -197,12 +197,8 @@ class CTIClientConf extends ConfigClass
     public function onAfterModuleEnable(): void
     {
         System::invokeActions(['manager' => 0]);
-        try {
-            $amigoDaemons = new AmigoDaemons();
-            $amigoDaemons->startAllServices(true);
-        } catch (Exception $e) {
-            Util::sysLogMsg($this->module_name, $e->getMessage());
-        }
+        $amigoDaemons = new AmigoDaemons();
+        $amigoDaemons->startAllServices();
         PBX::dialplanReload();
     }
 

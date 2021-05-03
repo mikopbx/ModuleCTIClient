@@ -15,13 +15,14 @@ use MikoPBX\Core\System\System;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Common\Models\DialplanApplications;
 use MikoPBX\Modules\Setup\PbxExtensionSetupBase;
+use Modules\ModuleCTIClient\Lib\AmigoDaemons;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 
 
 class PbxExtensionSetup extends PbxExtensionSetupBase
 {
 
-    private $number = '000XXXX';
+    private string $number = '000XXXX';
 
     /**
      * Создает структуру для хранения настроек модуля в своей модели
@@ -69,6 +70,8 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
                 'n,Playback(silence/1)' . "\n" .
                 'n,Playback(silence/1)' . "\n" .
                 'n,Hangup';
+            //$d_app->name             = $this->translation->_('mod_cti_AuthApp_Name');
+            //$d_app->description      = $this->translation->_('mod_cti_AuthApp_Description');
             $d_app->name             = $this->locString('mod_cti_AuthApp_Name');
             $d_app->description      = $this->locString('mod_cti_AuthApp_Description');
             $d_app->applicationlogic = base64_encode($logic);
@@ -183,10 +186,12 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
      */
     public function unInstallFiles($keepSettings = false): bool
     {
-        Processes::killbyname('monitord');
-        Processes::killbyname('amid');
-        Processes::killbyname('crmd');
-        Processes::killbyname('authd');
+        Processes::killbyname(AmigoDaemons::SERVICE_MONITOR);
+        Processes::killbyname(AmigoDaemons::SERVICE_AMI);
+        Processes::killbyname(AmigoDaemons::SERVICE_CRM);
+        Processes::killbyname(AmigoDaemons::SERVICE_AUTH);
+        Processes::killbyname(AmigoDaemons::SERVICE_SPEECH);
+        Processes::killbyname(AmigoDaemons::SERVICE_GNATS);
 
 
         // confDir
