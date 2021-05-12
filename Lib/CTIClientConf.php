@@ -170,7 +170,6 @@ class CTIClientConf extends ConfigClass
                 'rules'     => [
                     ['portfrom' => 4222, 'portto' => 4222, 'protocol' => 'tcp', 'name' => 'NatsPort'],
                     ['portfrom' => 8222, 'portto' => 8222, 'protocol' => 'tcp', 'name' => 'NatsWebPort'],
-                    ['portfrom' => 8000, 'portto' => 8000, 'protocol' => 'tcp', 'name' => 'CDRCTIPort'],
                 ],
                 'action'    => 'allow',
                 'shortName' => 'CTI client 2.0',
