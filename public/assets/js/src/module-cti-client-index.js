@@ -18,6 +18,7 @@ const moduleCTIClientConnectionCheckWorker = {
 	$debugToggle: $('#debug-mode-toggle'),
 	$moduleStatus: $('#status'),
 	$submitButton: $('#submitbutton'),
+	$debugInfo: $('#module-cti-client-form span#debug-info'),
 	timeOut: 3000,
 	timeOutHandle: '',
 	errorCounts: 0,
@@ -44,24 +45,21 @@ const moduleCTIClientConnectionCheckWorker = {
 				onResponse(response) {
 					$('.message.ajax').remove();
 					// Debug mode
-					if (moduleCTIClientConnectionCheckWorker.$debugToggle.checkbox('is checked')
-						&& moduleCTIClientConnectionCheckWorker.$submitButton.hasClass('disabled')
-						&& typeof (response.data) !== 'undefined'
-					) {
+					if (typeof (response.data) !== 'undefined') {
 						let visualErrorString = JSON.stringify(response.data, null, 2);
 
 						if (typeof visualErrorString === 'string') {
 							visualErrorString = visualErrorString.replace(/\n/g, '<br/>');
 
 							if (Object.keys(response).length > 0 && response.result === true) {
-								moduleCTIClientConnectionCheckWorker.$formObj
-									.after(`<div class="ui success message ajax">		
-									<pre style='white-space: pre-wrap'>${visualErrorString}</pre>										  
+								moduleCTIClientConnectionCheckWorker.$debugInfo
+									.after(`<div class="ui message ajax">		
+									<pre style='white-space: pre-wrap'> ${visualErrorString}</pre>										  
 								</div>`);
 							} else {
-								moduleCTIClientConnectionCheckWorker.$formObj
-									.after(`<div class="ui error message ajax">
-									<i class="spinner loading icon"></i>${globalTranslate.mod_cti_trying}						
+								moduleCTIClientConnectionCheckWorker.$debugInfo
+									.after(`<div class="ui message ajax">
+									<i class="spinner loading icon"></i> 						
 									<pre style='white-space: pre-wrap'>${visualErrorString}</pre>										  
 								</div>`);
 							}
@@ -155,12 +153,12 @@ const moduleCTIClientConnectionCheckWorker = {
 			case 'ConnectionTo1CError':
 				moduleCTIClientConnectionCheckWorker.$moduleStatus
 					.addClass('yellow')
-					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_trying} ${moduleCTIClientConnectionCheckWorker.errorCounts}... ${globalTranslate.mod_cti_ConnectionTo1CError}`);
+					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_ConnectionTo1CError}`);
 				break;
 			case 'ConnectionError':
 				moduleCTIClientConnectionCheckWorker.$moduleStatus
 					.addClass('red')
-					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_trying} ${moduleCTIClientConnectionCheckWorker.errorCounts}... ${globalTranslate.mod_cti_ConnectionError}`);
+					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_ConnectionError}`);
 				break;
 			case 'Updating':
 				moduleCTIClientConnectionCheckWorker.$moduleStatus
@@ -178,10 +176,16 @@ const moduleCTIClientConnectionCheckWorker = {
 
 const moduleCTIClient = {
 	$wsToggle: $('#web-service-mode-toggle'),
+	$wsToggleRadio: $('#module-cti-client-form .web-service-radio'),
 	$statusToggle: $('#module-status-toggle'),
 	$formObj: $('#module-cti-client-form'),
 	$moduleStatus: $('#status'),
+	$debugToggle: $('#debug-mode-toggle'),
+	$autoSettingsToggle: $('#auto-settings-mode-toggle'),
+	$onlyAutoSettingsVisible: $('#module-cti-client-form .only-auto-settings'),
+	$onlyManualSettingsVisible: $('#module-cti-client-form .only-manual-settings'),
 	$wsOnlyFields: $('.ws-only'),
+	$debugTab: $('#module-cti-client-tabs .item[data-tab="debug"]'),
 	validateRules: {
 		server1chost: {
 			depends: 'web_service_mode',
@@ -215,16 +219,49 @@ const moduleCTIClient = {
 		},
 	},
 	initialize() {
+		$('#module-cti-client-form .item').tab();
+		if (moduleCTIClient.$debugToggle.checkbox('is unchecked')){
+			moduleCTIClient.$debugTab.hide()
+		}
+		moduleCTIClient.$debugToggle
+			.checkbox({
+				onChecked() {
+					moduleCTIClient.$debugTab.show()
+				},
+				onUnchecked() {
+					moduleCTIClient.$debugTab.hide()
+				},
+			});
+
+		if (moduleCTIClient.$autoSettingsToggle.checkbox('is checked')){
+			moduleCTIClient.$onlyManualSettingsVisible.hide()
+		} else {
+			moduleCTIClient.$onlyAutoSettingsVisible.hide()
+		}
+		moduleCTIClient.$autoSettingsToggle
+			.checkbox({
+				onChecked() {
+					moduleCTIClient.$onlyAutoSettingsVisible.show()
+					moduleCTIClient.$onlyManualSettingsVisible.hide()
+				},
+				onUnchecked() {
+					moduleCTIClient.$onlyAutoSettingsVisible.hide()
+					moduleCTIClient.$onlyManualSettingsVisible.show()
+				},
+			});
+
+
 		if (moduleCTIClient.$wsToggle.checkbox('is checked')) {
 			moduleCTIClient.enableWsFields();
 		}
-		moduleCTIClient.$wsToggle
+		moduleCTIClient.$wsToggleRadio
 			.checkbox({
 				onChecked() {
-					moduleCTIClient.enableWsFields();
-				},
-				onUnchecked() {
-					moduleCTIClient.disableWsFields();
+					if (moduleCTIClient.$wsToggle.checkbox('is checked')) {
+						moduleCTIClient.enableWsFields();
+					} else {
+						moduleCTIClient.disableWsFields();
+					}
 				},
 			});
 		moduleCTIClient.initializeForm();
@@ -272,6 +309,7 @@ const moduleCTIClient = {
 			},
 			onSuccess() {
 				moduleCTIClientConnectionCheckWorker.initialize();
+				moduleCTIClient.initialize();
 			},
 		});
 	},

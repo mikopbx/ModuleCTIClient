@@ -131,6 +131,12 @@ class CTIClientConf extends ConfigClass
                 $amigoDaemons = new AmigoDaemons();
                 $res =  $amigoDaemons->checkModuleWorkProperly();
                 break;
+            case 'RELOAD':
+                // После сохранения настроек перезапускаем модуль
+                $amigoDaemons = new AmigoDaemons();
+                $amigoDaemons->startAllServices(true);
+                $res->success = true;
+                break;
             default:
                 $res->success = false;
                 $res->messages[]='API action not found in moduleRestAPICallback ModuleCTIClient';

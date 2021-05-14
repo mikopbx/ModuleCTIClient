@@ -265,6 +265,11 @@ class AmigoDaemons extends Di\Injectable
             'sessions_path'    => $sessionsDir,
             'log_file'         => "{$logDir}/gnatsd.log",
         ];
+
+        if ($this->module_settings['auto_settings_mode']==='1'){
+            $settings['nats_password']  = '"'.$this->module_settings['nats_password'].'"';
+        }
+
         $config   = '';
         foreach ($settings as $key => $val) {
             $config .= "{$key}: {$val} \n";

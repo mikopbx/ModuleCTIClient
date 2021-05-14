@@ -11,6 +11,7 @@ namespace Modules\ModuleCTIClient\App\Forms;
 use Phalcon\Forms\Element\Check;
 use Phalcon\Forms\Element\Numeric;
 use Phalcon\Forms\Element\Password;
+use Phalcon\Forms\Element\Radio;
 use Phalcon\Forms\Element\Text;
 use Phalcon\Forms\Form;
 
@@ -27,11 +28,14 @@ class ModuleCTIClientForm extends Form
         $this->add(new Text('database'));
 
         // Web service mode
-        $cheskarr = ['value' => null];
-        if ($entity->web_service_mode) {
-            $cheskarr = ['checked' => 'checked', 'value' => null];
+        if ($entity->web_service_mode==='1') {
+            $this->add(new Radio('web_service_mode_on', ['name'=>'web_service_mode', 'checked'=>'checked']));
+            $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode']));
+        } else {
+            $this->add(new Radio('web_service_mode_on', ['name'=>'web_service_mode']));
+            $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode', 'checked'=>'checked']));
         }
-        $this->add(new Check('web_service_mode', $cheskarr));
+
 
         // Debug mode
         $cheskarr = ['value' => null];
@@ -39,5 +43,12 @@ class ModuleCTIClientForm extends Form
             $cheskarr = ['checked' => 'checked', 'value' => null];
         }
         $this->add(new Check('debug_mode', $cheskarr));
+
+        // auto_settings_mode
+        $cheskarr = ['value' => null];
+        if ($entity->auto_settings_mode) {
+            $cheskarr = ['checked' => 'checked', 'value' => null];
+        }
+        $this->add(new Check('auto_settings_mode', $cheskarr));
     }
 }
