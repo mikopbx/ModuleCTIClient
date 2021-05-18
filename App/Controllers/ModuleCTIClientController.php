@@ -48,6 +48,7 @@ class ModuleCTIClientController extends BaseController
     {
         $footerCollection = $this->assets->collection('footerJS');
         $footerCollection->addJs('js/pbx/main/form.js', true);
+        $footerCollection->addJs("js/cache/{$this->moduleUniqueID}/module-cti-client-status-worker.js", true);
         $footerCollection->addJs("js/cache/{$this->moduleUniqueID}/module-cti-client-index.js", true);
         $settings = ModuleCTIClient::findFirst();
         if ($settings === null) {
@@ -78,7 +79,8 @@ class ModuleCTIClientController extends BaseController
                     break;
                 case 'debug_mode':
                 case 'web_service_mode':
-                    $record->$key = ($data[$key] === 'on') ? 1 : 0;
+                case 'auto_settings_mode':
+                    $record->$key = ($data[$key] === 'on') ? '1' : '0';
                     break;
                 default:
                     if (array_key_exists($key, $data)) {

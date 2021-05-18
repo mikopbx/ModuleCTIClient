@@ -35,4 +35,7 @@ return [
     'mod_cti_UpdateStatus'        => 'Обновление статуса',
     'mod_cti_ConnectionWait'      => 'Ожидаем подключения к MikoPBX со стороны 1С',
 
+    'mod_cti_tab_Settings'        => 'Настройки',
+    'mod_cti_tab_debug'           => 'Отладка сервисов модуля'
+
 ];

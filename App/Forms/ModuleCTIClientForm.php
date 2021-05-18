@@ -29,11 +29,11 @@ class ModuleCTIClientForm extends Form
 
         // Web service mode
         if ($entity->web_service_mode==='1') {
-            $this->add(new Radio('web_service_mode_on', ['name'=>'web_service_mode', 'checked'=>'checked']));
-            $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode']));
+            $this->add(new Radio('web_service_mode_on', ['name'=>'web_service_mode', 'checked'=>'checked', 'value'=>'on']));
+            $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode', 'value'=>'off']));
         } else {
-            $this->add(new Radio('web_service_mode_on', ['name'=>'web_service_mode']));
-            $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode', 'checked'=>'checked']));
+            $this->add(new Radio('web_service_mode_on', ['name'=>'web_service_mode', 'value'=>'on']));
+            $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode', 'checked'=>'checked', 'value'=>'off']));
         }
 
 

@@ -1,4 +1,5 @@
 <form class="ui large grey segment form" id="module-cti-client-form">
+    <input type="hidden" name="dirrty" id="dirrty"/>
     <div class="ui grey top right attached label" id="status"><i
                 class="spinner loading icon"></i>{{ t._("mod_cti_UpdateStatus") }}</div>
     {# top menu #}
@@ -29,15 +30,15 @@
         <div class="grouped fields only-manual-settings">
             <label>{{ t._('mod_cti_PublicationOverHeader') }}</label>
             <div class="field">
-                <div class="ui radio checkbox web-service-radio" id="web-service-mode-toggle">
-                    {{ form.render('web_service_mode_on') }}
-                    <label>{{ t._('mod_cti_PublicationOverWebServices') }}</label>
-                </div>
-            </div>
-            <div class="field">
                 <div class="ui radio checkbox web-service-radio">
                     {{ form.render('web_service_mode_off') }}
                     <label>{{ t._('mod_cti_PublicationOverLongPool') }}</label>
+                </div>
+            </div>
+            <div class="field">
+                <div class="ui radio checkbox web-service-radio" id="web-service-mode-toggle">
+                    {{ form.render('web_service_mode_on') }}
+                    <label>{{ t._('mod_cti_PublicationOverWebServices') }}</label>
                 </div>
             </div>
         </div>

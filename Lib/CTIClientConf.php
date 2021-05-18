@@ -17,6 +17,7 @@ use MikoPBX\Core\System\System;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
+use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 
 
 class CTIClientConf extends ConfigClass
@@ -55,6 +56,10 @@ class CTIClientConf extends ConfigClass
      */
     public function generateManagerConf(): string
     {
+        $module_settings = ModuleCTIClient::findFirst();
+        if ($module_settings === null) {
+            return '';
+        }
         $arr_params  = [
             'AgentCalled',
             'AttendedTransfer',
@@ -99,7 +104,7 @@ class CTIClientConf extends ConfigClass
         ];
         $managerUser = self::MODULE_AMI_USER;
         $conf        = "[{$managerUser}]" . PHP_EOL;
-        $conf        .= "secret={$managerUser}" . PHP_EOL;
+        $conf        .= "secret={$module_settings->ami_password}" . PHP_EOL;
         $conf        .= 'deny=0.0.0.0/0.0.0.0' . PHP_EOL;
         $conf        .= 'permit=127.0.0.1/255.255.255.255' . PHP_EOL;
         $conf        .= 'read=agent,call,cdr,user' . PHP_EOL;
