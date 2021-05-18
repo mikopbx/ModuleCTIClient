@@ -47,17 +47,14 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
                 $settings->debug_mode         = '1';
                 $settings->web_service_mode   = '0';
                 $settings->auto_settings_mode = '0';
-                $settings->save();
             }
 
             if (empty($settings->ami_password)){
                 $settings->ami_password = hash('md5', date('Y-m-d H:i:s:u'));
-                $settings->save();
             }
 
             if (empty($settings->nats_password)){
                 $settings->nats_password = hash('md5', date('Y-m-D H:i:s:u'));
-                $settings->save();
             }
 
             // Приложение для авторизации внешней панели.
@@ -91,7 +88,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             $d_app->applicationlogic = base64_encode($logic);
             $d_app->type             = 'plaintext';
 
-            if ($record->save() && $d_app->save()) {
+            if ($record->save() && $d_app->save() && $settings->save()) {
                 $this->db->commit();
             } else {
                 $this->db->rollback();
