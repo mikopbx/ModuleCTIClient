@@ -41,8 +41,16 @@ class CTIClientConf extends ConfigClass
      */
     public function modelsEventChangeData($data): void
     {
+        $needRestartServices = false;
         if ($data['model'] === PbxSettings::class
             && $data['recordId'] === 'PBXLicense') {
+            $needRestartServices = true;
+        }
+        if ($data['model'] === ModuleCTIClient::class){
+            $needRestartServices = true;
+        }
+
+        if ($needRestartServices){
             $amigoDaemons = new AmigoDaemons();
             $amigoDaemons->startAllServices(true);
         }
@@ -135,12 +143,6 @@ class CTIClientConf extends ConfigClass
                 // Проверка работы сервисов, выполняется при обновлении статуса или сохрании настроек
                 $amigoDaemons = new AmigoDaemons();
                 $res =  $amigoDaemons->checkModuleWorkProperly();
-                break;
-            case 'RELOAD':
-                // После сохранения настроек перезапускаем модуль
-                $amigoDaemons = new AmigoDaemons();
-                $amigoDaemons->startAllServices(true);
-                $res->success = true;
                 break;
             default:
                 $res->success = false;

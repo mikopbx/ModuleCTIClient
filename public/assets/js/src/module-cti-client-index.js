@@ -136,31 +136,14 @@ const moduleCTIClient = {
 	disableWsFields() {
 		moduleCTIClient.$wsOnlyFields.addClass('disabled');
 	},
-	/**
-	 * Применение настроек модуля после изменения данных формы
-	 */
-	applyConfigurationChanges() {
-		$.api({
-			url: `${Config.pbxUrl}/pbxcore/api/modules/ModuleCTIClient/reload`,
-			on: 'now',
-			successTest(response) {
-				// test whether a JSON response is valid
-				return Object.keys(response).length > 0 && response.result === true;
-			},
-			onSuccess() {
-				moduleCTIClientConnectionCheckWorker.initialize();
-				moduleCTIClient.initialize();
-			},
-		});
-	},
 	cbBeforeSendForm(settings) {
 		const result = settings;
 		result.data = moduleCTIClient.$formObj.form('get values');
 		return result;
 	},
 	cbAfterSendForm() {
-		moduleCTIClient.applyConfigurationChanges();
-		moduleCTIClientConnectionCheckWorker.errorCounts = 0;
+		moduleCTIClientConnectionCheckWorker.initialize();
+		moduleCTIClient.initialize();
 	},
 	initializeForm() {
 		Form.$formObj = moduleCTIClient.$formObj;
