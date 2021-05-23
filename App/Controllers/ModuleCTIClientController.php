@@ -76,6 +76,8 @@ class ModuleCTIClientController extends BaseController
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
+                case 'ami_password':
+                case 'nats_password':
                     break;
                 case 'debug_mode':
                 case 'web_service_mode':
