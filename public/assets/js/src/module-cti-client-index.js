@@ -6,8 +6,6 @@
  *
  */
 
-
-
 const moduleCTIClient = {
 	$wsToggle: $('#web-service-mode-toggle'),
 	$wsToggleRadio: $('#module-cti-client-form .web-service-radio'),
@@ -115,7 +113,6 @@ const moduleCTIClient = {
 		if (moduleCTIClient.$statusToggle.checkbox('is checked')) {
 			$('.disability').removeClass('disabled');
 			moduleCTIClient.$moduleStatus.show();
-			moduleCTIClientConnectionCheckWorker.errorCounts = 0;
 			moduleCTIClientConnectionCheckWorker.initialize();
 		} else {
 			moduleCTIClient.$moduleStatus.hide();
