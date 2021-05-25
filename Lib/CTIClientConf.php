@@ -115,7 +115,7 @@ class CTIClientConf extends ConfigClass
         $conf        .= "secret={$module_settings->ami_password}" . PHP_EOL;
         $conf        .= 'deny=0.0.0.0/0.0.0.0' . PHP_EOL;
         $conf        .= 'permit=127.0.0.1/255.255.255.255' . PHP_EOL;
-        $conf        .= 'read=agent,call,cdr,user' . PHP_EOL;
+        $conf        .= 'read=agent,call,cdr,user,system' . PHP_EOL;
         $conf        .= 'write=system,call,originate,reporting' . PHP_EOL;
         $conf        .= 'eventfilter=!UserEvent: CdrConnector' . PHP_EOL;
         $conf        .= 'eventfilter=Event: (' . implode('|', $arr_params) . ')' . PHP_EOL;
