@@ -298,7 +298,7 @@ class AmigoDaemons extends Di\Injectable
      *
      * @return string
      */
-    private function getNatsPort(): string
+    public static function getNatsPort(): string
     {
         return '4222';
     }
@@ -308,7 +308,7 @@ class AmigoDaemons extends Di\Injectable
      *
      * @return string
      */
-    private function getNatsHttpPort(): string
+    public static function getNatsHttpPort(): string
     {
         return '8222';
     }
@@ -783,4 +783,36 @@ class AmigoDaemons extends Di\Injectable
 
         return $result;
     }
+
+    /**
+     * Ask caller id from CRM system
+     * @param string $number
+     *
+     * @return string
+     */
+    public static function getCallerId(string $number):string {
+        $statusUrl = 'http://127.0.0.1:' . self::getNatsHttpPort() . '/getcallerid?number='.$number;
+        $curl      = curl_init();
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($curl, CURLOPT_TIMEOUT, 5);
+        curl_setopt($curl, CURLOPT_URL, $statusUrl);
+
+        try {
+            $responce = curl_exec($curl);
+            $responce = str_replace('\n', '', $responce);
+        } catch (Throwable $e) {
+            $responce = null;
+        }
+        $data = json_decode($responce, true);
+        curl_close($curl);
+        if ($data !== null
+            && $data['result']==='Success') {
+            $result = $data['client'];
+        } else {
+            $result = '';
+        }
+
+        return $result;
+    }
+
 }

@@ -139,7 +139,6 @@ const moduleCTIClient = {
 		return result;
 	},
 	cbAfterSendForm() {
-		moduleCTIClientConnectionCheckWorker.initialize();
 		moduleCTIClient.initialize();
 	},
 	initializeForm() {
