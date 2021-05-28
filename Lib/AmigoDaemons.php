@@ -791,23 +791,23 @@ class AmigoDaemons extends Di\Injectable
      * @return string
      */
     public static function getCallerId(string $number):string {
-        $statusUrl = 'http://127.0.0.1:' . self::getNatsHttpPort() . '/getcallerid?number='.$number;
+        $getNumberUrl = 'http://127.0.0.1:8224/getcallerid?number='.$number;
         $curl      = curl_init();
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_TIMEOUT, 5);
-        curl_setopt($curl, CURLOPT_URL, $statusUrl);
+        curl_setopt($curl, CURLOPT_URL, $getNumberUrl);
 
         try {
-            $responce = curl_exec($curl);
-            $responce = str_replace('\n', '', $responce);
+            $response = curl_exec($curl);
+            $response = str_replace('\n', '', $response);
         } catch (Throwable $e) {
-            $responce = null;
+            $response = null;
         }
-        $data = json_decode($responce, true);
+        $parsedAnswer = json_decode($response, true);
         curl_close($curl);
-        if ($data !== null
-            && $data['result']==='Success') {
-            $result = $data['client'];
+        if ($parsedAnswer !== null
+            && $parsedAnswer['result']==='Success') {
+            $result = $parsedAnswer['data']['client'];
         } else {
             $result = '';
         }

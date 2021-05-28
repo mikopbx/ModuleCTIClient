@@ -23,13 +23,13 @@
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Asterisk\AGI;
 use Modules\ModuleCTIClient\Lib\AmigoDaemons;
-use Modules\ModulePhoneBook\Models\PhoneBook;
+
 require_once 'Globals.php';
 try {
     $agi    = new AGI();
     $number = $agi->request['agi_callerid'];
     $callerID = AmigoDaemons::getCallerId($number);
-    $agi->noop("Trying to find number {$number} on CRM system");
+    $agi->noop("Trying to find number {$number} on CRM system. Result is {$callerID}");
     if (!empty($callerID)){
         $agi->set_variable('CALLERID(name)', $callerID);
     }
