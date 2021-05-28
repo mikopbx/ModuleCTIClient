@@ -229,7 +229,7 @@ class CTIClientConf extends ConfigClass
             $conf = "\t".'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})';
         }
 
-        $conf .= "\t".'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})';
+        $conf .= "\t".'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})'.PHP_EOL;
         $conf .= "same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)".PHP_EOL;
         // Перехват на ответственного.
         return $conf;
