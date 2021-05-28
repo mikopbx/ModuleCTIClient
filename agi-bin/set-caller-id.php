@@ -29,6 +29,7 @@ try {
     $agi    = new AGI();
     $number = $agi->request['agi_callerid'];
     $callerID = AmigoDaemons::getCallerId($number);
+    $agi->noop("Trying to find number {$number} on CRM system");
     if (!empty($callerID)){
         $agi->set_variable('CALLERID(name)', $callerID);
     }

@@ -14,7 +14,6 @@ use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore as WorkerSafeScriptsCore;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\System\System;
-use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
@@ -226,11 +225,11 @@ class CTIClientConf extends ConfigClass
         $conf = '';
         // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
         if(!PbxExtensionUtils::isEnabled('ModulePT1CCore')){
-            $conf = "\t".'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})';
+            $conf = "\t".'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})'."\n\t";
         }
 
-        $conf .= "\t".'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})'.PHP_EOL;
-        $conf .= "same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)".PHP_EOL;
+        $conf .= "\t".'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})'."\n\t";
+        $conf .= "\t"."same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)"."\n\t";
         // Перехват на ответственного.
         return $conf;
     }
