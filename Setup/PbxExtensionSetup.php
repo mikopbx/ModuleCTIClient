@@ -43,10 +43,18 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             $this->db->begin();
             $settings = ModuleCTIClient::findFirst();
             if ($settings === null) {
-                $settings                   = new ModuleCTIClient();
-                $settings->debug_mode       = '1';
-                $settings->web_service_mode = '0';
-                $settings->save();
+                $settings                     = new ModuleCTIClient();
+                $settings->debug_mode         = '1';
+                $settings->web_service_mode   = '0';
+                $settings->auto_settings_mode = '0';
+            }
+
+            if (empty($settings->ami_password)){
+                $settings->ami_password = hash('md5', date('Y-m-d H:i:s:u'));
+            }
+
+            if (empty($settings->nats_password)){
+                $settings->nats_password = hash('md5', date('Y-m-D H:i:s:u'));
             }
 
             // Приложение для авторизации внешней панели.
@@ -65,19 +73,22 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
                 $d_app->uniqid    = 'DIALPLAN-APPLICATION-' . md5(time());
                 $d_app->extension = $this->number;
             }
-            $logic                   = '1,Answer()' . "\n" .
+            $logic = '1,Answer()' . "\n" .
                 'n,Playback(beep)' . "\n" .
                 'n,Playback(silence/1)' . "\n" .
                 'n,Playback(silence/1)' . "\n" .
                 'n,Hangup';
+
+            // TODO::Обновить это на новый формат
             //$d_app->name             = $this->translation->_('mod_cti_AuthApp_Name');
             //$d_app->description      = $this->translation->_('mod_cti_AuthApp_Description');
             $d_app->name             = $this->locString('mod_cti_AuthApp_Name');
             $d_app->description      = $this->locString('mod_cti_AuthApp_Description');
+
             $d_app->applicationlogic = base64_encode($logic);
             $d_app->type             = 'plaintext';
 
-            if ($record->save() && $d_app->save()) {
+            if ($record->save() && $d_app->save() && $settings->save()) {
                 $this->db->commit();
             } else {
                 $this->db->rollback();
@@ -135,6 +146,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     {
         $this->moveModuleCDRToDBFolder();
         parent::installFiles();
+
         return true;
     }
 

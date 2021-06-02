@@ -11,11 +11,13 @@ namespace Modules\ModuleCTIClient\App\Controllers;
 
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Common\Models\ExternalPhones;
+use MikoPBX\Common\Models\LanInterfaces;
 use MikoPBX\Common\Models\Providers;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Common\Models\Sip;
 use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
+use Phalcon\Mvc\Model\Resultset;
 use Phalcon\Mvc\View;
 use MikoPBX\AdminCabinet\Controllers\BaseController;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
@@ -46,13 +48,15 @@ class ModuleCTIClientController extends BaseController
     {
         $footerCollection = $this->assets->collection('footerJS');
         $footerCollection->addJs('js/pbx/main/form.js', true);
+        $footerCollection->addJs("js/cache/{$this->moduleUniqueID}/module-cti-client-status-worker.js", true);
         $footerCollection->addJs("js/cache/{$this->moduleUniqueID}/module-cti-client-index.js", true);
         $settings = ModuleCTIClient::findFirst();
         if ($settings === null) {
             $settings = new ModuleCTIClient();
         }
 
-        $this->view->form = new ModuleCTIClientForm($settings);
+        $this->view->form              = new ModuleCTIClientForm($settings);
+        $this->view->autoSettingsValue = $this->generateAutoSettingsString($settings);
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
 
@@ -72,10 +76,13 @@ class ModuleCTIClientController extends BaseController
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
+                case 'ami_password':
+                case 'nats_password':
                     break;
                 case 'debug_mode':
                 case 'web_service_mode':
-                    $record->$key = ($data[$key] === 'on') ? 1 : 0;
+                case 'auto_settings_mode':
+                    $record->$key = ($data[$key] === 'on') ? '1' : '0';
                     break;
                 default:
                     if (array_key_exists($key, $data)) {
@@ -298,7 +305,6 @@ class ModuleCTIClientController extends BaseController
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserAvatar
      *
      * id -  идентификатор пользователя
-
      * Пример:
      * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserAvatar" \
      *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
@@ -374,8 +380,8 @@ class ModuleCTIClientController extends BaseController
         }
 
         $newMobile = preg_replace('/[^0-9]/', '', $this->request->getPost('newMobile'));
-        $userId = $this->request->getPost('id');
-        $user   = Users::findFirstById($userId);
+        $userId    = $this->request->getPost('id');
+        $user      = Users::findFirstById($userId);
         if ($user === null) {
             $data = json_encode(['error' => "Unknown user with id={$userId}"]);
             $this->response->setContent($data);
@@ -554,5 +560,44 @@ class ModuleCTIClientController extends BaseController
             $data = json_encode(['error' => "Unknown user with id={$userId}"]);
             $this->response->setContent($data);
         }
+    }
+
+    /**
+     * Generate connections JSON and pack it on BASE64 set
+     *
+     *
+     * @param \Modules\ModuleCTIClient\Models\ModuleCTIClient $dataSet
+     *
+     * @return string
+     */
+    private function generateAutoSettingsString(ModuleCTIClient $dataSet): string
+    {
+        $ipAddresses[]      = $this->request->getServerAddress();
+        $internetInterfaces = LanInterfaces::find(['hydration' => Resultset::HYDRATE_ARRAYS]);
+
+        $possibleAttributes = [
+            'ipaddr',
+            'extipaddr',
+            'exthostname',
+            'hostname',
+        ];
+        foreach ($internetInterfaces as $interface) {
+            foreach ($interface as $key => $value){
+                if (in_array($key, $possibleAttributes)
+                    && ! empty($value)
+                    && ! in_array($value, $ipAddresses)
+                ) {
+                    $ipAddresses[] = $value;
+                }
+            }
+        }
+
+        $resArray = [
+            'nats_password' => $dataSet->nats_password,
+            'ipset'         => $ipAddresses,
+            'pbx'           => 'mikopbx',
+        ];
+
+        return base64_encode(json_encode($resArray));
     }
 }

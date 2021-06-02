@@ -70,6 +70,27 @@ class ModuleCTIClient extends ModulesModelsBase
      */
     public ?string $debug_mode = '0';
 
+    /**
+     * Пароль AMI для создаваемого менеджера
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $ami_password = '';
+
+    /**
+     * Пароль GNATS для автонастройки
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $nats_password = '';
+
+    /**
+     * Режим настройки модуля со стороны 1С
+     *
+     * @Column(type='string', length=1, nullable=true, default='0')
+     */
+    public ?string $auto_settings_mode = '0';
+
 
     public function initialize(): void
     {

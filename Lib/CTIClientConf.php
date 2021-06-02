@@ -14,9 +14,9 @@ use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore as WorkerSafeScriptsCore;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\System\System;
-use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
+use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 
 
 class CTIClientConf extends ConfigClass
@@ -40,8 +40,16 @@ class CTIClientConf extends ConfigClass
      */
     public function modelsEventChangeData($data): void
     {
+        $needRestartServices = false;
         if ($data['model'] === PbxSettings::class
             && $data['recordId'] === 'PBXLicense') {
+            $needRestartServices = true;
+        }
+        if ($data['model'] === ModuleCTIClient::class){
+            $needRestartServices = true;
+        }
+
+        if ($needRestartServices){
             $amigoDaemons = new AmigoDaemons();
             $amigoDaemons->startAllServices(true);
         }
@@ -55,6 +63,10 @@ class CTIClientConf extends ConfigClass
      */
     public function generateManagerConf(): string
     {
+        $module_settings = ModuleCTIClient::findFirst();
+        if ($module_settings === null) {
+            return '';
+        }
         $arr_params  = [
             'AgentCalled',
             'AttendedTransfer',
@@ -99,10 +111,10 @@ class CTIClientConf extends ConfigClass
         ];
         $managerUser = self::MODULE_AMI_USER;
         $conf        = "[{$managerUser}]" . PHP_EOL;
-        $conf        .= "secret={$managerUser}" . PHP_EOL;
+        $conf        .= "secret={$module_settings->ami_password}" . PHP_EOL;
         $conf        .= 'deny=0.0.0.0/0.0.0.0' . PHP_EOL;
         $conf        .= 'permit=127.0.0.1/255.255.255.255' . PHP_EOL;
-        $conf        .= 'read=agent,call,cdr,user' . PHP_EOL;
+        $conf        .= 'read=agent,call,cdr,user,system' . PHP_EOL;
         $conf        .= 'write=system,call,originate,reporting' . PHP_EOL;
         $conf        .= 'eventfilter=!UserEvent: CdrConnector' . PHP_EOL;
         $conf        .= 'eventfilter=Event: (' . implode('|', $arr_params) . ')' . PHP_EOL;
@@ -170,7 +182,6 @@ class CTIClientConf extends ConfigClass
                 'rules'     => [
                     ['portfrom' => 4222, 'portto' => 4222, 'protocol' => 'tcp', 'name' => 'NatsPort'],
                     ['portfrom' => 8222, 'portto' => 8222, 'protocol' => 'tcp', 'name' => 'NatsWebPort'],
-                    ['portfrom' => 8000, 'portto' => 8000, 'protocol' => 'tcp', 'name' => 'CDRCTIPort'],
                 ],
                 'action'    => 'allow',
                 'shortName' => 'CTI client 2.0',
@@ -214,11 +225,11 @@ class CTIClientConf extends ConfigClass
         $conf = '';
         // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
         if(!PbxExtensionUtils::isEnabled('ModulePT1CCore')){
-            $conf = "\t".'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})';
+            $conf = "\t".'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})'."\n\t";
         }
-        //
 
-        $conf .= "\t".'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})';
+        $conf .= "\t".'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})'."\n\t";
+        $conf .= "\t"."same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)"."\n\t";
         // Перехват на ответственного.
         return $conf;
     }
