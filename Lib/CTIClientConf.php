@@ -45,11 +45,11 @@ class CTIClientConf extends ConfigClass
             && $data['recordId'] === 'PBXLicense') {
             $needRestartServices = true;
         }
-        if ($data['model'] === ModuleCTIClient::class){
+        if ($data['model'] === ModuleCTIClient::class) {
             $needRestartServices = true;
         }
 
-        if ($needRestartServices){
+        if ($needRestartServices) {
             $amigoDaemons = new AmigoDaemons();
             $amigoDaemons->startAllServices(true);
         }
@@ -134,19 +134,20 @@ class CTIClientConf extends ConfigClass
      */
     public function moduleRestAPICallback(array $request): PBXApiResult
     {
-        $res = new PBXApiResult();
+        $res            = new PBXApiResult();
         $res->processor = __METHOD__;
-        $action = strtoupper($request['action']);
-        switch ($action){
+        $action         = strtoupper($request['action']);
+        switch ($action) {
             case 'CHECK':
                 // Проверка работы сервисов, выполняется при обновлении статуса или сохрании настроек
                 $amigoDaemons = new AmigoDaemons();
-                $res =  $amigoDaemons->checkModuleWorkProperly();
+                $res          = $amigoDaemons->checkModuleWorkProperly();
                 break;
             default:
-                $res->success = false;
-                $res->messages[]='API action not found in moduleRestAPICallback ModuleCTIClient';
+                $res->success    = false;
+                $res->messages[] = 'API action not found in moduleRestAPICallback ModuleCTIClient';
         }
+
         return $res;
     }
 
@@ -180,8 +181,22 @@ class CTIClientConf extends ConfigClass
         return [
             'ModuleCTIClient' => [
                 'rules'     => [
-                    ['portfrom' => 4222, 'portto' => 4222, 'protocol' => 'tcp', 'name' => 'NatsPort'],
-                    ['portfrom' => 8222, 'portto' => 8222, 'protocol' => 'tcp', 'name' => 'NatsWebPort'],
+                    [
+                        'portfrom'    => 4222,
+                        'portto'      => 4222,
+                        'protocol'    => 'tcp',
+                        'name'        => 'NatsPort',
+                        'portFromKey' => '',
+                        'portToKey'   => '',
+                    ],
+                    [
+                        'portfrom'    => 8222,
+                        'portto'      => 8222,
+                        'protocol'    => 'tcp',
+                        'name'        => 'NatsWebPort',
+                        'portFromKey' => '',
+                        'portToKey'   => '',
+                    ],
                 ],
                 'action'    => 'allow',
                 'shortName' => 'CTI client 2.0',
@@ -193,7 +208,7 @@ class CTIClientConf extends ConfigClass
      * Kills all module daemons
      *
      */
-    public function onAfterModuleDisable():void
+    public function onAfterModuleDisable(): void
     {
         $amigoDaemons = new AmigoDaemons();
         $amigoDaemons->stopAllServices();
@@ -224,12 +239,13 @@ class CTIClientConf extends ConfigClass
     {
         $conf = '';
         // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
-        if(!PbxExtensionUtils::isEnabled('ModulePT1CCore')){
-            $conf = "\t".'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})'."\n\t";
+        if ( ! PbxExtensionUtils::isEnabled('ModulePT1CCore')) {
+            $conf = "\t" . 'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})' . "\n\t";
         }
 
-        $conf .= "\t".'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})'."\n\t";
-        $conf .= "\t"."same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)"."\n\t";
+        $conf .= "\t" . 'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})' . "\n\t";
+        $conf .= "\t" . "same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)" . "\n\t";
+
         // Перехват на ответственного.
         return $conf;
     }
@@ -243,18 +259,17 @@ class CTIClientConf extends ConfigClass
     {
         $PBXRecordCalls = $this->generalSettings['PBXRecordCalls'];
         $rec_options    = ($PBXRecordCalls === '1') ? 'r' : '';
-        $conf = "[miko_cti2]\n";
-        $conf .= 'exten => 10000107,1,Answer()' . "\n\t";
-        $conf .= 'same => n,Set(CHANNEL(hangup_handler_wipe)=hangup_handler_meetme,s,1)' . "\n\t";
-        $conf .= 'same => n,AGI(cdr_connector.php,meetme_dial)' . "\n\t";
-        $conf .= 'same => n,Set(CALLERID(num)=Conference_Room)' . "\n\t";
-        $conf .= 'same => n,Set(CALLERID(name)=${mikoconfcid})' . "\n\t";
-        $conf .= 'same => n,Meetme(${mikoidconf},' . $rec_options . '${mikoparamconf})' . "\n\t";
-        $conf .= 'same => n,Hangup()' . "\n\n";
+        $conf           = "[miko_cti2]\n";
+        $conf           .= 'exten => 10000107,1,Answer()' . "\n\t";
+        $conf           .= 'same => n,Set(CHANNEL(hangup_handler_wipe)=hangup_handler_meetme,s,1)' . "\n\t";
+        $conf           .= 'same => n,AGI(cdr_connector.php,meetme_dial)' . "\n\t";
+        $conf           .= 'same => n,Set(CALLERID(num)=Conference_Room)' . "\n\t";
+        $conf           .= 'same => n,Set(CALLERID(name)=${mikoconfcid})' . "\n\t";
+        $conf           .= 'same => n,Meetme(${mikoidconf},' . $rec_options . '${mikoparamconf})' . "\n\t";
+        $conf           .= 'same => n,Hangup()' . "\n\n";
 
         return $conf;
     }
-
 
 
 }
