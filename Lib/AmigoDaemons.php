@@ -10,6 +10,7 @@
 namespace Modules\ModuleCTIClient\Lib;
 
 
+use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Core\System\MikoPBXConfig;
 use MikoPBX\Core\System\Processes;
 use MikoPBX\Core\System\System;
@@ -271,6 +272,7 @@ class AmigoDaemons extends Di\Injectable
             'max_control_line' => '512',
             'sessions_path'    => $sessionsDir,
             'log_file'         => "{$logDir}/gnatsd.log",
+            'pbx'              => "MikoPBX",
         ];
 
         if ($this->module_settings['auto_settings_mode']==='1'){
@@ -512,17 +514,27 @@ class AmigoDaemons extends Di\Injectable
         $WEBPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('WEBPort'));
         $AMIPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('AMIPort'));
 
+        // Поддержка перехвата на ответвенного
+        $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
+        $interceptionSupport = false;
+        if (version_compare($pbxVersion, '2021.3.23', '>')) {
+            $interceptionSupport = true;
+        }
+
+
         $settings_amid = [
             'pbx'       => 'Askozia',
             'originate' => [
                 'default_context'               => '',
                 'transfer_context'              => '',
                 'multiple_registration_support' => true,
+                'originate_context'             => '',
             ],
             'mq'        => [
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
+            'interception_support' => $interceptionSupport,
             'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
             'log_path'  => $logDir,
             'ami'       => [
