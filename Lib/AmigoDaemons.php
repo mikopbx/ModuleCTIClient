@@ -525,7 +525,7 @@ class AmigoDaemons extends Di\Injectable
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_CHATS;
         Util::mwMkdir($logDir);
 
-        $spoolDir = "{$this->dirs['spoolDir']}/" . self::SERVICE_CHATS;
+        $dataBasePath = "{$this->dirs['moduleDir']}/db/chats";
 
         $settings_chats = [
             'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
@@ -538,11 +538,11 @@ class AmigoDaemons extends Di\Injectable
                 'port' => '8228',
             ],
             'database'  => [
-                'path' => "{$this->dirs['moduleDir']}/db/chats/cache.db",
+                'path' => "$dataBasePath/cache.db",
             ],
             'whats_app' => [
                 'timeout'     => 5,
-                'session_dir' => $spoolDir,
+                'session_dir' => $dataBasePath,
             ],
         ];
 
