@@ -541,7 +541,7 @@ class AmigoDaemons extends Di\Injectable
                 'path' => "$dataBasePath/cache.db",
             ],
             'whats_app' => [
-                'timeout'     => 5,
+                'timeout'     => 30,
                 'session_dir' => $dataBasePath,
             ],
         ];
