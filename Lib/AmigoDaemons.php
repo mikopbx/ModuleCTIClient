@@ -10,6 +10,7 @@
 namespace Modules\ModuleCTIClient\Lib;
 
 
+use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Core\System\MikoPBXConfig;
 use MikoPBX\Core\System\Processes;
 use MikoPBX\Core\System\System;
@@ -23,11 +24,18 @@ use Throwable;
 class AmigoDaemons extends Di\Injectable
 {
     public const SERVICE_GNATS = 'gnatsd-cti';
+
     public const SERVICE_CRM = 'crmd';
+
     public const SERVICE_AUTH = 'authd';
+
     public const SERVICE_AMI = 'amid';
+
     public const SERVICE_SPEECH = 'speechd';
+
     public const SERVICE_MONITOR = 'monitord';
+
+    public const SERVICE_CHATS = 'chatsd';
 
     public array $dirs;
     private array $module_settings = [];
@@ -36,7 +44,7 @@ class AmigoDaemons extends Di\Injectable
 
     public function __construct()
     {
-        if (PbxExtensionUtils::isEnabled($this->moduleUniqueID)){
+        if (PbxExtensionUtils::isEnabled($this->moduleUniqueID)) {
             $module_settings = ModuleCTIClient::findFirst();
             if ($module_settings !== null) {
                 $this->module_settings = $module_settings->toArray();
@@ -67,7 +75,7 @@ class AmigoDaemons extends Di\Injectable
         Util::mwMkdir($confDir);
 
         // spoolDir
-        $tempDir = $this->config->path('core.tempDir');
+        $tempDir  = $this->config->path('core.tempDir');
         $spoolDir = "{$tempDir}/{$this->moduleUniqueID}";
         Util::mwMkdir($spoolDir);
 
@@ -88,13 +96,13 @@ class AmigoDaemons extends Di\Injectable
         $resourcesDir = $moduleDir . '/Resources';
 
         return [
-            'logDir'    => $logDir,
-            'spoolDir'  => $spoolDir,
-            'confDir'   => $confDir,
-            'pidDir'    => $pidDir,
-            'binDir'    => $binDir,
-            'filesDir'  => $filesDir,
-            'moduleDir' => $moduleDir,
+            'logDir'       => $logDir,
+            'spoolDir'     => $spoolDir,
+            'confDir'      => $confDir,
+            'pidDir'       => $pidDir,
+            'binDir'       => $binDir,
+            'filesDir'     => $filesDir,
+            'moduleDir'    => $moduleDir,
             'resourcesDir' => $resourcesDir,
         ];
     }
@@ -167,19 +175,21 @@ class AmigoDaemons extends Di\Injectable
      */
     public function stopAllServices(): void
     {
-        $nats                 = "{$this->dirs['binDir']}/".self::SERVICE_GNATS;
-        $monitord             = "{$this->dirs['binDir']}/".self::SERVICE_MONITOR;
-        $amid                 = "{$this->dirs['binDir']}/".self::SERVICE_AMI;
-        $authd                = "{$this->dirs['binDir']}/".self::SERVICE_AUTH;
-        $crmd                 = "{$this->dirs['binDir']}/".self::SERVICE_CRM;
-        $speechd              = "{$this->dirs['binDir']}/".self::SERVICE_SPEECH;
+        $nats     = "{$this->dirs['binDir']}/" . self::SERVICE_GNATS;
+        $monitord = "{$this->dirs['binDir']}/" . self::SERVICE_MONITOR;
+        $amid     = "{$this->dirs['binDir']}/" . self::SERVICE_AMI;
+        $authd    = "{$this->dirs['binDir']}/" . self::SERVICE_AUTH;
+        $crmd     = "{$this->dirs['binDir']}/" . self::SERVICE_CRM;
+        $speechd  = "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH;
+        $chatsd   = "{$this->dirs['binDir']}/" . self::SERVICE_CHATS;
 
-        Processes::processWorker($nats, '',self::SERVICE_GNATS, 'stop');
+        Processes::processWorker($nats, '', self::SERVICE_GNATS, 'stop');
         Processes::processWorker($monitord, '', self::SERVICE_MONITOR, 'stop');
         Processes::processWorker($amid, '', self::SERVICE_AMI, 'stop');
         Processes::processWorker($authd, '', self::SERVICE_AUTH, 'stop');
         Processes::processWorker($crmd, '', self::SERVICE_CRM, 'stop');
         Processes::processWorker($speechd, '', self::SERVICE_SPEECH, 'stop');
+        Processes::processWorker($chatsd, '', self::SERVICE_CHATS, 'stop');
     }
 
 
@@ -194,16 +204,17 @@ class AmigoDaemons extends Di\Injectable
 
         // GNATS
         $nats_process_log = $this->dirs['logDir'] . '/gnats_process.log';
-        $nats                 = "{$this->dirs['binDir']}/".self::SERVICE_GNATS;
+        $nats             = "{$this->dirs['binDir']}/" . self::SERVICE_GNATS;
 
         // Monitord
         $monitord_process_log = $this->dirs['logDir'] . '/monitord_process.log';
-        $monitord             = "{$this->dirs['binDir']}/".self::SERVICE_MONITOR;
+        $monitord             = "{$this->dirs['binDir']}/" . self::SERVICE_MONITOR;
 
-        $amid                 = "{$this->dirs['binDir']}/".self::SERVICE_AMI;
-        $authd                = "{$this->dirs['binDir']}/".self::SERVICE_AUTH;
-        $crmd                 = "{$this->dirs['binDir']}/".self::SERVICE_CRM;
-        $speechd              = "{$this->dirs['binDir']}/".self::SERVICE_SPEECH;
+        $amid    = "{$this->dirs['binDir']}/" . self::SERVICE_AMI;
+        $authd   = "{$this->dirs['binDir']}/" . self::SERVICE_AUTH;
+        $crmd    = "{$this->dirs['binDir']}/" . self::SERVICE_CRM;
+        $speechd = "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH;
+        $chatsd  = "{$this->dirs['binDir']}/" . self::SERVICE_CHATS;
 
         if ($moduleEnabled) {
             $this->generateConfFiles();
@@ -212,12 +223,13 @@ class AmigoDaemons extends Di\Injectable
                 Processes::processWorker($authd, '', self::SERVICE_AUTH, 'stop');
                 Processes::processWorker($crmd, '', self::SERVICE_CRM, 'stop');
                 Processes::processWorker($speechd, '', self::SERVICE_SPEECH, 'stop');
+                Processes::processWorker($chatsd, '', self::SERVICE_CHATS, 'stop');
             }
             Processes::processWorker(
                 $nats,
                 "--config {$this->dirs['confDir']}/nats.conf",
                 self::SERVICE_GNATS,
-                $restart?'restart':'start',
+                $restart ? 'restart' : 'start',
                 $nats_process_log
             );
             Processes::processWorker(
@@ -243,6 +255,7 @@ class AmigoDaemons extends Di\Injectable
         $this->generateAuthdConf();
         $this->generateAmidConf();
         $this->generateSpeechdConf();
+        $this->generateChatsConf();
         $this->generateMonitordConf();
     }
 
@@ -271,13 +284,14 @@ class AmigoDaemons extends Di\Injectable
             'max_control_line' => '512',
             'sessions_path'    => $sessionsDir,
             'log_file'         => "{$logDir}/gnatsd.log",
+            'pbx'              => "MikoPBX",
         ];
 
-        if ($this->module_settings['auto_settings_mode']==='1'){
-            $settings['nats_password']  = '"'.$this->module_settings['nats_password'].'"';
+        if ($this->module_settings['auto_settings_mode'] === '1') {
+            $settings['nats_password'] = '"' . $this->module_settings['nats_password'] . '"';
         }
 
-        $config   = '';
+        $config = '';
         foreach ($settings as $key => $val) {
             $config .= "{$key}: {$val} \n";
         }
@@ -312,6 +326,7 @@ class AmigoDaemons extends Di\Injectable
     {
         return '8222';
     }
+
 
     /**
      * Создает файл настроек автоподъема трубки
@@ -438,7 +453,7 @@ class AmigoDaemons extends Di\Injectable
      */
     private function generateCrmdConf(): void
     {
-        $logDir = "{$this->dirs['logDir']}/".self::SERVICE_CRM;
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_CRM;
         Util::mwMkdir($logDir);
 
         $settings_crm = [
@@ -478,7 +493,7 @@ class AmigoDaemons extends Di\Injectable
      */
     private function generateAuthdConf(): void
     {
-        $logDir = "{$this->dirs['logDir']}/".self::SERVICE_AUTH;
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_AUTH;
         Util::mwMkdir($logDir);
 
         $settings_auth = [
@@ -501,53 +516,100 @@ class AmigoDaemons extends Di\Injectable
         );
     }
 
+
+    /**
+     * Создание файла конфигураци для chatsd.
+     */
+    private function generateChatsConf(): void
+    {
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_CHATS;
+        Util::mwMkdir($logDir);
+
+        $dataBasePath = "{$this->dirs['moduleDir']}/db/chats";
+
+        $settings_chats = [
+            'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
+            'log_path'  => $logDir,
+            'mq'        => [
+                'host' => '127.0.0.1',
+                'port' => $this->getNatsPort(),
+            ],
+            'http'      => [
+                'port' => '8228',
+            ],
+            'database'  => [
+                'path' => "$dataBasePath/cache.db",
+            ],
+            'whats_app' => [
+                'timeout'     => 30,
+                'session_dir' => $dataBasePath,
+            ],
+        ];
+
+        Util::fileWriteContent(
+            "{$this->dirs['confDir']}/chats.json",
+            json_encode($settings_chats, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+
     /**
      * Создание файла конфигураци для authd.
      */
     private function generateAmidConf(): void
     {
-        $logDir = "{$this->dirs['logDir']}/".self::SERVICE_AMI;
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_AMI;
         Util::mwMkdir($logDir);
 
         $WEBPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('WEBPort'));
         $AMIPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('AMIPort'));
 
+        // Поддержка перехвата на ответвенного
+        $pbxVersion          = PbxSettings::getValueByKey('PBXVersion');
+        $interceptionSupport = false;
+        if (version_compare($pbxVersion, '2021.3.23', '>')) {
+            $interceptionSupport = true;
+        }
+
+
         $settings_amid = [
-            'pbx'       => 'Askozia',
-            'originate' => [
+            'pbx'                  => 'Askozia',
+            'originate'            => [
                 'default_context'               => '',
                 'transfer_context'              => '',
                 'multiple_registration_support' => true,
+                'originate_context'             => '',
             ],
-            'mq'        => [
+            'mq'                   => [
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
-            'log_path'  => $logDir,
-            'ami'       => [
+            'interception_support' => $interceptionSupport,
+            'log_level'            => $this->module_settings['debug_mode'] ? 6 : 2,
+            'log_path'             => $logDir,
+            'ami'                  => [
                 'user'     => CTIClientConf::MODULE_AMI_USER,
                 'password' => $this->module_settings['ami_password'],
                 'host'     => '127.0.0.1',
                 'port'     => $AMIPort,
             ],
-            'database'  => [
+            'database'             => [
                 'path' => "{$this->dirs['moduleDir']}/db/cdr/history.db",
             ],
-            'http'      => [
+            'http'                 => [
                 'port'  => '8000',
                 'limit' => 20,
             ],
-            'records'   => [
+            'records'              => [
                 'request'  => "http://127.0.0.1:$WEBPort/pbxcore/api/cdr/playback?view=%s",
                 'result'   => '',
                 'login'    => '',
                 'password' => '',
             ],
-            'long_poll' => [
+            'long_poll'            => [
                 'event_time_to_live' => 10,
             ],
-            'files'     => $this->dirs['filesDir'],
+            'files'                => $this->dirs['filesDir'],
         ];
 
 
@@ -562,7 +624,7 @@ class AmigoDaemons extends Di\Injectable
      */
     private function generateMonitordConf(): void
     {
-        $logDir = "{$this->dirs['logDir']}/".self::SERVICE_MONITOR;
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_MONITOR;
         Util::mwMkdir($logDir);
 
         $arr_settings = [
@@ -576,24 +638,29 @@ class AmigoDaemons extends Di\Injectable
             'period'    => 30,
             'daemons'   => [
                 [
-                    'path'    => "{$this->dirs['binDir']}/".self::SERVICE_AMI,
+                    'path'    => "{$this->dirs['binDir']}/" . self::SERVICE_AMI,
                     'args'    => "-c {$this->dirs['confDir']}/ami.json",
                     'subject' => 'daemon.asterisk.ping',
                 ],
                 [
-                    'path'    => "{$this->dirs['binDir']}/".self::SERVICE_CRM,
+                    'path'    => "{$this->dirs['binDir']}/" . self::SERVICE_CRM,
                     'args'    => "-c {$this->dirs['confDir']}/crm.json",
                     'subject' => 'daemon.1c.ping',
                 ],
                 [
-                    'path'    => "{$this->dirs['binDir']}/".self::SERVICE_AUTH,
+                    'path'    => "{$this->dirs['binDir']}/" . self::SERVICE_AUTH,
                     'args'    => "-c {$this->dirs['confDir']}/auth.json",
                     'subject' => 'daemon.auth.ping',
                 ],
                 [
-                    'path'    => "{$this->dirs['binDir']}/".self::SERVICE_SPEECH,
+                    'path'    => "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH,
                     'args'    => "-c {$this->dirs['confDir']}/speech.json",
                     'subject' => 'daemon.speech.ping',
+                ],
+                [
+                    'path'    => "{$this->dirs['binDir']}/" . self::SERVICE_CHATS,
+                    'args'    => "-c {$this->dirs['confDir']}/chats.json",
+                    'subject' => 'daemon.chats.ping',
                 ],
             ],
         ];
@@ -609,23 +676,23 @@ class AmigoDaemons extends Di\Injectable
      */
     private function generateSpeechdConf(): void
     {
-        $logDir = "{$this->dirs['logDir']}/".self::SERVICE_SPEECH;
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_SPEECH;
         Util::mwMkdir($logDir);
         $workDir = "{$this->dirs['spoolDir']}/speech";
         Util::mwMkdir($workDir);
         $settings_auth = [
-            'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
-            'log_path'  => $logDir,
-            'mq'        => [
+            'log_level'  => $this->module_settings['debug_mode'] ? 6 : 2,
+            'log_path'   => $logDir,
+            'mq'         => [
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'http'        => [
+            'http'       => [
                 'port' => '8227',
             ],
-            'work_dir'  => $workDir,
-            'sox'  => Util::which('sox'),
-            'normalizer'        => [
+            'work_dir'   => $workDir,
+            'sox'        => Util::which('sox'),
+            'normalizer' => [
                 'dictionaries' => "{$this->dirs['resourcesDir']}/pymorphy2_dicts_ru",
             ],
         ];
@@ -647,8 +714,9 @@ class AmigoDaemons extends Di\Injectable
         $res->processor = __METHOD__;
 
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
-        if (!$moduleEnabled){
+        if ( ! $moduleEnabled) {
             $res->data['statuses'] = 'Module disabled';
+
             return $res;
         }
 
@@ -658,12 +726,14 @@ class AmigoDaemons extends Di\Injectable
         $statusAuth     = $this->checkWorkerStatus('auth');
         $statusAsterisk = $this->checkWorkerStatus('asterisk');
         $statusSpeech   = $this->checkWorkerStatus('speech');
+        $statusChat     = $this->checkWorkerStatus('chats');
 
         $res->success = $statusMonitor['state'] === 'ok'
-            &&$status1C['state'] === 'ok'
+            && $status1C['state'] === 'ok'
             && $statusAuth['state'] === 'ok'
             && $statusAsterisk['state'] === 'ok'
             && $statusSpeech['state'] === 'ok'
+            && $statusChat['state'] === 'ok'
             && $statusNats['state'] === 'ok';
 
         $res->data['statuses'] = [
@@ -672,6 +742,7 @@ class AmigoDaemons extends Di\Injectable
             $statusAuth,
             $statusAsterisk,
             $statusSpeech,
+            $statusChat,
             $status1C,
         ];
 
@@ -747,8 +818,8 @@ class AmigoDaemons extends Di\Injectable
         ) {
             $result = $data['result'];
             // Move state and name on the first position
-            if (key_exists('state', $result)){
-                $result = [ 'state' => $result[ 'state' ] ] + $result;
+            if (key_exists('state', $result)) {
+                $result = ['state' => $result['state']] + $result;
             }
             if (key_exists('name', $result)) {
                 $result = ['name' => $result['name']] + $result;
@@ -772,13 +843,13 @@ class AmigoDaemons extends Di\Injectable
     private function checkMonitorStatus(): array
     {
         $result = [
-             'name'  => 'monitord',
-             'state' => 'unknown',
+            'name'  => 'monitord',
+            'state' => 'unknown',
         ];
-        $pid     = Processes::getPidOfProcess(self::SERVICE_MONITOR);
-        if (!empty($pid)) {
-            $result['state']='ok';
-            $result['pid']= $pid;
+        $pid    = Processes::getPidOfProcess(self::SERVICE_MONITOR);
+        if ( ! empty($pid)) {
+            $result['state'] = 'ok';
+            $result['pid']   = $pid;
         }
 
         return $result;
@@ -786,13 +857,15 @@ class AmigoDaemons extends Di\Injectable
 
     /**
      * Ask caller id from CRM system
+     *
      * @param string $number
      *
      * @return string
      */
-    public static function getCallerId(string $number):string {
-        $getNumberUrl = 'http://127.0.0.1:8224/getcallerid?number='.$number;
-        $curl      = curl_init();
+    public static function getCallerId(string $number): string
+    {
+        $getNumberUrl = 'http://127.0.0.1:8224/getcallerid?number=' . $number;
+        $curl         = curl_init();
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_TIMEOUT, 5);
         curl_setopt($curl, CURLOPT_URL, $getNumberUrl);
@@ -806,7 +879,7 @@ class AmigoDaemons extends Di\Injectable
         $parsedAnswer = json_decode($response, true);
         curl_close($curl);
         if ($parsedAnswer !== null
-            && $parsedAnswer['result']==='Success') {
+            && $parsedAnswer['result'] === 'Success') {
             $result = $parsedAnswer['data']['client'];
         } else {
             $result = '';

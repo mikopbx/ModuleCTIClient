@@ -49,11 +49,11 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
                 $settings->auto_settings_mode = '0';
             }
 
-            if (empty($settings->ami_password)){
+            if (empty($settings->ami_password)) {
                 $settings->ami_password = hash('md5', date('Y-m-d H:i:s:u'));
             }
 
-            if (empty($settings->nats_password)){
+            if (empty($settings->nats_password)) {
                 $settings->nats_password = hash('md5', date('Y-m-D H:i:s:u'));
             }
 
@@ -82,8 +82,8 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             // TODO::Обновить это на новый формат
             //$d_app->name             = $this->translation->_('mod_cti_AuthApp_Name');
             //$d_app->description      = $this->translation->_('mod_cti_AuthApp_Description');
-            $d_app->name             = $this->locString('mod_cti_AuthApp_Name');
-            $d_app->description      = $this->locString('mod_cti_AuthApp_Description');
+            $d_app->name        = $this->locString('mod_cti_AuthApp_Name');
+            $d_app->description = $this->locString('mod_cti_AuthApp_Description');
 
             $d_app->applicationlogic = base64_encode($logic);
             $d_app->type             = 'plaintext';
@@ -145,6 +145,11 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     public function installFiles(): bool
     {
         $this->moveModuleCDRToDBFolder();
+
+        // Create chatdb folder
+        $chat_database_path = $this->moduleDir . '/db/chats/';
+        Util::mwMkdir($chat_database_path);
+
         parent::installFiles();
 
         return true;
