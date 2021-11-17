@@ -275,7 +275,7 @@ class AmigoDaemons extends Di\Injectable
         $settings = [
             'port'             => $this->getNatsPort(),
             'http_port'        => $this->getNatsHttpPort(),
-            'debug'            => 'false',
+            'debug'            => $this->module_settings['debug_mode'] ? 'true' : 'false',
             'trace'            => 'false',
             'logtime'          => 'true',
             'pid_file'         => $pid_file,
