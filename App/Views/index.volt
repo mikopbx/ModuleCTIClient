@@ -20,6 +20,13 @@
             </div>
         </div>
         <div class="ui hidden divider"></div>
+        <div class="field">
+            {{ t._('mod_cti_OdinEsSetupMessage') }}
+            <a href='https://files.miko.ru/s/y4NDTu98t5Am8vq' target="_blank">
+                {{ t._('mod_cti_OdinEsSetupLink') }}
+            </a>
+        </div>
+        <div class="ui hidden divider"></div>
         <div class="field only-auto-settings">
             <label for="auto_settings_value">{{ t._('mod_cti_AutoSettingsData') }}</label>
               <textarea  name="auto_settings_value" readonly style="overflow: hidden; overflow-wrap: break-word; resize: horizontal; height: 134px;" spellcheck="false">{{ autoSettingsValue }}</textarea>
