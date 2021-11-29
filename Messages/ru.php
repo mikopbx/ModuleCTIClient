@@ -18,7 +18,7 @@ return [
     'mod_cti_Login'                      => 'Логин для веб-сервиса 1C',
     'mod_cti_Password'                   => 'Пароль для авторизации в 1С',
     'mod_cti_PublicationName'            => 'Имя публикации',
-    'mod_cti_UseAutoSettings'            => 'Автоматическая настройка модуля',
+    'mod_cti_UseAutoSettings'            => 'Автоматическая настройка параметров связи модуля и 1С',
     'mod_cti_PublicationOverHeader'      => 'Режим соединения с 1С',
     'mod_cti_PublicationOverWebServices' => 'через web сервис (MikoPBX подключается к 1С)',
     'mod_cti_PublicationOverLongPool'    => 'через LongPool соединение (1С подключается к MikoPBX)',
@@ -37,7 +37,10 @@ return [
 
     'mod_cti_tab_Settings'        => 'Настройки',
     'mod_cti_tab_debug'           => 'Отладка сервисов модуля',
-    'mod_cti_OdinEsSetupMessage'  => 'Выполните интеграцию подсистемы телефонии в 1С:Предприятии 8. Для этого скачайте и откройте режиме предприятия ',
-    'mod_cti_OdinEsSetupLink'   => 'установщик расширений',
+    'mod_cti_OdinEsSetupHeaderMessage'  => 'Установите подсистему телефонии в 1С:Предприятие 8',
+    'mod_cti_OdinEsSetupMessageStep1' => 'Сделайте резервную копию вашей базы 1С',
+    'mod_cti_OdinEsSetupMessageStep3' => 'Скачайте установщик расширений &nbsp;<a href="https://files.miko.ru/s/y4NDTu98t5Am8vq" target="_blank">по ссылке <i class="cloud download icon"></i></a>',
+    'mod_cti_OdinEsSetupMessageStep2' => 'Запустите 1С монопольно в режиме предприятия',
+    'mod_cti_OdinEsSetupMessageStep4' => 'Нажмите Ctrl+O (или Файл&#8594;Открыть) и выберите файл "Установщик.epf"',
 
 ];

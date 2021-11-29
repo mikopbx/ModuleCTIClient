@@ -10,7 +10,21 @@
 
     {# general tab #}
     <div class="ui bottom attached tab segment active" data-tab="settings">
-
+        <div class="field">
+            <div class="ui icon message">
+                <i class="wrench icon"></i>
+                <div class="content">
+                    <div class="header">{{ t._('mod_cti_OdinEsSetupHeaderMessage') }}</div>
+                    <ul class="list">
+                        <li>{{ t._('mod_cti_OdinEsSetupMessageStep1') }}</li>
+                        <li>{{ t._('mod_cti_OdinEsSetupMessageStep2') }}</li>
+                        <li>{{ t._('mod_cti_OdinEsSetupMessageStep3') }}</li>
+                        <li>{{ t._('mod_cti_OdinEsSetupMessageStep4') }}</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="ui hidden divider"></div>
         <div class="field">
             <div class="ui segment">
                 <div class="ui toggle checkbox" id="auto-settings-mode-toggle">
@@ -20,13 +34,7 @@
             </div>
         </div>
         <div class="ui hidden divider"></div>
-        <div class="field">
-            {{ t._('mod_cti_OdinEsSetupMessage') }}
-            <a href='https://files.miko.ru/s/y4NDTu98t5Am8vq' target="_blank">
-                {{ t._('mod_cti_OdinEsSetupLink') }}
-            </a>
-        </div>
-        <div class="ui hidden divider"></div>
+
         <div class="field only-auto-settings">
             <label for="auto_settings_value">{{ t._('mod_cti_AutoSettingsData') }}</label>
               <textarea  name="auto_settings_value" readonly style="overflow: hidden; overflow-wrap: break-word; resize: horizontal; height: 134px;" spellcheck="false">{{ autoSettingsValue }}</textarea>

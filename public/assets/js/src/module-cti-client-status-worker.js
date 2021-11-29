@@ -80,6 +80,7 @@ const moduleCTIClientConnectionCheckWorker = {
 				onSuccess() {
 					moduleCTIClientConnectionCheckWorker.changeStatus('Connected');
 					moduleCTIClientConnectionCheckWorker.errorCounts = 0;
+					window.clearTimeout(moduleCTIClientConnectionCheckWorker.timeoutHandle);
 				},
 				onFailure(response) {
 					if (Object.keys(response).length > 0
