@@ -1,4 +1,4 @@
-<form class="ui large grey segment form" id="module-cti-client-form">
+<form class="ui large grey segment form disability" id="module-cti-client-form">
     <input type="hidden" name="dirrty" id="dirrty"/>
     <div class="ui grey top right attached label" id="status"><i
                 class="spinner loading icon"></i>{{ t._("mod_cti_UpdateStatus") }}</div>
