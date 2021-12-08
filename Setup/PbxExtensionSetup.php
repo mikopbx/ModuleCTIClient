@@ -44,9 +44,9 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             $settings = ModuleCTIClient::findFirst();
             if ($settings === null) {
                 $settings                     = new ModuleCTIClient();
-                $settings->debug_mode         = '1';
+                $settings->debug_mode         = '0';
                 $settings->web_service_mode   = '0';
-                $settings->auto_settings_mode = '0';
+                $settings->auto_settings_mode = '1';
             }
 
             if (empty($settings->ami_password)) {
