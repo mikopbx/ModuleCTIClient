@@ -8,9 +8,9 @@
  */
 
 return [
-    'BreadcrumbModuleCTIClient'          => 'Панель телефонии 4.0 для 1С',
+    'BreadcrumbModuleCTIClient'          => 'Панель телефонии 2.0 для 1С',
     'SubHeaderModuleCTIClient'           => 'Модуль для управления вызовами с компьютера',
-    'fw_modulecticlientDescription'      => 'CTI CLIENT - Панель телефонии 4.0 для 1С',
+    'fw_modulecticlientDescription'      => 'CTI CLIENT - Панель телефонии 2.0 для 1С',
     'mod_cti_ValidateServer1CHostEmpty'  => 'Не заполнен адрес сервера 1С',
     'mod_cti_ValidateServer1CPortRange'  => 'Не правильно указан порт сервера 1С',
     'mod_cti_ValidatePubName'            => 'Не указано имя публикации веб-сервиса 1С',

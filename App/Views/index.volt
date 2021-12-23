@@ -10,7 +10,7 @@
 
     {# general tab #}
     <div class="ui bottom attached tab segment active" data-tab="settings">
-        <div class="field">
+        {# Пока не даем в релиз <div class="field">
             <div class="ui icon message">
                 <i class="wrench icon"></i>
                 <div class="content">
@@ -25,6 +25,7 @@
             </div>
         </div>
         <div class="ui hidden divider"></div>
+        #}
         <div class="field">
             <div class="ui segment">
                 <div class="ui toggle checkbox" id="auto-settings-mode-toggle">
