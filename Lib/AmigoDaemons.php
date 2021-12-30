@@ -154,19 +154,24 @@ class AmigoDaemons extends Di\Injectable
             $logrotatePath = Util::which('logrotate');
             Processes::mwExecBg("{$logrotatePath} $options '{$path_conf}' > /dev/null 2> /dev/null");
         }
+    }
 
-        // Очистка логов AMI.
+    /**
+     * Удаление логов старше недели
+     */
+    public function deleteOldLogs(): void
+    {
         $findPath  = Util::which('find');
         $rmPath    = Util::which('rm');
         $xargsPath = Util::which('xargs');
         Processes::mwExec(
-            "{$findPath} '{$log_dir}' -name '*.log.[0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+            "{$findPath} '{$this->dirs['logDir']}' -name '*.log.[0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
         );
         Processes::mwExec(
-            "{$findPath} '{$log_dir}' -name '*.log.[0-9][0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+            "{$findPath} '{$this->dirs['logDir']}' -name '*.log.[0-9][0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
         );
         Processes::mwExec(
-            "{$findPath} '{$log_dir}' -name '*.log' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+            "{$findPath} '{$this->dirs['logDir']}' -name '*.log' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
         );
     }
 

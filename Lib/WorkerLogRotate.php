@@ -8,6 +8,7 @@
 
 namespace Modules\ModuleCTIClient\Lib;
 
+use MikoPBX\Common\Providers\ManagedCacheProvider;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 
@@ -17,12 +18,14 @@ class WorkerLogRotate extends WorkerBase
 {
     public function start($argv): void
     {
-        $managedCache = $this->di->get('managedCache');
-        $lastLogRotate = $managedCache->get('lastCTIWorkerLogRotateProcessing');
+        $cacheKey =  'Workers:WorkerLogRotate:lastCTIWorkerLogRotateProcessing';
+        $managedCache = $this->di->get(ManagedCacheProvider::SERVICE_NAME);
+        $lastLogRotate = $managedCache->get($cacheKey);
         if ($lastLogRotate===null){
             $cti = new AmigoDaemons();
             $cti->logRotateGnats();
-            $managedCache->set('lastCTIWorkerLogRotateProcessing', time(), 3600);
+            $cti->deleteOldLogs();
+            $managedCache->set($cacheKey, time(), 3600);
         }
     }
 }
