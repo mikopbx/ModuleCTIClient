@@ -267,7 +267,7 @@ class AmigoDaemons extends Di\Injectable
         $sessionsDir = "{$this->dirs['spoolDir']}/sessions";
         Util::mwMkdir($sessionsDir);
 
-        $logDir = "{$this->dirs['logDir']}/gnats";
+        $logDir = "{$this->dirs['logDir']}/". self::SERVICE_GNATS;
         Util::mwMkdir($logDir);
 
         $pid_file = "{$this->dirs['pidDir']}/gnatsd-cti.pid";
@@ -464,10 +464,6 @@ class AmigoDaemons extends Di\Injectable
             'log_level'      => $this->module_settings['debug_mode'] ? 6 : 2,
             'log_path'       => $logDir,
             'cleanup_period' => 10,  // Cache of links cleanup period.
-            'long_poll'      => [
-                'port'               => '8224',
-                'event_time_to_live' => 10,
-            ],
         ];
 
         if ($this->module_settings['web_service_mode'] === '1') {
@@ -479,6 +475,11 @@ class AmigoDaemons extends Di\Injectable
                 'url'        => "/{$this->module_settings['database']}/ws/miko_crm_api.1cws",
                 'keep-alive' => 3000,
                 'timeout'    => 10,
+            ];
+        } else {
+            $settings_crm['long_poll'] = [
+                'port'               => '8224',
+                'event_time_to_live' => 10,
             ];
         }
 
@@ -577,8 +578,8 @@ class AmigoDaemons extends Di\Injectable
             'originate'            => [
                 'default_context'               => '',
                 'transfer_context'              => '',
-                'multiple_registration_support' => true,
                 'originate_context'             => '',
+                'multiple_registration_support' => true,
             ],
             'mq'                   => [
                 'host' => '127.0.0.1',
@@ -843,7 +844,7 @@ class AmigoDaemons extends Di\Injectable
     private function checkMonitorStatus(): array
     {
         $result = [
-            'name'  => 'monitord',
+            'name'  => self::SERVICE_MONITOR,
             'state' => 'unknown',
         ];
         $pid    = Processes::getPidOfProcess(self::SERVICE_MONITOR);
