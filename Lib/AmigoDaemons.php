@@ -202,6 +202,17 @@ class AmigoDaemons extends Di\Injectable
     {
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
 
+        $monitorPID = Processes::getPidOfProcess(self::SERVICE_MONITOR);
+        $gnatsPID = Processes::getPidOfProcess(self::SERVICE_GNATS);
+
+        if( $monitorPID !== ''
+            && $gnatsPID !== ''
+            && $restart === false
+            && $moduleEnabled  === true
+        ){
+            return; // Ничего не надо делать, все запущено и работает
+        }
+
         // GNATS
         $nats_process_log = $this->dirs['logDir'] . '/gnats_process.log';
         $nats             = "{$this->dirs['binDir']}/" . self::SERVICE_GNATS;
@@ -275,7 +286,7 @@ class AmigoDaemons extends Di\Injectable
         $settings = [
             'port'             => $this->getNatsPort(),
             'http_port'        => $this->getNatsHttpPort(),
-            'debug'            => 'false',
+            'debug'            => $this->module_settings['debug_mode'] ? 'true' : 'false',
             'trace'            => 'false',
             'logtime'          => 'true',
             'pid_file'         => $pid_file,
@@ -542,7 +553,7 @@ class AmigoDaemons extends Di\Injectable
                 'path' => "$dataBasePath/cache.db",
             ],
             'whats_app' => [
-                'timeout'     => 5,
+                'timeout'     => 30,
                 'session_dir' => $dataBasePath,
             ],
         ];
