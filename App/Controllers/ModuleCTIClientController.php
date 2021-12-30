@@ -187,6 +187,7 @@ class ModuleCTIClientController extends BaseController
                 'mobile'   => $extension['mobile'],
                 'avatar'   => $extension['avatar'],
                 'email'    => $extension['email'],
+                'port'     => $extension['port'],
             ];
         }
 
