@@ -46,6 +46,7 @@ class CTIClientConf extends ConfigClass
         }
         if ($data['model'] === ModuleCTIClient::class) {
             $needRestartServices = true;
+            PBX::dialplanReload();
         }
 
         if ($needRestartServices) {
@@ -244,13 +245,6 @@ class CTIClientConf extends ConfigClass
      */
     public function generateIncomingRoutBeforeDial($rout_number): string
     {
-        $module_settings = ModuleCTIClient::findFirst();
-        if ($module_settings === null) {
-            return '';
-        }
-        if ($module_settings->setup_caller_id!=='1'){
-            return '';
-        }
 
         $conf = '';
         // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
@@ -259,7 +253,12 @@ class CTIClientConf extends ConfigClass
         }
 
         $conf .= "\t" . 'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})' . "\n\t";
-        $conf .= "\t" . "same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)" . "\n\t";
+
+
+        $module_settings = ModuleCTIClient::findFirst();
+        if ($module_settings === null || $module_settings->setup_caller_id==='1') {
+            $conf .= "\t" . "same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)" . "\n\t";
+        }
 
         // Перехват на ответственного.
         return $conf;
