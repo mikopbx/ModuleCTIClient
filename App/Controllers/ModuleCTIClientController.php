@@ -83,6 +83,7 @@ class ModuleCTIClientController extends BaseController
                 case 'debug_mode':
                 case 'web_service_mode':
                 case 'auto_settings_mode':
+                case 'setup_caller_id':
                     $record->$key = ($data[$key] === 'on') ? '1' : '0';
                     break;
                 default:

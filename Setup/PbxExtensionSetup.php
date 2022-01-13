@@ -47,6 +47,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
                 $settings->debug_mode         = '0';
                 $settings->web_service_mode   = '0';
                 $settings->auto_settings_mode = '1';
+                $settings->setup_caller_id    = '1';
             }
 
             if (empty($settings->ami_password)) {

@@ -92,6 +92,15 @@
                 </div>
             </div>
         </div>
+
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox " id="setup-caller-id-toggle">
+                    {{ form.render('setup_caller_id') }}
+                    <label>{{ t._('mod_cti_EnableSetCallerID') }}</label>
+                </div>
+            </div>
+        </div>
     </div>
     {# debug tab #}
     <div class="ui bottom attached tab segment" data-tab="debug">

@@ -36,7 +36,6 @@ class ModuleCTIClientForm extends Form
             $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode', 'checked'=>'checked', 'value'=>'off']));
         }
 
-
         // Debug mode
         $cheskarr = ['value' => null];
         if ($entity->debug_mode) {
@@ -44,11 +43,18 @@ class ModuleCTIClientForm extends Form
         }
         $this->add(new Check('debug_mode', $cheskarr));
 
-        // auto_settings_mode
+        // Auto settings mode
         $cheskarr = ['value' => null];
         if ($entity->auto_settings_mode) {
             $cheskarr = ['checked' => 'checked', 'value' => null];
         }
         $this->add(new Check('auto_settings_mode', $cheskarr));
+
+        // Set CallerID by 1C data
+        $cheskarr = ['value' => null];
+        if ($entity->setup_caller_id) {
+            $cheskarr = ['checked' => 'checked', 'value' => null];
+        }
+        $this->add(new Check('setup_caller_id', $cheskarr));
     }
 }

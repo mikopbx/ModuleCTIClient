@@ -244,6 +244,14 @@ class CTIClientConf extends ConfigClass
      */
     public function generateIncomingRoutBeforeDial($rout_number): string
     {
+        $module_settings = ModuleCTIClient::findFirst();
+        if ($module_settings === null) {
+            return '';
+        }
+        if ($module_settings->setup_caller_id!=='1'){
+            return '';
+        }
+
         $conf = '';
         // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
         if ( ! PbxExtensionUtils::isEnabled('ModulePT1CCore')) {

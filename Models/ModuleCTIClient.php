@@ -89,7 +89,14 @@ class ModuleCTIClient extends ModulesModelsBase
      *
      * @Column(type='string', length=1, nullable=true, default='0')
      */
-    public ?string $auto_settings_mode = '0';
+    public ?string $auto_settings_mode = '1';
+
+    /**
+     * Устанавливать ли CallerID по данным в 1С
+     *
+     * @Column(type='string', length=1, nullable=true, default='0')
+     */
+    public ?string $setup_caller_id = '1';
 
 
     public function initialize(): void
