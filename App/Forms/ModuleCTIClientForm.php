@@ -38,21 +38,21 @@ class ModuleCTIClientForm extends Form
 
         // Debug mode
         $cheskarr = ['value' => null];
-        if ($entity->debug_mode) {
+        if ($entity->debug_mode==='1') {
             $cheskarr = ['checked' => 'checked', 'value' => null];
         }
         $this->add(new Check('debug_mode', $cheskarr));
 
         // Auto settings mode
         $cheskarr = ['value' => null];
-        if ($entity->auto_settings_mode) {
+        if ($entity->auto_settings_mode==='1') {
             $cheskarr = ['checked' => 'checked', 'value' => null];
         }
         $this->add(new Check('auto_settings_mode', $cheskarr));
 
         // Set CallerID by 1C data
         $cheskarr = ['value' => null];
-        if ($entity->setup_caller_id) {
+        if ($entity->setup_caller_id==='1') {
             $cheskarr = ['checked' => 'checked', 'value' => null];
         }
         $this->add(new Check('setup_caller_id', $cheskarr));
