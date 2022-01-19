@@ -480,6 +480,10 @@ class AmigoDaemons extends Di\Injectable
             'log_level'      => $this->module_settings['debug_mode'] ? 6 : 2,
             'log_path'       => $logDir,
             'cleanup_period' => 10,  // Cache of links cleanup period.
+            'long_poll'      => [
+                'port'               => '8224',
+                'event_time_to_live' => 10,
+            ]
         ];
 
         if ($this->module_settings['web_service_mode'] === '1') {
@@ -491,11 +495,6 @@ class AmigoDaemons extends Di\Injectable
                 'url'        => "/{$this->module_settings['database']}/ws/miko_crm_api.1cws",
                 'keep-alive' => 3000,
                 'timeout'    => 10,
-            ];
-        } else {
-            $settings_crm['long_poll'] = [
-                'port'               => '8224',
-                'event_time_to_live' => 10,
             ];
         }
 
