@@ -8,12 +8,11 @@
 
 namespace Modules\ModuleCTIClient\Lib;
 
-use Exception;
 use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Core\System\PBX;
+use MikoPBX\Core\System\System;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore as WorkerSafeScriptsCore;
 use MikoPBX\Modules\Config\ConfigClass;
-use MikoPBX\Core\System\System;
 use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
@@ -47,6 +46,7 @@ class CTIClientConf extends ConfigClass
         }
         if ($data['model'] === ModuleCTIClient::class) {
             $needRestartServices = true;
+            PBX::dialplanReload();
         }
 
         if ($needRestartServices) {
@@ -245,6 +245,7 @@ class CTIClientConf extends ConfigClass
      */
     public function generateIncomingRoutBeforeDial($rout_number): string
     {
+
         $conf = '';
         // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
         if ( ! PbxExtensionUtils::isEnabled('ModulePT1CCore')) {
@@ -252,7 +253,12 @@ class CTIClientConf extends ConfigClass
         }
 
         $conf .= "\t" . 'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})' . "\n\t";
-        $conf .= "\t" . "same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)" . "\n\t";
+
+
+        $module_settings = ModuleCTIClient::findFirst();
+        if ($module_settings === null || $module_settings->setup_caller_id==='1') {
+            $conf .= "\t" . "same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)" . "\n\t";
+        }
 
         // Перехват на ответственного.
         return $conf;
@@ -275,6 +281,28 @@ class CTIClientConf extends ConfigClass
         $conf           .= 'same => n,Set(CALLERID(name)=${mikoconfcid})' . "\n\t";
         $conf           .= 'same => n,Meetme(${mikoidconf},' . $rec_options . '${mikoparamconf})' . "\n\t";
         $conf           .= 'same => n,Hangup()' . "\n\n";
+
+
+        $conf .= '[miko-cti2-originate]' . "\n";
+        $conf .= 'include => internal-originate' . "\n\n";
+
+        $conf .= '[miko-cti2-goto]' . "\n";
+        $conf .= 'exten => _[0-9*#+a-zA-Z][0-9*#+a-zA-Z]!,1,Wait(0.2)' . "\n\t";
+        $conf .= 'same => n,ExecIf($["${mikoContext}x" = "x"]?Set(mikoContext=all_peers))' . "\n\t";
+        $conf .= 'same => n,ExecIf($["${ORIGINATE_SRC_CHANNEL}x" != "x"]?ChannelRedirect(${ORIGINATE_SRC_CHANNEL},${mikoContext},${EXTEN},1))' . "\n\t";
+        $conf .= 'same => n,Hangup' . "\n";
+        $conf .= 'exten => failed,1,Hangup' . "\n\n";
+
+        $conf .= '[miko-cti2-spy]' . "\n";
+        $conf .= 'exten => _[0-9*#+a-zA-Z][0-9*#+a-zA-Z]!,1,Answer()' . "\n\t";
+        $conf .= 'same => n,ExecIf($["${SPY_ARGS}x" != "x"]?ChanSpy(${DST_CHANNEL},${SPY_ARGS}))' . "\n\t";
+        $conf .= 'same => n,Hangup' . "\n\n";
+
+        $conf .= '[miko-cti2-playback-mp3]' . "\n";
+        $conf .= 'exten => _[0-9*#+a-zA-Z][0-9*#+a-zA-Z]!,1,Answer()' . "\n\t";
+        $conf .= 'same => n,ExecIf($["${FILENAME}x" != "x"]?MP3Player(${FILENAME}))' . "\n";
+        $conf .= 'same => n,Hangup' . "\n\n";
+
 
         return $conf;
     }

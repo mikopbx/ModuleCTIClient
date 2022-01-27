@@ -80,6 +80,7 @@ const moduleCTIClientConnectionCheckWorker = {
 				onSuccess() {
 					moduleCTIClientConnectionCheckWorker.changeStatus('Connected');
 					moduleCTIClientConnectionCheckWorker.errorCounts = 0;
+					window.clearTimeout(moduleCTIClientConnectionCheckWorker.timeoutHandle);
 				},
 				onFailure(response) {
 					if (Object.keys(response).length > 0
@@ -103,13 +104,13 @@ const moduleCTIClientConnectionCheckWorker = {
 									status1C = value.state;
 								}
 							});
-							if (status1C !== 'ok' && countHealthy === 5 ) {
+							if (status1C !== 'ok' && countHealthy === 6 ) {
 								if (moduleCTIClientConnectionCheckWorker.$webServiceToggle.checkbox('is checked')) {
 									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CError');
 								} else {
 									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CWait');
 								}
-							} else if (countHealthy < 5) {
+							} else if (countHealthy < 6) {
 								if (moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
 									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
 								} else {

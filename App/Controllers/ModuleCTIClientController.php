@@ -12,6 +12,7 @@ namespace Modules\ModuleCTIClient\App\Controllers;
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Common\Models\ExternalPhones;
 use MikoPBX\Common\Models\LanInterfaces;
+use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Common\Models\Providers;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Common\Models\Sip;
@@ -82,6 +83,7 @@ class ModuleCTIClientController extends BaseController
                 case 'debug_mode':
                 case 'web_service_mode':
                 case 'auto_settings_mode':
+                case 'setup_caller_id':
                     $record->$key = ($data[$key] === 'on') ? '1' : '0';
                     break;
                 default:
@@ -116,7 +118,7 @@ class ModuleCTIClientController extends BaseController
     {
         $extensionTable = [];
         $resultTable    = [];
-
+        $pjsipPort = PbxSettings::getValueByKey('SIPPort');
         $parameters = [
             'models'     => [
                 'Extensions' => Extensions::class,
@@ -158,6 +160,7 @@ class ModuleCTIClientController extends BaseController
                     $extensionTable[$extension->userid]['number']   = $extension->number;
                     $extensionTable[$extension->userid]['username'] = $extension->username;
                     $extensionTable[$extension->userid]['email']    = $extension->email;
+                    $extensionTable[$extension->userid]['port']     = $pjsipPort;
                     if ( ! empty($extension->avatar)) {
                         $extensionTable[$extension->userid]['avatar'] = md5($extension->avatar);
                     } else {
@@ -185,6 +188,7 @@ class ModuleCTIClientController extends BaseController
                 'mobile'   => $extension['mobile'],
                 'avatar'   => $extension['avatar'],
                 'email'    => $extension['email'],
+                'port'     => $extension['port'],
             ];
         }
 

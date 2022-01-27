@@ -154,19 +154,24 @@ class AmigoDaemons extends Di\Injectable
             $logrotatePath = Util::which('logrotate');
             Processes::mwExecBg("{$logrotatePath} $options '{$path_conf}' > /dev/null 2> /dev/null");
         }
+    }
 
-        // Очистка логов AMI.
+    /**
+     * Удаление логов старше недели
+     */
+    public function deleteOldLogs(): void
+    {
         $findPath  = Util::which('find');
         $rmPath    = Util::which('rm');
         $xargsPath = Util::which('xargs');
         Processes::mwExec(
-            "{$findPath} '{$log_dir}' -name '*.log.[0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+            "{$findPath} '{$this->dirs['logDir']}' -name '*.log.[0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
         );
         Processes::mwExec(
-            "{$findPath} '{$log_dir}' -name '*.log.[0-9][0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+            "{$findPath} '{$this->dirs['logDir']}' -name '*.log.[0-9][0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
         );
         Processes::mwExec(
-            "{$findPath} '{$log_dir}' -name '*.log' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+            "{$findPath} '{$this->dirs['logDir']}' -name '*.log' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
         );
     }
 
@@ -201,6 +206,17 @@ class AmigoDaemons extends Di\Injectable
     public function startAllServices(bool $restart = false): void
     {
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
+
+        $monitorPID = Processes::getPidOfProcess(self::SERVICE_MONITOR);
+        $gnatsPID = Processes::getPidOfProcess(self::SERVICE_GNATS);
+
+        if( $monitorPID !== ''
+            && $gnatsPID !== ''
+            && $restart === false
+            && $moduleEnabled  === true
+        ){
+            return; // Ничего не надо делать, все запущено и работает
+        }
 
         // GNATS
         $nats_process_log = $this->dirs['logDir'] . '/gnats_process.log';
@@ -267,7 +283,7 @@ class AmigoDaemons extends Di\Injectable
         $sessionsDir = "{$this->dirs['spoolDir']}/sessions";
         Util::mwMkdir($sessionsDir);
 
-        $logDir = "{$this->dirs['logDir']}/gnats";
+        $logDir = "{$this->dirs['logDir']}/". self::SERVICE_GNATS;
         Util::mwMkdir($logDir);
 
         $pid_file = "{$this->dirs['pidDir']}/gnatsd-cti.pid";
@@ -275,7 +291,7 @@ class AmigoDaemons extends Di\Injectable
         $settings = [
             'port'             => $this->getNatsPort(),
             'http_port'        => $this->getNatsHttpPort(),
-            'debug'            => 'false',
+            'debug'            => $this->module_settings['debug_mode'] ? 'true' : 'false',
             'trace'            => 'false',
             'logtime'          => 'true',
             'pid_file'         => $pid_file,
@@ -467,7 +483,7 @@ class AmigoDaemons extends Di\Injectable
             'long_poll'      => [
                 'port'               => '8224',
                 'event_time_to_live' => 10,
-            ],
+            ]
         ];
 
         if ($this->module_settings['web_service_mode'] === '1') {
@@ -577,8 +593,8 @@ class AmigoDaemons extends Di\Injectable
             'originate'            => [
                 'default_context'               => '',
                 'transfer_context'              => '',
-                'multiple_registration_support' => true,
                 'originate_context'             => '',
+                'multiple_registration_support' => true,
             ],
             'mq'                   => [
                 'host' => '127.0.0.1',
@@ -843,7 +859,7 @@ class AmigoDaemons extends Di\Injectable
     private function checkMonitorStatus(): array
     {
         $result = [
-            'name'  => 'monitord',
+            'name'  => self::SERVICE_MONITOR,
             'state' => 'unknown',
         ];
         $pid    = Processes::getPidOfProcess(self::SERVICE_MONITOR);

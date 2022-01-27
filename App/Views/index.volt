@@ -1,4 +1,4 @@
-<form class="ui large grey segment form" id="module-cti-client-form">
+<form class="ui large grey segment form disability" id="module-cti-client-form">
     <input type="hidden" name="dirrty" id="dirrty"/>
     <div class="ui grey top right attached label" id="status"><i
                 class="spinner loading icon"></i>{{ t._("mod_cti_UpdateStatus") }}</div>
@@ -10,7 +10,22 @@
 
     {# general tab #}
     <div class="ui bottom attached tab segment active" data-tab="settings">
-
+        {# Пока не даем в релиз <div class="field">
+            <div class="ui icon message">
+                <i class="wrench icon"></i>
+                <div class="content">
+                    <div class="header">{{ t._('mod_cti_OdinEsSetupHeaderMessage') }}</div>
+                    <ul class="list">
+                        <li>{{ t._('mod_cti_OdinEsSetupMessageStep1') }}</li>
+                        <li>{{ t._('mod_cti_OdinEsSetupMessageStep2') }}</li>
+                        <li>{{ t._('mod_cti_OdinEsSetupMessageStep3') }}</li>
+                        <li>{{ t._('mod_cti_OdinEsSetupMessageStep4') }}</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="ui hidden divider"></div>
+        #}
         <div class="field">
             <div class="ui segment">
                 <div class="ui toggle checkbox" id="auto-settings-mode-toggle">
@@ -20,6 +35,7 @@
             </div>
         </div>
         <div class="ui hidden divider"></div>
+
         <div class="field only-auto-settings">
             <label for="auto_settings_value">{{ t._('mod_cti_AutoSettingsData') }}</label>
               <textarea  name="auto_settings_value" readonly style="overflow: hidden; overflow-wrap: break-word; resize: horizontal; height: 134px;" spellcheck="false">{{ autoSettingsValue }}</textarea>
@@ -73,6 +89,15 @@
                 <div class="ui toggle checkbox " id="debug-mode-toggle">
                     {{ form.render('debug_mode') }}
                     <label>{{ t._('mod_cti_EnableDebugMode') }}</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox " id="setup-caller-id-toggle">
+                    {{ form.render('setup_caller_id') }}
+                    <label>{{ t._('mod_cti_EnableSetCallerID') }}</label>
                 </div>
             </div>
         </div>
