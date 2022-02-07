@@ -895,8 +895,10 @@ class AmigoDaemons extends Di\Injectable
         $parsedAnswer = json_decode($response, true);
         curl_close($curl);
         if ($parsedAnswer !== null
-            && $parsedAnswer['result'] === 'Success') {
-            $result = $parsedAnswer['data']['client'];
+            && $parsedAnswer['result'] === 'Success'
+            && !empty($parsedAnswer['data']['caller_id'])
+        ) {
+            $result = $parsedAnswer['data']['caller_id'];
         } else {
             $result = '';
         }

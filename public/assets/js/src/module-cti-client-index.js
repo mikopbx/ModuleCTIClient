@@ -10,6 +10,8 @@ const moduleCTIClient = {
 	$wsToggle: $('#web-service-mode-toggle'),
 	$wsToggleRadio: $('#module-cti-client-form .web-service-radio'),
 	$statusToggle: $('#module-status-toggle'),
+	$callerIdSetupToggle: $('#setup-caller-id-toggle'),
+	$callerIdTransliterationToggle: $('#transliterate-caller-id-toggle'),
 	$formObj: $('#module-cti-client-form'),
 	$moduleStatus: $('#status'),
 	$debugToggle: $('#debug-mode-toggle'),
@@ -63,6 +65,13 @@ const moduleCTIClient = {
 				},
 			});
 
+
+		moduleCTIClient.$callerIdSetupToggle
+			.checkbox({
+				onChange: moduleCTIClient.setCallerIdToggle
+			});
+
+
 		if (moduleCTIClient.$autoSettingsToggle.checkbox('is checked')){
 			moduleCTIClient.$onlyManualSettingsVisible.hide();
 		} else {
@@ -104,6 +113,7 @@ const moduleCTIClient = {
 			});
 		moduleCTIClient.initializeForm();
 		moduleCTIClient.checkStatusToggle();
+		moduleCTIClient.setCallerIdToggle();
 		window.addEventListener('ModuleStatusChanged', moduleCTIClient.checkStatusToggle);
 	},
 	/**
@@ -119,6 +129,17 @@ const moduleCTIClient = {
 			moduleCTIClient.$moduleStatus.hide();
 			$('.disability').addClass('disabled');
 			$('.message.ajax').remove();
+		}
+	},
+	/**
+	 * Переключатель установки CallerID из 1С
+	 * Прячет или показывает статус транслитерации
+	 */
+	setCallerIdToggle() {
+		if (moduleCTIClient.$callerIdSetupToggle.checkbox('is checked')) {
+			moduleCTIClient.$callerIdTransliterationToggle.show();
+		} else {
+			moduleCTIClient.$callerIdTransliterationToggle.hide();
 		}
 	},
 	/**

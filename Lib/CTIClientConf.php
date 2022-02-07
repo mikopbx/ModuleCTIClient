@@ -245,7 +245,6 @@ class CTIClientConf extends ConfigClass
      */
     public function generateIncomingRoutBeforeDial($rout_number): string
     {
-
         $conf = '';
         // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
         if ( ! PbxExtensionUtils::isEnabled('ModulePT1CCore')) {
@@ -256,8 +255,14 @@ class CTIClientConf extends ConfigClass
 
 
         $module_settings = ModuleCTIClient::findFirst();
-        if ($module_settings === null || $module_settings->setup_caller_id==='1') {
-            $conf .= "\t" . "same => n,AGI({$this->moduleDir}/agi-bin/set-caller-id.php)" . "\n\t";
+        if ($module_settings === null
+            || $module_settings->setup_caller_id === '1') {
+            if ($module_settings->transliterate_caller_id === '1') {
+                $agiFile = "set-caller-id-with-transliteration.php";
+            } else {
+                $agiFile = "set-caller-id.php";
+            }
+            $conf .= "\t" . "same => n,AGI({$this->moduleDir}/agi-bin/{$agiFile})" . "\n\t";
         }
 
         // Перехват на ответственного.

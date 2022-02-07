@@ -98,6 +98,13 @@ class ModuleCTIClient extends ModulesModelsBase
      */
     public ?string $setup_caller_id = '1';
 
+    /**
+     * Выполнять транслитерацию CallerID
+     *
+     * @Column(type='string', length=1, nullable=true, default='0')
+     */
+    public ?string $transliterate_caller_id = '0';
+
 
     public function initialize(): void
     {

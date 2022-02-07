@@ -101,6 +101,14 @@
                 </div>
             </div>
         </div>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox " id="transliterate-caller-id-toggle">
+                    {{ form.render('transliterate_caller_id') }}
+                    <label>{{ t._('mod_cti_TransliterateCallerID') }}</label>
+                </div>
+            </div>
+        </div>
     </div>
     {# debug tab #}
     <div class="ui bottom attached tab segment" data-tab="debug">
