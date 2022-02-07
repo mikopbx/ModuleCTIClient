@@ -43,7 +43,7 @@ return [
     'mod_cti_OdinEsSetupMessageStep2' => 'Запустите 1С монопольно в режиме предприятия',
     'mod_cti_OdinEsSetupMessageStep4' => 'Нажмите Ctrl+O (или Файл&#8594;Открыть) и выберите файл "Установщик.epf"',
     'mod_cti_EnableSetCallerID'       =>'Устанавливать CallerID из 1С',
-    'mod_cti_TransliterateCallerID'   => 'Выполнять транслитерацию CallerID из 1С',
+    'mod_cti_TransliterateCallerID'   => 'Выполнять транслитерацию CallerID полученного из 1С',
 
 
 ];
