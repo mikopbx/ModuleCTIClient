@@ -27,10 +27,12 @@ require_once 'Globals.php';
 try {
     $agi    = new AGI();
     $number = $agi->request['agi_callerid'];
-    $callerID = AmigoDaemons::getCallerId($number);
-    $agi->noop("Trying to find number {$number} on CRM system. Result is {$callerID}");
-    if (!empty($callerID)){
-        $agi->set_variable('CALLERID(name)', $callerID);
+    $callerIDName = AmigoDaemons::getCallerId($number);
+    if (!empty($callerIDName)){
+        $agi->set_variable('CALLERID(name)', $callerIDName);
+        $agi->noop('Receive a caller name "'.$callerIDName.'" from the CRM', 0);
+    } else {
+        $agi->noop('No any contact with the number "'.$number.'" on the CRM', 0);
     }
 } catch (\Throwable $e) {
     Util::sysLogMsg('ModuleCTIClient', $e->getMessage(), LOG_ERR);
