@@ -35,9 +35,9 @@ try {
     $callerIDName = Transliterate::ruToLat($russianText);
     if (!empty($callerIDName)){
         $agi->set_variable('CALLERID(name)', $callerIDName);
-        $agi->noop('Receive a caller name "'.$callerIDName.'" from the CRM', 0);
+        $agi->noop('Receive a caller name "'.$callerIDName.'" from the CRM');
     } else {
-        $agi->noop('No any contact with the number "'.$number.'" on the CRM', 0);
+        $agi->noop('No any contact with the number "'.$number.'" on the CRM');
     }
 } catch (\Throwable $e) {
     Util::sysLogMsg('ModuleCTIClient', $e->getMessage(), LOG_ERR);
