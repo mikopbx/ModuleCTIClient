@@ -101,7 +101,7 @@
                 </div>
             </div>
         </div>
-        <div class="field">
+        <div class="field" id="transliterate-caller-id-toggle-block">
             <div class="ui segment">
                 <div class="ui toggle checkbox " id="transliterate-caller-id-toggle">
                     {{ form.render('transliterate_caller_id') }}

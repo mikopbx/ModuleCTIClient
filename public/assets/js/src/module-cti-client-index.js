@@ -11,7 +11,7 @@ const moduleCTIClient = {
 	$wsToggleRadio: $('#module-cti-client-form .web-service-radio'),
 	$statusToggle: $('#module-status-toggle'),
 	$callerIdSetupToggle: $('#setup-caller-id-toggle'),
-	$callerIdTransliterationToggle: $('#transliterate-caller-id-toggle'),
+	$callerIdTransliterationToggleBlock: $('#transliterate-caller-id-toggle-block'),
 	$formObj: $('#module-cti-client-form'),
 	$moduleStatus: $('#status'),
 	$debugToggle: $('#debug-mode-toggle'),
@@ -137,9 +137,9 @@ const moduleCTIClient = {
 	 */
 	setCallerIdToggle() {
 		if (moduleCTIClient.$callerIdSetupToggle.checkbox('is checked')) {
-			moduleCTIClient.$callerIdTransliterationToggle.show();
+			moduleCTIClient.$callerIdTransliterationToggleBlock.show();
 		} else {
-			moduleCTIClient.$callerIdTransliterationToggle.hide();
+			moduleCTIClient.$callerIdTransliterationToggleBlock.hide();
 		}
 	},
 	/**

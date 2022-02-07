@@ -25,7 +25,7 @@ return [
     'mod_cti_AuthApp_Name'               => 'Регистрация внешней панели',
     'mod_cti_AuthApp_Description'        => 'Позволяет привязать панель к SIP учетке по цифровому коду',
     'mod_cti_EnableDebugMode'            => 'Включить режим отладки модуля и логирования всех событий',
-    'mod_cti_AutoSettingsData'           =>'Данные для автоматической настройки',
+    'mod_cti_AutoSettingsData'           => 'Данные для автоматической настройки',
 
     'mod_cti_Connected'           => 'Модуль работает корректно',
     'mod_cti_Disconnected'        => 'Отключен',
@@ -35,15 +35,15 @@ return [
     'mod_cti_UpdateStatus'        => 'Обновление статуса',
     'mod_cti_ConnectionWait'      => 'Ожидаем подключения к MikoPBX со стороны 1С',
 
-    'mod_cti_tab_Settings'        => 'Настройки',
-    'mod_cti_tab_debug'           => 'Отладка сервисов модуля',
-    'mod_cti_OdinEsSetupHeaderMessage'  => 'Установите подсистему телефонии в 1С:Предприятие 8',
-    'mod_cti_OdinEsSetupMessageStep1' => 'Сделайте резервную копию вашей базы 1С',
-    'mod_cti_OdinEsSetupMessageStep3' => 'Скачайте установщик расширений &nbsp;<a href="https://files.miko.ru/s/y4NDTu98t5Am8vq" target="_blank">по ссылке <i class="cloud download icon"></i></a>',
-    'mod_cti_OdinEsSetupMessageStep2' => 'Запустите 1С монопольно в режиме предприятия',
-    'mod_cti_OdinEsSetupMessageStep4' => 'Нажмите Ctrl+O (или Файл&#8594;Открыть) и выберите файл "Установщик.epf"',
-    'mod_cti_EnableSetCallerID'       =>'Устанавливать CallerID из 1С',
-    'mod_cti_TransliterateCallerID'   => 'Выполнять транслитерацию CallerID полученного из 1С',
+    'mod_cti_tab_Settings'             => 'Настройки',
+    'mod_cti_tab_debug'                => 'Отладка сервисов модуля',
+    'mod_cti_OdinEsSetupHeaderMessage' => 'Установите подсистему телефонии в 1С:Предприятие 8',
+    'mod_cti_OdinEsSetupMessageStep1'  => 'Сделайте резервную копию вашей базы 1С',
+    'mod_cti_OdinEsSetupMessageStep3'  => 'Скачайте установщик расширений &nbsp;<a href="https://files.miko.ru/s/y4NDTu98t5Am8vq" target="_blank">по ссылке <i class="cloud download icon"></i></a>',
+    'mod_cti_OdinEsSetupMessageStep2'  => 'Запустите 1С монопольно в режиме предприятия',
+    'mod_cti_OdinEsSetupMessageStep4'  => 'Нажмите Ctrl+O (или Файл&#8594;Открыть) и выберите файл "Установщик.epf"',
+    'mod_cti_EnableSetCallerID'        => 'Устанавливать CallerID из 1С',
+    'mod_cti_TransliterateCallerID'    => 'Выполнять транслитерацию CallerID полученного из 1С',
 
 
 ];
