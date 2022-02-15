@@ -510,6 +510,7 @@ class AmigoDaemons extends Di\Injectable
     private function generateAuthdConf(): void
     {
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_AUTH;
+        $cachePath = "{$this->dirs['moduleDir']}/db/auth";
         Util::mwMkdir($logDir);
 
         $settings_auth = [
@@ -519,12 +520,7 @@ class AmigoDaemons extends Di\Injectable
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'auth'      => [
-                'authorization'   => 'os',
-                'settings_dir'    => '',
-                'settings_source' => 'crm',
-                'askozia_support' => true,
-            ],
+            'cache_path'=> "{$cachePath}/cache.db",
         ];
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/auth.json",
@@ -554,7 +550,7 @@ class AmigoDaemons extends Di\Injectable
                 'port' => '8228',
             ],
             'database'  => [
-                'path' => "$dataBasePath/cache.db",
+                'path' => "{$dataBasePath}/cache.db",
             ],
             'whats_app' => [
                 'timeout'     => 30,
