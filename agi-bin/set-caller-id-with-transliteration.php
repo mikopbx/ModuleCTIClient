@@ -19,15 +19,20 @@
  */
 
 
+
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Asterisk\AGI;
 use Modules\ModuleCTIClient\Lib\AmigoDaemons;
+use Modules\ModuleCTIClient\Lib\Transliterate;
+
 
 require_once 'Globals.php';
+
 try {
     $agi    = new AGI();
     $number = $agi->request['agi_callerid'];
-    $callerIDName = AmigoDaemons::getCallerId($number);
+    $russianText = AmigoDaemons::getCallerId($number);
+    $callerIDName = Transliterate::ruToLat($russianText);
     if (!empty($callerIDName)){
         $agi->set_variable('CALLERID(name)', $callerIDName);
         $agi->noop('Receive a caller name "'.$callerIDName.'" from the CRM');
@@ -37,3 +42,6 @@ try {
 } catch (\Throwable $e) {
     Util::sysLogMsg('ModuleCTIClient', $e->getMessage(), LOG_ERR);
 }
+
+
+

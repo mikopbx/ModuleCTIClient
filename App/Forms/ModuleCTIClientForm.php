@@ -56,5 +56,12 @@ class ModuleCTIClientForm extends Form
             $cheskarr = ['checked' => 'checked', 'value' => null];
         }
         $this->add(new Check('setup_caller_id', $cheskarr));
+
+        // Set Transliterate caller ID
+         $cheskarr = ['value' => null];
+        if ($entity->transliterate_caller_id==='1') {
+            $cheskarr = ['checked' => 'checked', 'value' => null];
+        }
+        $this->add(new Check('transliterate_caller_id', $cheskarr));
     }
 }

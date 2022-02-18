@@ -10,7 +10,7 @@
 
     {# general tab #}
     <div class="ui bottom attached tab segment active" data-tab="settings">
-        {# Пока не даем в релиз <div class="field">
+        <div class="field">
             <div class="ui icon message">
                 <i class="wrench icon"></i>
                 <div class="content">
@@ -25,7 +25,6 @@
             </div>
         </div>
         <div class="ui hidden divider"></div>
-        #}
         <div class="field">
             <div class="ui segment">
                 <div class="ui toggle checkbox" id="auto-settings-mode-toggle">
@@ -98,6 +97,14 @@
                 <div class="ui toggle checkbox " id="setup-caller-id-toggle">
                     {{ form.render('setup_caller_id') }}
                     <label>{{ t._('mod_cti_EnableSetCallerID') }}</label>
+                </div>
+            </div>
+        </div>
+        <div class="field" id="transliterate-caller-id-toggle-block">
+            <div class="ui segment">
+                <div class="ui toggle checkbox " id="transliterate-caller-id-toggle">
+                    {{ form.render('transliterate_caller_id') }}
+                    <label>{{ t._('mod_cti_TransliterateCallerID') }}</label>
                 </div>
             </div>
         </div>

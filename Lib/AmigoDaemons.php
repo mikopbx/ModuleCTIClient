@@ -208,13 +208,13 @@ class AmigoDaemons extends Di\Injectable
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
 
         $monitorPID = Processes::getPidOfProcess(self::SERVICE_MONITOR);
-        $gnatsPID = Processes::getPidOfProcess(self::SERVICE_GNATS);
+        $gnatsPID   = Processes::getPidOfProcess(self::SERVICE_GNATS);
 
-        if( $monitorPID !== ''
+        if ($monitorPID !== ''
             && $gnatsPID !== ''
             && $restart === false
-            && $moduleEnabled  === true
-        ){
+            && $moduleEnabled === true
+        ) {
             return; // Ничего не надо делать, все запущено и работает
         }
 
@@ -283,7 +283,7 @@ class AmigoDaemons extends Di\Injectable
         $sessionsDir = "{$this->dirs['spoolDir']}/sessions";
         Util::mwMkdir($sessionsDir);
 
-        $logDir = "{$this->dirs['logDir']}/". self::SERVICE_GNATS;
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_GNATS;
         Util::mwMkdir($logDir);
 
         $pid_file = "{$this->dirs['pidDir']}/gnatsd-cti.pid";
@@ -483,7 +483,7 @@ class AmigoDaemons extends Di\Injectable
             'long_poll'      => [
                 'port'               => '8224',
                 'event_time_to_live' => 10,
-            ]
+            ],
         ];
 
         if ($this->module_settings['web_service_mode'] === '1') {
@@ -510,6 +510,7 @@ class AmigoDaemons extends Di\Injectable
     private function generateAuthdConf(): void
     {
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_AUTH;
+        $cachePath = "{$this->dirs['moduleDir']}/db/auth";
         Util::mwMkdir($logDir);
 
         $settings_auth = [
@@ -519,12 +520,7 @@ class AmigoDaemons extends Di\Injectable
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'auth'      => [
-                'authorization'   => 'os',
-                'settings_dir'    => '',
-                'settings_source' => 'crm',
-                'askozia_support' => true,
-            ],
+            'cache_path'=> "{$cachePath}/cache.db",
         ];
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/auth.json",
@@ -554,7 +550,7 @@ class AmigoDaemons extends Di\Injectable
                 'port' => '8228',
             ],
             'database'  => [
-                'path' => "$dataBasePath/cache.db",
+                'path' => "{$dataBasePath}/cache.db",
             ],
             'whats_app' => [
                 'timeout'     => 30,
@@ -894,11 +890,15 @@ class AmigoDaemons extends Di\Injectable
         }
         $parsedAnswer = json_decode($response, true);
         curl_close($curl);
+        $result = '';
         if ($parsedAnswer !== null
-            && $parsedAnswer['result'] === 'Success') {
-            $result = $parsedAnswer['data']['client'];
-        } else {
-            $result = '';
+            && $parsedAnswer['result'] === 'Success'
+        ) {
+            if ( ! empty($parsedAnswer['data']['caller_id'])) {
+                $result = $parsedAnswer['data']['caller_id'];
+            } elseif ( ! empty($parsedAnswer['data']['client'])) {
+                $result = $parsedAnswer['data']['client'];
+            }
         }
 
         return $result;
