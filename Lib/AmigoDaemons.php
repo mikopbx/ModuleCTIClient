@@ -505,13 +505,14 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигураци для authd.
+     * Создание файла конфигурации для authd.
      */
     private function generateAuthdConf(): void
     {
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_AUTH;
         $cachePath = "{$this->dirs['moduleDir']}/db/auth";
         Util::mwMkdir($logDir);
+        Util::mwMkdir($cachePath);
 
         $settings_auth = [
             'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
@@ -530,7 +531,7 @@ class AmigoDaemons extends Di\Injectable
 
 
     /**
-     * Создание файла конфигураци для chatsd.
+     * Создание файла конфигурации для chatsd.
      */
     private function generateChatsConf(): void
     {
@@ -566,7 +567,7 @@ class AmigoDaemons extends Di\Injectable
 
 
     /**
-     * Создание файла конфигураци для authd.
+     * Создание файла конфигурации для authd.
      */
     private function generateAmidConf(): void
     {
@@ -576,7 +577,7 @@ class AmigoDaemons extends Di\Injectable
         $WEBPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('WEBPort'));
         $AMIPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('AMIPort'));
 
-        // Поддержка перехвата на ответвенного
+        // Поддержка перехвата на ответственного
         $pbxVersion          = PbxSettings::getValueByKey('PBXVersion');
         $interceptionSupport = false;
         if (version_compare($pbxVersion, '2021.3.23', '>')) {
@@ -684,7 +685,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигураци для speechd.
+     * Создание файла конфигурации для speechd.
      */
     private function generateSpeechdConf(): void
     {

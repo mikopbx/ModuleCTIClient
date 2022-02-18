@@ -10,7 +10,7 @@
 
     {# general tab #}
     <div class="ui bottom attached tab segment active" data-tab="settings">
-        <div class="field">
+        {# <div class="field">
             <div class="ui icon message">
                 <i class="wrench icon"></i>
                 <div class="content">
@@ -23,7 +23,7 @@
                     </ul>
                 </div>
             </div>
-        </div>
+        </div> #}
         <div class="ui hidden divider"></div>
         <div class="field">
             <div class="ui segment">
