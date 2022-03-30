@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => '适用于1C的电话面板1.0：企业',
+    'BreadcrumbModuleCTIClient' => '适用于1C的电话面板4.0：企业',
     'SubHeaderModuleCTIClient' => '用于管理来自计算机的呼叫的模块',
-    'fw_modulecticlientDescription' => 'CTI CLIENT-1C的电话面板1.0',
+    'fw_modulecticlientDescription' => 'CTI CLIENT-1C的电话面板4.0',
     'mod_cti_ValidateServer1CHostEmpty' => '1C服务器地址未填写',
     'mod_cti_ValidateServer1CPortRange' => '1C服务器的端口没有正确指定',
     'mod_cti_ValidatePubName' => '未指定 1C 网络服务的发布名称',

@@ -7,7 +7,7 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => '1C用テレフォニーパネル1.0',
+    'BreadcrumbModuleCTIClient' => '1C用テレフォニーパネル4.0',
     'SubHeaderModuleCTIClient' => 'PC呼制御モジュール',
     'fw_modulecticlientDescription' => 'CTICLIENT-1C用テレフォニーパネル1.0',
     'mod_cti_ValidateServer1CHostEmpty' => '1Cサーバーアドレスが入力されていません',

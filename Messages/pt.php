@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Painel de telefonia 1.0 para 1C',
+    'BreadcrumbModuleCTIClient' => 'Painel de telefonia 4.0 para 1C',
     'SubHeaderModuleCTIClient' => 'Módulo de controle de chamadas para PC',
-    'fw_modulecticlientDescription' => 'CLIENTE CTI - Painel de telefonia 1.0 para 1C',
+    'fw_modulecticlientDescription' => 'CLIENTE CTI - Painel de telefonia 4.0 para 1C',
     'mod_cti_ValidateServer1CHostEmpty' => 'O endereço do servidor 1C não foi preenchido',
     'mod_cti_ValidateServer1CPortRange' => 'A porta do servidor 1C não foi especificada corretamente',
     'mod_cti_ValidatePubName' => 'O nome da publicação do serviço da web 1C não é especificado',
