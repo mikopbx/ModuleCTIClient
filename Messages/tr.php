@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => '1C için telefon paneli 2.0',
+    'BreadcrumbModuleCTIClient' => '1C için telefon paneli 4.0',
     'SubHeaderModuleCTIClient' => 'PC çağrı kontrol modülü',
-    'fw_modulecticlientDescription' => 'CTI CLIENT - 1C için telefon paneli 2.0',
+    'fw_modulecticlientDescription' => 'CTI CLIENT - 1C için telefon paneli 4.0',
     'mod_cti_ValidateServer1CHostEmpty' => '1C sunucu adresi doldurulmadı',
     'mod_cti_ValidateServer1CPortRange' => '1C sunucusunun bağlantı noktası doğru belirtilmemiş',
     'mod_cti_ValidatePubName' => '1C web hizmetinin yayın adı belirtilmedi',

@@ -7,7 +7,7 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Panneau de téléphonie 1.0 pour 1C',
+    'BreadcrumbModuleCTIClient' => 'Panneau de téléphonie 4.0 pour 1C',
     'SubHeaderModuleCTIClient' => 'Module de contrôle d\'appel PC',
     'fw_modulecticlientDescription' => 'CTI CLIENT - Panneau de téléphonie 1.0 pour 1C',
     'mod_cti_ValidateServer1CHostEmpty' => 'L\'adresse du serveur 1C n\'est pas renseignée',

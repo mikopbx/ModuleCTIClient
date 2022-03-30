@@ -7,7 +7,7 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Telefonipanel 1.0 til 1C',
+    'BreadcrumbModuleCTIClient' => 'Telefonipanel 4.0 til 1C',
     'SubHeaderModuleCTIClient' => 'Modul til styring af opkald fra en computer',
     'fw_modulecticlientDescription' => 'CTI CLIENT - Telefonipanel 1.0 til 1C',
     'mod_cti_ValidateServer1CHostEmpty' => '1C serveradresse er ikke udfyldt',

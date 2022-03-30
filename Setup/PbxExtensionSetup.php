@@ -31,7 +31,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
      *
      * Регистрирует модуль в PbxExtensionModules
      *
-     * @return bool результат установки
+     * @return bool Результат установки
      */
     public function installDB(): bool
     {
@@ -142,7 +142,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     /**
      * Выполняет копирование необходимых файлов, в папки системы
      *
-     * @return bool результат установки
+     * @return bool Результат установки
      */
     public function installFiles(): bool
     {
@@ -182,7 +182,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
      *
      * @param  $keepSettings - оставляет таблицу с данными своей модели
      *
-     * @return bool результат очистки
+     * @return bool Результат очистки
      */
     public function unInstallDB($keepSettings = false): bool
     {
@@ -198,10 +198,10 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     }
 
     /**
-     * Выполняет удаление своих файлов с остановной процессов
+     * Выполняет удаление своих файлов с остановкой процессов
      * при необходимости
      *
-     * @return bool результат удаления
+     * @return bool Результат удаления
      */
     public function unInstallFiles($keepSettings = false): bool
     {
@@ -235,9 +235,9 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     }
 
     /**
-     * Выполняет активацию триалов, проверку лицензионного клчюча
+     * Выполняет активацию триалов, проверку лицензионного ключа
      *
-     * @return bool результат активации лицензии
+     * @return bool Результат активации лицензии
      */
     public function activateLicense(): bool
     {
@@ -247,10 +247,8 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
 
             return false;
         }
-        // Получение пробной лицензии. Продукт "Панель телефонии для 1С".
-        $this->license->addtrial('3');
-        // Продукт "Журнал звонков".
-        $this->license->addtrial('8');
+        // Получение пробной лицензии. Продукт "Панель телефонии для 1С версии ПРОФ".
+        $this->license->addtrial('85');
 
         return true;
     }

@@ -26,7 +26,7 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Panel de telefonía 1.0 para 1C',
+    'BreadcrumbModuleCTIClient' => 'Panel de telefonía 4.0 para 1C',
     'mod_cti_ConnectionWait' => 'Estamos esperando una conexión a MikoPBX desde el lado 1C',
     'mod_cti_AutoSettingsData' => 'Datos para configuración automática',
     'mod_cti_PublicationOverLongPool' => 'a través de la conexión LongPool (1C se conecta a MikoPBX)',

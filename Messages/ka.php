@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'სატელეფონო პანელი 1.0 1C-სთვის',
+    'BreadcrumbModuleCTIClient' => 'სატელეფონო პანელი 4.0 1C-სთვის',
     'SubHeaderModuleCTIClient' => 'მოდული კომპიუტერიდან ზარების მართვისთვის',
-    'fw_modulecticlientDescription' => 'CTI CLIENT - სატელეფონო პანელი 1.0 1C-ისთვის',
+    'fw_modulecticlientDescription' => 'CTI CLIENT - სატელეფონო პანელი 4.0 1C-ისთვის',
     'mod_cti_ValidateServer1CHostEmpty' => '1C სერვერის მისამართი არ არის შევსებული',
     'mod_cti_ValidateServer1CPortRange' => '1C სერვერის პორტი სწორად არ არის მითითებული',
     'mod_cti_ValidatePubName' => '1C ვებ სერვისის პუბლიკაციის სახელი არ არის მითითებული',

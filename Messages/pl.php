@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Panel telefoniczny 1.0 dla 1C',
+    'BreadcrumbModuleCTIClient' => 'Panel telefoniczny 4.0 dla 1C',
     'SubHeaderModuleCTIClient' => 'Moduł kontroli połączeń PC',
-    'fw_modulecticlientDescription' => 'CTI CLIENT - Panel telefoniczny 1.0 dla 1C',
+    'fw_modulecticlientDescription' => 'CTI CLIENT - Panel telefoniczny 4.0 dla 1C',
     'mod_cti_ValidateServer1CHostEmpty' => 'Adres serwera 1C nie jest wypełniony',
     'mod_cti_ValidateServer1CPortRange' => 'Port serwera 1C nie jest poprawnie określony',
     'mod_cti_ValidatePubName' => 'Nie określono nazwy publikacji usługi internetowej 1C',
