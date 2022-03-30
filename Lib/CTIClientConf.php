@@ -287,9 +287,9 @@ class CTIClientConf extends ConfigClass
         $conf           .= 'same => n,Meetme(${mikoidconf},' . $rec_options . '${mikoparamconf})' . "\n\t";
         $conf           .= 'same => n,Hangup()' . "\n\n";
 
-
         $conf .= '[miko-cti2-originate]' . "\n";
-        $conf .= 'include => internal-originate' . "\n\n";
+        $conf .= 'exten => _[0-9*#+a-zA-Z][0-9*#+a-zA-Z]!,1,Set(pt1c_cid=${origCid})' . "\n\t";
+        $conf .= 'same => n,Goto(internal-originate,${EXTEN},1)' . "\n\n";
 
         $conf .= '[miko-cti2-goto]' . "\n";
         $conf .= 'exten => _[0-9*#+a-zA-Z][0-9*#+a-zA-Z]!,1,Wait(0.2)' . "\n\t";
@@ -297,6 +297,11 @@ class CTIClientConf extends ConfigClass
         $conf .= 'same => n,ExecIf($["${ORIGINATE_SRC_CHANNEL}x" != "x"]?ChannelRedirect(${ORIGINATE_SRC_CHANNEL},${mikoContext},${EXTEN},1))' . "\n\t";
         $conf .= 'same => n,Hangup' . "\n";
         $conf .= 'exten => failed,1,Hangup' . "\n\n";
+
+        $conf .= '[miko-cti2-interception-bridge]' . "\n";
+        $conf .= 'exten => _[0-9*#+a-zA-Z][0-9*#+a-zA-Z]!,1,Set(pt1c_cid=${origCid})' . "\n\t";
+        $conf .= 'same => n,Goto(interception-bridge,${EXTEN},1)' . "\n\n";
+
 
         $conf .= '[miko-cti2-spy]' . "\n";
         $conf .= 'exten => _[0-9*#+a-zA-Z][0-9*#+a-zA-Z]!,1,Answer()' . "\n\t";

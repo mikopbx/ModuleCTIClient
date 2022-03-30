@@ -487,12 +487,16 @@ class AmigoDaemons extends Di\Injectable
         ];
 
         if ($this->module_settings['web_service_mode'] === '1') {
+            $cookiesDir = "{$this->dirs['spoolDir']}/cookies";
+            Util::mwMkdir($cookiesDir);
+
             $settings_crm['wsdl'] = [
                 'host'       => $this->module_settings['server1chost'],
                 'port'       => $this->module_settings['server1cport'],
                 'login'      => $this->module_settings['login'],
                 'password'   => $this->module_settings['secret'],
                 'url'        => "/{$this->module_settings['database']}/ws/miko_crm_api.1cws",
+                'cookie_path'=> $cookiesDir,
                 'keep-alive' => 3000,
                 'timeout'    => 10,
             ];
