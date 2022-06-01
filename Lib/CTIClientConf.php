@@ -56,7 +56,7 @@ class CTIClientConf extends ConfigClass
     }
 
     /**
-     * Генератор сеции пиров для manager.conf
+     * Генератор секции пиров для manager.conf
      *
      *
      * @return string
@@ -207,7 +207,7 @@ class CTIClientConf extends ConfigClass
                     ],
                 ],
                 'action'    => 'allow',
-                'shortName' => 'CTI client 2.0',
+                'shortName' => 'CTI client 4.0',
             ],
         ];
     }

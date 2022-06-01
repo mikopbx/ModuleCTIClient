@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Telefonipanel 1.0 til 1C',
+    'BreadcrumbModuleCTIClient' => 'Telefonipanel 4.0 til 1C',
     'SubHeaderModuleCTIClient' => 'Modul til styring af opkald fra en computer',
-    'fw_modulecticlientDescription' => 'CTI CLIENT - Telefonipanel 1.0 til 1C',
+    'fw_modulecticlientDescription' => 'CTI CLIENT - Telefonipanel 4.0 til 1C',
     'mod_cti_ValidateServer1CHostEmpty' => '1C serveradresse er ikke udfyldt',
     'mod_cti_ValidateServer1CPortRange' => 'Porten på 1C-serveren er ikke angivet korrekt',
     'mod_cti_ValidatePubName' => 'Udgivelsesnavnet på 1C-webtjenesten er ikke angivet',
@@ -34,4 +34,11 @@ return [
     'mod_cti_ConnectionWait' => 'Vi venter på forbindelse til MikoPBX fra 1C-siden',
     'mod_cti_tab_Settings' => 'Indstillinger',
     'mod_cti_tab_debug' => 'Debugging modul tjenester',
+    'mod_cti_TransliterateCallerID' => 'Udfør translitteration af nummervisning modtaget fra 1C',
+    'mod_cti_EnableSetCallerID' => 'Installer nummervisning fra 1C',
+    'mod_cti_OdinEsSetupMessageStep4' => 'Tryk på Ctrl+O (eller File&#8594;Åbn), og vælg filen "Installer.epf"',
+    'mod_cti_OdinEsSetupMessageStep2' => 'Kør 1C udelukkende i virksomhedstilstand',
+    'mod_cti_OdinEsSetupMessageStep3' => 'Download udvidelsesinstallationsprogrammet &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> fra linket <i class="cloud download icon"></i></a>',
+    'mod_cti_OdinEsSetupMessageStep1' => 'Lav en sikkerhedskopi af din 1C-database',
+    'mod_cti_OdinEsSetupHeaderMessage' => 'Installer telefoniundersystemet i 1C:Enterprise 8',
 ];

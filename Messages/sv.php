@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Telefonipanel 2.0 för 1C',
+    'BreadcrumbModuleCTIClient' => 'Telefonipanel 4.0 för 1C',
     'SubHeaderModuleCTIClient' => 'PC-anropskontrollmodul',
-    'fw_modulecticlientDescription' => 'CTI CLIENT - Telefonipanel 2.0 för 1C',
+    'fw_modulecticlientDescription' => 'CTI CLIENT - Telefonipanel 4.0 för 1C',
     'mod_cti_ValidateServer1CHostEmpty' => '1C-serveradressen är inte ifylld',
     'mod_cti_ValidateServer1CPortRange' => 'Porten för 1C-servern är inte korrekt angiven',
     'mod_cti_ValidatePubName' => 'Publiceringsnamnet för 1C-webbtjänsten är inte specificerat',

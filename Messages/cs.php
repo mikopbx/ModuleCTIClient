@@ -23,7 +23,7 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Telefonní panel 1.0 pro 1C',
+    'BreadcrumbModuleCTIClient' => 'Telefonní panel 4.0 pro 1C',
     'mod_cti_EnableDebugMode' => 'Povolit ladění modulu a protokolování všech událostí',
     'mod_cti_PublicationOverHeader' => 'Režim připojení s 1C',
     'mod_cti_UseAutoSettings' => 'Automatická konfigurace modulu',

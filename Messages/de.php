@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Telefoniepanel 1.0 für 1C',
+    'BreadcrumbModuleCTIClient' => 'Telefoniepanel 4.0 für 1C',
     'SubHeaderModuleCTIClient' => 'PC-Anrufsteuerungsmodul',
-    'fw_modulecticlientDescription' => 'CTI CLIENT - Telefonie-Panel 1.0 für 1C',
+    'fw_modulecticlientDescription' => 'CTI CLIENT - Telefoniepanel 4.0 für 1C',
     'mod_cti_ValidateServer1CHostEmpty' => '1C Serveradresse ist nicht ausgefüllt',
     'mod_cti_ValidateServer1CPortRange' => 'Der Port des 1C-Servers ist nicht richtig angegeben',
     'mod_cti_ValidatePubName' => 'Der Veröffentlichungsname des 1C-Webdienstes ist nicht angegeben',
@@ -17,7 +17,7 @@ return [
     'mod_cti_Login' => 'Login für 1C Webservice',
     'mod_cti_Password' => 'Passwort für die Autorisierung in 1C',
     'mod_cti_PublicationName' => 'Name der Veröffentlichung',
-    'mod_cti_UseAutoSettings' => 'Automatische Modulkonfiguration',
+    'mod_cti_UseAutoSettings' => 'Automatische Konfiguration der Kommunikationsparameter des Moduls und 1C',
     'mod_cti_PublicationOverHeader' => 'Verbindungsmodus mit 1C',
     'mod_cti_PublicationOverWebServices' => 'über Webservice (MikoPBX verbindet sich mit 1C)',
     'mod_cti_PublicationOverLongPool' => 'über LongPool-Verbindung (1C verbindet sich mit MikoPBX)',
@@ -34,4 +34,11 @@ return [
     'mod_cti_ConnectionWait' => 'Wir warten auf die Verbindung zu MikoPBX von der 1C-Seite',
     'mod_cti_tab_Settings' => 'Einstellungen',
     'mod_cti_tab_debug' => 'Debugging-Moduldienste',
+    'mod_cti_TransliterateCallerID' => 'Transliteration der von 1C empfangenen CallerID durchführen',
+    'mod_cti_EnableSetCallerID' => 'CallerID von 1C installieren',
+    'mod_cti_OdinEsSetupMessageStep4' => 'Drücken Sie Strg+O (oder Datei&#8594;Öffnen) und wählen Sie die Datei „Установщик.epf“ aus',
+    'mod_cti_OdinEsSetupMessageStep2' => 'Führen Sie 1C ausschließlich im Unternehmensmodus aus',
+    'mod_cti_OdinEsSetupMessageStep3' => 'Laden Sie das Installationsprogramm für die Erweiterung &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> über den Link <i class="cloud download icon"></i></a> herunter',
+    'mod_cti_OdinEsSetupMessageStep1' => 'Erstellen Sie eine Sicherungskopie Ihrer 1C-Datenbank',
+    'mod_cti_OdinEsSetupHeaderMessage' => 'Installieren Sie das Telefonie-Subsystem in 1C:Enterprise 8',
 ];

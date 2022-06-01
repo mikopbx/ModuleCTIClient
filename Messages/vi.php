@@ -7,9 +7,9 @@ return [
  * Written by Nikolay Beketov, 9 2018
  *
  */
-    'BreadcrumbModuleCTIClient' => 'Bảng điều khiển điện thoại 2.0 cho 1C',
+    'BreadcrumbModuleCTIClient' => 'Bảng điều khiển điện thoại 4.0 cho 1C',
     'SubHeaderModuleCTIClient' => 'Mô-đun quản lý cuộc gọi từ máy tính',
-    'fw_modulecticlientDescription' => 'CTI CLIENT - Bảng điện thoại 2.0 cho 1C',
+    'fw_modulecticlientDescription' => 'CTI CLIENT - Bảng điện thoại 4.0 cho 1C',
     'mod_cti_ValidateServer1CHostEmpty' => 'Địa chỉ máy chủ 1C không được điền',
     'mod_cti_ValidateServer1CPortRange' => 'Cổng của máy chủ 1C không được chỉ định chính xác',
     'mod_cti_ValidatePubName' => 'Tên xuất bản của dịch vụ web 1C không được chỉ định',
