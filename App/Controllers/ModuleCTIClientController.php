@@ -85,13 +85,13 @@ class ModuleCTIClientController extends BaseController
                 case 'auto_settings_mode':
                 case 'setup_caller_id':
                 case 'transliterate_caller_id':
-                    $record->$key = ($data[$key] === 'on') ? '1' : '0';
+                    if(isset($data[$key])){
+                        $record->$key = ($data[$key] === 'on') ? '1' : '0';
+                    }
                     break;
                 default:
                     if (array_key_exists($key, $data)) {
                         $record->$key = $data[$key];
-                    } else {
-                        $record->$key = '';
                     }
             }
         }
