@@ -90,6 +90,7 @@ class CTIClientConf extends ConfigClass
             'MeetmeJoin',
             'MeetmeLeave',
             'MeetmeTalking',
+            'MessageWaiting',
             'MusicOnHold',
             'MusicOnHoldStart',
             'NewCallerid',
