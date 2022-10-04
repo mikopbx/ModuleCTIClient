@@ -3,5 +3,5 @@
   "moduleUniqueID":"ModuleCTIClient",
   "support_email": "help@miko.ru",
   "version": "%ModuleVersion%",
-  "min_pbx_version": "2020.2.757"
+  "min_pbx_version": "2022.3.15"
 }
