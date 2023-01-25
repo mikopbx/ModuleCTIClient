@@ -109,6 +109,8 @@ class CTIClientConf extends ConfigClass
             'DataGetTree',
             'QueueCallerJoin',
             'QueueCallerLeave',
+            'QueueMember',
+            'QueueStatusComplete'
         ];
         $managerUser = self::MODULE_AMI_USER;
         $conf        = "[{$managerUser}]" . PHP_EOL;
