@@ -18,7 +18,9 @@ use MikoPBX\Modules\Setup\PbxExtensionSetupBase;
 use Modules\ModuleCTIClient\Lib\AmigoDaemons;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 
-
+/**
+ * @property array $messages
+ */
 class PbxExtensionSetup extends PbxExtensionSetupBase
 {
 
@@ -177,10 +179,10 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     }
 
     /**
-     * Удаляет запись о модуле из PbxExtensionModules
+     * Удаляет запись о модуле из PbxExtensionModules.
      * Удаляет свою модель
      *
-     * @param  $keepSettings - оставляет таблицу с данными своей модели
+     * @param  $keepSettings string Оставляет таблицу с данными своей модели
      *
      * @return bool Результат очистки
      */

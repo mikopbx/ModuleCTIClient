@@ -892,10 +892,10 @@ class AmigoDaemons extends Di\Injectable
         try {
             $response = curl_exec($curl);
             $response = str_replace('\n', '', $response);
+            $parsedAnswer = json_decode($response, true);
         } catch (Throwable $e) {
-            $response = null;
+            $parsedAnswer = null;
         }
-        $parsedAnswer = json_decode($response, true);
         curl_close($curl);
         $result = '';
         if ($parsedAnswer !== null
