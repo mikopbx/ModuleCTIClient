@@ -24,18 +24,13 @@ use Throwable;
 class AmigoDaemons extends Di\Injectable
 {
     public const SERVICE_GNATS = 'gnatsd-cti';
-
     public const SERVICE_CRM = 'crmd';
-
     public const SERVICE_AUTH = 'authd';
-
     public const SERVICE_AMI = 'amid';
-
     public const SERVICE_SPEECH = 'speechd';
-
     public const SERVICE_MONITOR = 'monitord';
-
     public const SERVICE_CHATS = 'chatsd';
+    public const SERVICE_PROXY = 'proxyd';
 
     public array $dirs;
     private array $module_settings = [];
@@ -180,21 +175,21 @@ class AmigoDaemons extends Di\Injectable
      */
     public function stopAllServices(): void
     {
-        $nats     = "{$this->dirs['binDir']}/" . self::SERVICE_GNATS;
-        $monitord = "{$this->dirs['binDir']}/" . self::SERVICE_MONITOR;
-        $amid     = "{$this->dirs['binDir']}/" . self::SERVICE_AMI;
-        $authd    = "{$this->dirs['binDir']}/" . self::SERVICE_AUTH;
-        $crmd     = "{$this->dirs['binDir']}/" . self::SERVICE_CRM;
-        $speechd  = "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH;
-        $chatsd   = "{$this->dirs['binDir']}/" . self::SERVICE_CHATS;
+        $serviceList=[
+            self::SERVICE_GNATS,
+            self::SERVICE_MONITOR,
+            self::SERVICE_AMI,
+            self::SERVICE_AUTH,
+            self::SERVICE_CRM,
+            self::SERVICE_SPEECH,
+            self::SERVICE_CHATS,
+            self::SERVICE_PROXY
+        ];
 
-        Processes::processWorker($nats, '', self::SERVICE_GNATS, 'stop');
-        Processes::processWorker($monitord, '', self::SERVICE_MONITOR, 'stop');
-        Processes::processWorker($amid, '', self::SERVICE_AMI, 'stop');
-        Processes::processWorker($authd, '', self::SERVICE_AUTH, 'stop');
-        Processes::processWorker($crmd, '', self::SERVICE_CRM, 'stop');
-        Processes::processWorker($speechd, '', self::SERVICE_SPEECH, 'stop');
-        Processes::processWorker($chatsd, '', self::SERVICE_CHATS, 'stop');
+        foreach ($serviceList as $service){
+            $path = "{$this->dirs['binDir']}/{$service}";
+            Processes::processWorker($path, '', $service, 'stop');
+        }
     }
 
 
@@ -226,20 +221,22 @@ class AmigoDaemons extends Di\Injectable
         $monitord_process_log = $this->dirs['logDir'] . '/monitord_process.log';
         $monitord             = "{$this->dirs['binDir']}/" . self::SERVICE_MONITOR;
 
-        $amid    = "{$this->dirs['binDir']}/" . self::SERVICE_AMI;
-        $authd   = "{$this->dirs['binDir']}/" . self::SERVICE_AUTH;
-        $crmd    = "{$this->dirs['binDir']}/" . self::SERVICE_CRM;
-        $speechd = "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH;
-        $chatsd  = "{$this->dirs['binDir']}/" . self::SERVICE_CHATS;
+        $serviceList=[
+            self::SERVICE_AMI,
+            self::SERVICE_AUTH,
+            self::SERVICE_CRM,
+            self::SERVICE_SPEECH,
+            self::SERVICE_CHATS,
+            self::SERVICE_PROXY
+        ];
 
         if ($moduleEnabled) {
             $this->generateConfFiles();
             if ($restart) {
-                Processes::processWorker($amid, '', self::SERVICE_AMI, 'stop');
-                Processes::processWorker($authd, '', self::SERVICE_AUTH, 'stop');
-                Processes::processWorker($crmd, '', self::SERVICE_CRM, 'stop');
-                Processes::processWorker($speechd, '', self::SERVICE_SPEECH, 'stop');
-                Processes::processWorker($chatsd, '', self::SERVICE_CHATS, 'stop');
+                foreach ($serviceList as $service){
+                    $path = "{$this->dirs['binDir']}/{$service}";
+                    Processes::processWorker($path, '', $service, 'stop');
+                }
             }
             Processes::processWorker(
                 $nats,
@@ -272,6 +269,7 @@ class AmigoDaemons extends Di\Injectable
         $this->generateAmidConf();
         $this->generateSpeechdConf();
         $this->generateChatsConf();
+        $this->generateProxyConf();
         $this->generateMonitordConf();
     }
 
@@ -569,6 +567,30 @@ class AmigoDaemons extends Di\Injectable
         );
     }
 
+    /**
+     * Создание файла конфигурации для proxyd.
+     */
+    private function generateProxyConf(): void
+    {
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_PROXY;
+        Util::mwMkdir($logDir);
+
+        $certsPath = "{$this->dirs['moduleDir']}/etc/ssl";
+
+        $settings_proxy = [
+            'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
+            'log_path'  => $logDir,
+            'port'  => ':8002',
+            'proto'=>'https',
+            'pem'  => "{$certsPath}/proxyserver.pem",
+            'key'  => "{$certsPath}/proxyserver.key",
+        ];
+
+        Util::fileWriteContent(
+            "{$this->dirs['confDir']}/proxy.json",
+            json_encode($settings_proxy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+    }
 
     /**
      * Создание файла конфигурации для authd.
@@ -679,6 +701,11 @@ class AmigoDaemons extends Di\Injectable
                     'args'    => "-c {$this->dirs['confDir']}/chats.json",
                     'subject' => 'daemon.chats.ping',
                 ],
+                [
+                    'path'    => "{$this->dirs['binDir']}/" . self::SERVICE_PROXY,
+                    'args'    => "-c {$this->dirs['confDir']}/proxy.json",
+                    'subject' => 'daemon.proxy.ping',
+                ],
             ],
         ];
         Util::fileWriteContent(
@@ -744,6 +771,7 @@ class AmigoDaemons extends Di\Injectable
         $statusAsterisk = $this->checkWorkerStatus('asterisk');
         $statusSpeech   = $this->checkWorkerStatus('speech');
         $statusChat     = $this->checkWorkerStatus('chats');
+        $statusProxy    = $this->checkWorkerStatus('proxy');
 
         $res->success = $statusMonitor['state'] === 'ok'
             && $status1C['state'] === 'ok'
@@ -751,6 +779,7 @@ class AmigoDaemons extends Di\Injectable
             && $statusAsterisk['state'] === 'ok'
             && $statusSpeech['state'] === 'ok'
             && $statusChat['state'] === 'ok'
+            && $statusProxy['state'] === 'ok'
             && $statusNats['state'] === 'ok';
 
         $res->data['statuses'] = [
@@ -761,6 +790,7 @@ class AmigoDaemons extends Di\Injectable
             $statusSpeech,
             $statusChat,
             $status1C,
+            $statusProxy,
         ];
 
         return $res;
