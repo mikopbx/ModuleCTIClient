@@ -577,6 +577,10 @@ class AmigoDaemons extends Di\Injectable
         $settings_proxy = [
             'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
             'log_path'  => $logDir,
+            'mq'         => [
+                'host' => '127.0.0.1',
+                'port' => $this->getNatsPort(),
+            ],
             'port'  => ':8002',
             'proto'=>'https',
             'pem'  => "{$certsPath}/proxyserver.pem",
@@ -755,14 +759,19 @@ class AmigoDaemons extends Di\Injectable
             return $res;
         }
 
-        $statusMonitor  = $this->checkMonitorStatus();
-        $statusNats     = $this->checkNatsStatus();
-        $statuses       = $this->checkWorkerStatuses();
+        $statuses[]   = $this->checkMonitorStatus();
+        $statuses[] = $this->checkNatsStatus();
+        $statuses   = array_merge($statuses, $this->checkWorkerStatuses());
 
-        $res->success = true; //TODO:Надо проверить
+        $res->success = true;
+        foreach ($statuses as $workerStatus){
+            if (!$res->success) {
+                break;
+            }
+            $res->success = array_key_exists('state', $workerStatus) && $workerStatus['state']==='ok';
+        }
 
-        $res->data['statuses'] = array_merge($statusMonitor,$statusNats, $statuses );
-
+        $res->data['statuses'] = $statuses;
         return $res;
     }
 
@@ -807,18 +816,16 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Возвращает статус воркера
-     *
-     * @param $workerName - название воркера, статус которого получаем
+     * Возвращает статус воркеров запущенных через monitor
      *
      * @return array
      */
-    private function checkWorkerStatuses($workerName): array
+    private function checkWorkerStatuses(): array
     {
         $statusUrl = 'http://127.0.0.1:8225/manager.api/status';
         $curl      = curl_init();
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($curl, CURLOPT_TIMEOUT, 1);
+        curl_setopt($curl, CURLOPT_TIMEOUT, 10);
         curl_setopt($curl, CURLOPT_URL, $statusUrl);
 
         try {
@@ -829,7 +836,18 @@ class AmigoDaemons extends Di\Injectable
         }
         $data = json_decode($responce, true);
         curl_close($curl);
-        return $data;
+        if ($data !== null
+            && array_key_exists('result', $data)
+            && is_array($data['result'])
+        ) {
+            $result = $data['result'];
+        } else {
+            $result[] = [
+                'name' => 'manager.api',
+                'state' => 'unknown',
+            ];
+        }
+        return $result;
     }
 
     /**
