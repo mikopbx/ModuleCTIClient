@@ -21,6 +21,9 @@ use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 use Phalcon\Di;
 use Throwable;
 
+/**
+ * @property \Phalcon\Config $config
+ */
 class AmigoDaemons extends Di\Injectable
 {
     public const SERVICE_GNATS = 'gnatsd-cti';
@@ -191,7 +194,6 @@ class AmigoDaemons extends Di\Injectable
             Processes::processWorker($path, '', $service, 'stop');
         }
     }
-
 
     /**
      * Запуск или перезапуск всех сервисов
@@ -789,12 +791,12 @@ class AmigoDaemons extends Di\Injectable
         curl_setopt($curl, CURLOPT_URL, $statusUrl);
 
         try {
-            $responce = curl_exec($curl);
-            $responce = str_replace('\n', '', $responce);
+            $response = curl_exec($curl);
+            $response = str_replace('\n', '', $response);
+            $data = json_decode($response, true);
         } catch (Throwable $e) {
-            $responce = null;
+            $data = null;
         }
-        $data = json_decode($responce, true);
         curl_close($curl);
         if ($data !== null) {
             $result = [
@@ -829,12 +831,13 @@ class AmigoDaemons extends Di\Injectable
         curl_setopt($curl, CURLOPT_URL, $statusUrl);
 
         try {
-            $responce = curl_exec($curl);
-            $responce = str_replace('\n', '', $responce);
+            $response = curl_exec($curl);
+            $response = str_replace('\n', '', $response);
+            $data = json_decode($response, true);
         } catch (Throwable $e) {
-            $responce = null;
+            $data = null;
         }
-        $data = json_decode($responce, true);
+
         curl_close($curl);
         if ($data !== null
             && array_key_exists('result', $data)
