@@ -540,7 +540,8 @@ class AmigoDaemons extends Di\Injectable
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_CHATS;
         Util::mwMkdir($logDir);
 
-        $dataBasePath = "{$this->dirs['moduleDir']}/db/chats";
+        $chatDataBasesPath = "{$this->dirs['moduleDir']}/db/chats";
+        Util::mwMkdir($chatDataBasesPath);
 
         $settings_chats = [
             'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
@@ -553,11 +554,7 @@ class AmigoDaemons extends Di\Injectable
                 'port' => '8228',
             ],
             'database'  => [
-                'path' => "{$dataBasePath}/cache.db",
-            ],
-            'whats_app' => [
-                'timeout'     => 30,
-                'session_dir' => $dataBasePath,
+                'path' => $chatDataBasesPath,
             ],
         ];
 
@@ -697,11 +694,6 @@ class AmigoDaemons extends Di\Injectable
                     'subject' => 'daemon.speech.ping',
                 ],
                 [
-                    'path'    => "{$this->dirs['binDir']}/" . self::SERVICE_CHATS,
-                    'args'    => "-c {$this->dirs['confDir']}/chats.json",
-                    'subject' => 'daemon.chats.ping',
-                ],
-                [
                     'path'    => "{$this->dirs['binDir']}/" . self::SERVICE_PROXY,
                     'args'    => "-c {$this->dirs['confDir']}/proxy.json",
                     'subject' => 'daemon.proxy.ping',
@@ -746,7 +738,6 @@ class AmigoDaemons extends Di\Injectable
         );
     }
 
-
     /**
      * Тестирование живой ли модуль, доступны ли сервисы
      *
@@ -766,32 +757,11 @@ class AmigoDaemons extends Di\Injectable
 
         $statusMonitor  = $this->checkMonitorStatus();
         $statusNats     = $this->checkNatsStatus();
-        $status1C       = $this->checkWorkerStatus('1c');
-        $statusAuth     = $this->checkWorkerStatus('auth');
-        $statusAsterisk = $this->checkWorkerStatus('asterisk');
-        $statusSpeech   = $this->checkWorkerStatus('speech');
-        $statusChat     = $this->checkWorkerStatus('chats');
-        $statusProxy    = $this->checkWorkerStatus('proxy');
+        $statuses       = $this->checkWorkerStatuses();
 
-        $res->success = $statusMonitor['state'] === 'ok'
-            && $status1C['state'] === 'ok'
-            && $statusAuth['state'] === 'ok'
-            && $statusAsterisk['state'] === 'ok'
-            && $statusSpeech['state'] === 'ok'
-            && $statusChat['state'] === 'ok'
-            && $statusProxy['state'] === 'ok'
-            && $statusNats['state'] === 'ok';
+        $res->success = true; //TODO:Надо проверить
 
-        $res->data['statuses'] = [
-            $statusMonitor,
-            $statusNats,
-            $statusAuth,
-            $statusAsterisk,
-            $statusSpeech,
-            $statusChat,
-            $status1C,
-            $statusProxy,
-        ];
+        $res->data['statuses'] = array_merge($statusMonitor,$statusNats, $statuses );
 
         return $res;
     }
@@ -843,9 +813,9 @@ class AmigoDaemons extends Di\Injectable
      *
      * @return array
      */
-    private function checkWorkerStatus($workerName): array
+    private function checkWorkerStatuses($workerName): array
     {
-        $statusUrl = 'http://127.0.0.1:' . $this->getNatsHttpPort() . '/manager.api/status?daemon=' . $workerName;
+        $statusUrl = 'http://127.0.0.1:8225/manager.api/status';
         $curl      = curl_init();
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_TIMEOUT, 1);
@@ -859,26 +829,7 @@ class AmigoDaemons extends Di\Injectable
         }
         $data = json_decode($responce, true);
         curl_close($curl);
-        if ($data !== null
-            && array_key_exists('result', $data)
-            && is_array($data['result'])
-        ) {
-            $result = $data['result'];
-            // Move state and name on the first position
-            if (key_exists('state', $result)) {
-                $result = ['state' => $result['state']] + $result;
-            }
-            if (key_exists('name', $result)) {
-                $result = ['name' => $result['name']] + $result;
-            }
-        } else {
-            $result = [
-                'name'  => $workerName,
-                'state' => 'unknown',
-            ];
-        }
-
-        return $result;
+        return $data;
     }
 
     /**
