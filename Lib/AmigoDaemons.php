@@ -10,6 +10,7 @@
 namespace Modules\ModuleCTIClient\Lib;
 
 
+use MikoPBX\Common\Models\PbxExtensionModules;
 use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Core\System\MikoPBXConfig;
 use MikoPBX\Core\System\Processes;
@@ -288,6 +289,12 @@ class AmigoDaemons extends Di\Injectable
 
         $pid_file = "{$this->dirs['pidDir']}/gnatsd-cti.pid";
 
+        $moduleVersion='unknown';
+        $currentModuleInfo = PbxExtensionModules::findFirstByUniqid($this->moduleUniqueID);
+        if ($currentModuleInfo){
+            $moduleVersion = $currentModuleInfo->version;
+        }
+
         $settings = [
             'port' => $this->getNatsPort(),
             'http_port' => $this->getNatsHttpPort(),
@@ -301,6 +308,7 @@ class AmigoDaemons extends Di\Injectable
             'sessions_path' => $sessionsDir,
             'log_file' => "{$logDir}/gnatsd.log",
             'pbx' => "MikoPBX",
+            'module_version' => $moduleVersion,
         ];
 
         if ($this->module_settings['auto_settings_mode'] === '1') {
