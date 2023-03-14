@@ -206,53 +206,29 @@ class AmigoDaemons extends Di\Injectable
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
 
         $monitorPID = Processes::getPidOfProcess(self::SERVICE_MONITOR);
-        $gnatsPID = Processes::getPidOfProcess(self::SERVICE_GNATS);
 
         if ($monitorPID !== ''
-            && $gnatsPID !== ''
             && $restart === false
             && $moduleEnabled === true
         ) {
             return; // Ничего не надо делать, все запущено и работает
         }
 
-        // GNATS
-        $nats_process_log = $this->dirs['logDir'] . '/gnats_process.log';
-        $nats = "{$this->dirs['binDir']}/" . self::SERVICE_GNATS;
-
         // Monitord
         $monitord_process_log = $this->dirs['logDir'] . '/monitord_process.log';
         $monitord = "{$this->dirs['binDir']}/" . self::SERVICE_MONITOR;
 
-        $serviceList = [
-            self::SERVICE_AMI,
-            self::SERVICE_AUTH,
-            self::SERVICE_CRM,
-            self::SERVICE_SPEECH,
-            self::SERVICE_CHATS,
-            self::SERVICE_PROXY
-        ];
 
         if ($moduleEnabled) {
             $this->generateConfFiles();
             if ($restart) {
-                foreach ($serviceList as $service) {
-                    $path = "{$this->dirs['binDir']}/{$service}";
-                    Processes::processWorker($path, '', $service, 'stop');
-                }
+                $this->stopAllServices();
             }
-            Processes::processWorker(
-                $nats,
-                "--config {$this->dirs['confDir']}/nats.conf",
-                self::SERVICE_GNATS,
-                $restart ? 'restart' : 'start',
-                $nats_process_log
-            );
             Processes::processWorker(
                 $monitord,
                 "-c {$this->dirs['confDir']}/monitord.json",
                 self::SERVICE_MONITOR,
-                $restart ? 'restart' : 'start',
+                'start',
                 $monitord_process_log
             );
         } else {
@@ -689,6 +665,10 @@ class AmigoDaemons extends Di\Injectable
             'settings_dir' => $this->dirs['confDir'],
             'period' => 30,
             'daemons' => [
+                [
+                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_GNATS,
+                    'args' => "-c {$this->dirs['confDir']}/nats.conf",
+                ],
                 [
                     'path' => "{$this->dirs['binDir']}/" . self::SERVICE_AMI,
                     'args' => "-c {$this->dirs['confDir']}/ami.json",
