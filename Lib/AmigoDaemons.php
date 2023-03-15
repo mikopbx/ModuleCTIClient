@@ -284,7 +284,7 @@ class AmigoDaemons extends Di\Injectable
             'sessions_path' => $sessionsDir,
             'log_file' => "{$logDir}/gnatsd.log",
             'pbx' => "MikoPBX",
-            'module_version' => $moduleVersion,
+            'module_version' => "$moduleVersion",
         ];
 
         if ($this->module_settings['auto_settings_mode'] === '1') {
