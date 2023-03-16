@@ -234,6 +234,7 @@ class AmigoDaemons extends Di\Injectable
             'max_control_line' => '512',
             'sessions_path' => $sessionsDir,
             'log_file' => "{$logDir}/gnatsd.log",
+            'log_size_limit'=>10485760, //10Mb
             'pbx' => "MikoPBX",
             'module_version' => '"' . $moduleVersion. '"',
         ];
