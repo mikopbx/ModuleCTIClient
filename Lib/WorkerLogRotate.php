@@ -23,7 +23,6 @@ class WorkerLogRotate extends WorkerBase
         $lastLogRotate = $managedCache->get($cacheKey);
         if ($lastLogRotate===null){
             $cti = new AmigoDaemons();
-            $cti->logRotateGnats();
             $cti->deleteOldLogs();
             $managedCache->set($cacheKey, time(), 3600);
         }

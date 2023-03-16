@@ -107,55 +107,6 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Ротация логов для службы NATS
-     */
-    public function logRotateGnats(): void
-    {
-        $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
-        if (!$moduleEnabled) {
-            return;
-        }
-        $log_dir = "{$this->dirs['logDir']}/gnats";
-
-        $pid_file = "{$this->dirs['pidDir']}/gnatsd-cti.pid";
-        if (file_exists($pid_file)) {
-            $pid = file_get_contents($pid_file);
-        } else {
-            return;
-        }
-
-        $max_size = 1;
-        if (empty($pid)) {
-            return;
-        }
-        $text_config = "{$log_dir}/gnatsd.log {
-    start 0
-    rotate 9
-    size {$max_size}M
-    maxsize 1M
-    missingok
-    notifempty
-    sharedscripts
-    postrotate
-        {$this->dirs['binDir']}/gnatsd-cti -sl reopen={$pid} > /dev/null 2> /dev/null
-    endscript
-}";
-        $mb10 = $max_size * 1024 * 1024;
-
-        $options = '';
-        if (Util::mFileSize("{$log_dir}/gnatsd.log") > $mb10) {
-            $options = '-f';
-        }
-
-        $path_conf = "{$this->dirs['confDir']}/gnatsd_cti_logrotate.conf";
-        Util::fileWriteContent($path_conf, $text_config);
-        if (file_exists("{$log_dir}/gnatsd.log")) {
-            $logrotatePath = Util::which('logrotate');
-            Processes::mwExecBg("{$logrotatePath} $options '{$path_conf}' > /dev/null 2> /dev/null");
-        }
-    }
-
-    /**
      * Удаление логов старше недели
      */
     public function deleteOldLogs(): void
