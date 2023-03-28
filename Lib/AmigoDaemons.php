@@ -774,7 +774,7 @@ class AmigoDaemons extends Di\Injectable
 
         try {
             $response = curl_exec($curl);
-            $response = str_replace('\n', '', $response);
+            //$response = str_replace('\n', '', $response);
             $data = json_decode($response, true);
         } catch (Throwable $e) {
             $data = null;
