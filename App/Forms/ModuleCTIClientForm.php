@@ -38,8 +38,7 @@ class ModuleCTIClientForm extends Form
                     'name',
                 ],
                 'useEmpty' => false,
-                'value'    => $entity->server1c_scheme,
-                'class'    => 'ui selection dropdown',
+                'value'    => $entity->server1c_scheme
             ]
         );
         $this->add($sslmode);
