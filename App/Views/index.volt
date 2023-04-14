@@ -62,7 +62,10 @@
         <div class="eight wide field ws-only disabled only-manual-settings">
             <label>{{ t._('mod_cti_Server1CHostPort') }}</label>
             <div class="inline fields">
-                <div class="twelve wide field">
+                <div class="four wide field">
+                    {{ form.render('server1c_scheme') }}
+                </div>
+                <div class="eight wide field">
                     {{ form.render('server1chost') }}
                 </div>
                 <div class="four wide field">

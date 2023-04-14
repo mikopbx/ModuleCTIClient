@@ -36,6 +36,13 @@ class ModuleCTIClient extends ModulesModelsBase
     public ?string $server1cport = '80';
 
     /**
+     * Использовать SSL подключение к серверу 1С
+     *
+     * @Column(type='string', length=1, nullable=true, default='http')
+     */
+    public ?string $server1c_scheme = 'http';
+
+    /**
      * Логин к вебсервису
      *
      * @Column(type='string', nullable=true, default='')

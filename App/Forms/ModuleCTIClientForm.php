@@ -12,6 +12,7 @@ use Phalcon\Forms\Element\Check;
 use Phalcon\Forms\Element\Numeric;
 use Phalcon\Forms\Element\Password;
 use Phalcon\Forms\Element\Radio;
+use Phalcon\Forms\Element\Select;
 use Phalcon\Forms\Element\Text;
 use Phalcon\Forms\Form;
 
@@ -23,6 +24,27 @@ class ModuleCTIClientForm extends Form
     {
         $this->add(new Text('server1chost'));
         $this->add(new Numeric('server1cport'));
+
+        // Use HTTPS
+        $sslModes = [
+            'http'     => 'http://',
+            'https'    => 'https://',
+        ];
+
+        $sslmode = new Select(
+            'server1c_scheme', $sslModes, [
+                'using'    => [
+                    'id',
+                    'name',
+                ],
+                'useEmpty' => false,
+                'value'    => $entity->server1c_scheme,
+                'class'    => 'ui selection dropdown',
+            ]
+        );
+        $this->add($sslmode);
+
+
         $this->add(new Text('login'));
         $this->add(new Password('secret'));
         $this->add(new Text('database'));
