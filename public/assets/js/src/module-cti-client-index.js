@@ -20,6 +20,7 @@ const moduleCTIClient = {
 	$onlyManualSettingsVisible: $('#module-cti-client-form .only-manual-settings'),
 	$wsOnlyFields: $('.ws-only'),
 	$dirrtyField: $('#dirrty'),
+	$sslModeSelect: $('.server1c_scheme select'),
 	$debugTab: $('#module-cti-client-tabs .item[data-tab="debug"]'),
 	validateRules: {
 		server1chost: {
@@ -111,6 +112,7 @@ const moduleCTIClient = {
 					}
 				},
 			});
+		moduleCTIClient.$sslModeSelect.dropdown();
 		moduleCTIClient.initializeForm();
 		moduleCTIClient.checkStatusToggle();
 		moduleCTIClient.setCallerIdToggle();
