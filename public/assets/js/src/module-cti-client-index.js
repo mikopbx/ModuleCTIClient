@@ -20,6 +20,7 @@ const moduleCTIClient = {
 	$onlyManualSettingsVisible: $('#module-cti-client-form .only-manual-settings'),
 	$wsOnlyFields: $('.ws-only'),
 	$dirrtyField: $('#dirrty'),
+	$sslModeSelect: $('.server1c_scheme select'),
 	$debugTab: $('#module-cti-client-tabs .item[data-tab="debug"]'),
 	validateRules: {
 		server1chost: {
@@ -111,6 +112,9 @@ const moduleCTIClient = {
 					}
 				},
 			});
+		moduleCTIClient.$sslModeSelect.dropdown({
+			onChange: moduleCTIClient.cbSslModeOnChange
+		});
 		moduleCTIClient.initializeForm();
 		moduleCTIClient.checkStatusToggle();
 		moduleCTIClient.setCallerIdToggle();
@@ -153,6 +157,21 @@ const moduleCTIClient = {
 	 */
 	disableWsFields() {
 		moduleCTIClient.$wsOnlyFields.addClass('disabled');
+	},
+	/**
+	 * При изменении SSL режима
+	 * @param value
+	 * @param text
+	 * @param $choice
+	 */
+	cbSslModeOnChange(value, text, $choice){
+		const port = moduleCTIClient.$formObj.form('get value','server1cport');
+		if (value==='http' && port==='443'){
+			moduleCTIClient.$formObj.form('set value','server1cport', 80);
+		}
+		if (value==='https' && port==='80'){
+			moduleCTIClient.$formObj.form('set value','server1cport', 443);
+		}
 	},
 	cbBeforeSendForm(settings) {
 		const result = settings;

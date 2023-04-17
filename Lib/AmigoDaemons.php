@@ -429,6 +429,7 @@ class AmigoDaemons extends Di\Injectable
             $settings_crm['wsdl'] = [
                 'host' => $this->module_settings['server1chost'],
                 'port' => $this->module_settings['server1cport'],
+                'scheme'=> $this->module_settings['server1c_scheme']??'http',
                 'login' => $this->module_settings['login'],
                 'password' => $this->module_settings['secret'],
                 'url' => "/{$this->module_settings['database']}/ws/miko_crm_api.1cws",

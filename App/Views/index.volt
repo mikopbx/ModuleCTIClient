@@ -58,12 +58,18 @@
             </div>
         </div>
 
-
-        <div class="eight wide field ws-only disabled only-manual-settings">
+        <div class="twelve wide field ws-only disabled only-manual-settings">
             <label>{{ t._('mod_cti_Server1CHostPort') }}</label>
             <div class="inline fields">
                 <div class="twelve wide field">
-                    {{ form.render('server1chost') }}
+                    <div class="ui left labeled input">
+                        <div class="ui dropdown label server1c_scheme">
+                            <div class="text">http://</div>
+                            <i class="dropdown icon"></i>
+                            {{ form.render('server1c_scheme') }}
+                        </div>
+                        {{ form.render('server1chost') }}
+                    </div>
                 </div>
                 <div class="four wide field">
                     {{ form.render('server1cport') }}
