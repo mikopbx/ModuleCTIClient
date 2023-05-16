@@ -690,7 +690,7 @@ class AmigoDaemons extends Di\Injectable
     /**
      * Тестирование живой ли модуль, доступны ли сервисы
      *
-     * @return PBXApiResult
+     * @return PBXApiResult An object containing the result of the API call.
      */
     public function checkModuleWorkProperly(): PBXApiResult
     {

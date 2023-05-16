@@ -132,7 +132,7 @@ class CTIClientConf extends ConfigClass
      *
      * @param array $request
      *
-     * @return PBXApiResult
+     * @return PBXApiResult An object containing the result of the API call.
      * @throws \Exception
      */
     public function moduleRestAPICallback(array $request): PBXApiResult
