@@ -1,4 +1,22 @@
 <?php
+/*
+ * MikoPBX - free phone system for small business
+ * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /**
  * Copyright (C) MIKO LLC - All Rights Reserved
  * Unauthorized copying of this file, via any medium is strictly prohibited
@@ -35,6 +53,7 @@ class AmigoDaemons extends Di\Injectable
     public const SERVICE_MONITOR = 'monitord';
     public const SERVICE_CHATS = 'chatsd';
     public const SERVICE_PROXY = 'proxyd';
+    public const SERVICE_TELEGRAM = 'tgd';
 
     public array $dirs;
     private array $module_settings = [];
@@ -138,6 +157,7 @@ class AmigoDaemons extends Di\Injectable
             self::SERVICE_CRM,
             self::SERVICE_SPEECH,
             self::SERVICE_CHATS,
+            self::SERVICE_TELEGRAM,
             self::SERVICE_PROXY
         ];
 
@@ -199,6 +219,7 @@ class AmigoDaemons extends Di\Injectable
         $this->generateAmidConf();
         $this->generateSpeechdConf();
         $this->generateChatsConf();
+        $this->generateTelegramConf();
         $this->generateProxyConf();
         $this->generateMonitordConf();
     }
@@ -499,6 +520,38 @@ class AmigoDaemons extends Di\Injectable
 
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/chats.json",
+            json_encode($settings_chats, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+    /**
+     * Создание файла конфигурации для telegram.
+     */
+    private function generateTelegramConf(): void
+    {
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_TELEGRAM;
+        Util::mwMkdir($logDir);
+
+        $chatDataBasesPath = "{$this->dirs['moduleDir']}/db/tg";
+        Util::mwMkdir($chatDataBasesPath);
+
+        $settings_chats = [
+            'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
+            'log_path' => $logDir,
+            'mq' => [
+                'host' => '127.0.0.1',
+                'port' => $this->getNatsPort(),
+            ],
+            'http' => [
+                'port' => '8228',
+            ],
+            'database' => [
+                'path' => $chatDataBasesPath,
+            ],
+        ];
+
+        Util::fileWriteContent(
+            "{$this->dirs['confDir']}/tg.json",
             json_encode($settings_chats, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
     }
