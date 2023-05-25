@@ -1,12 +1,21 @@
 <?php
-/**
- * Copyright (C) MIKO LLC - All Rights Reserved
- * Unauthorized copying of this file, via any medium is strictly prohibited
- * Proprietary and confidential
- * Written by Nikolay Beketov, 9 2018
+/*
+ * MikoPBX - free phone system for small business
+ * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
  *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
  */
-
 namespace Modules\ModuleCTIClient\App\Controllers;
 
 use MikoPBX\Common\Models\Extensions;
@@ -31,49 +40,78 @@ class ModuleCTIClientController extends BaseController
     private $moduleDir;
 
     /**
-     * Basic initial class
+     * Initializes the module by setting the module directory, logo image path, and submit mode.
+     * It also calls the parent's initialize method.
      */
     public function initialize(): void
     {
         $this->moduleDir           = PbxExtensionUtils::getModuleDir($this->moduleUniqueID);
+
+        // Set the logo image path using the module's unique ID
         $this->view->logoImagePath = "{$this->url->get()}assets/img/cache/{$this->moduleUniqueID}/logo.png";
+
+        // Set the submit mode to null
         $this->view->submitMode    = null;
+
+        // Call the initialize method of the parent class
         parent::initialize();
     }
 
 
     /**
-     * Форма настроек модуля
+     * The index action of the module.
+     * Adds JavaScript files to the footer collection, retrieves module settings,
+     * initializes the view variables, and sets the view template.
      */
     public function indexAction(): void
     {
+        // Get the footer collection for JavaScript files
         $footerCollection = $this->assets->collection('footerJS');
+
+        // Add necessary JavaScript files to the footer collection
         $footerCollection->addJs('js/pbx/main/form.js', true);
         $footerCollection->addJs("js/cache/{$this->moduleUniqueID}/module-cti-client-status-worker.js", true);
         $footerCollection->addJs("js/cache/{$this->moduleUniqueID}/module-cti-client-index.js", true);
+
+        // Retrieve module settings
         $settings = ModuleCTIClient::findFirst();
+
+        // If no settings found, create a new instance
         if ($settings === null) {
             $settings = new ModuleCTIClient();
         }
 
+        // Initialize view variables
         $this->view->form              = new ModuleCTIClientForm($settings);
         $this->view->autoSettingsValue = $this->generateAutoSettingsString($settings);
+
+        // Set the view template
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
 
     /**
-     * Сохранение настроек
+     * Saves the module settings based on the submitted form data.
+     * If the request method is not POST, the function returns early.
+     * Retrieves the form data, finds or creates a ModuleCTIClient record,
+     * and updates the record with the form data. Finally, saves the record
+     * and handles success or error messages.
      */
     public function saveAction(): void
     {
+        // If the request method is not POST, return early
         if ( ! $this->request->isPost()) {
             return;
         }
+        // Retrieve the form data
         $data   = $this->request->getPost();
+
+        // Find or create a ModuleCTIClient record
         $record = ModuleCTIClient::findFirst();
         if ( ! $record) {
             $record = new ModuleCTIClient();
         }
+
+        // Update the record with the form data
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
@@ -96,7 +134,9 @@ class ModuleCTIClientController extends BaseController
             }
         }
 
+        // Save the record
         if ($record->save() === false) {
+            // Handle errors if saving fails
             $errors = $record->getMessages();
             $this->flash->error(implode('<br>', $errors));
             $this->view->success = false;
@@ -104,16 +144,16 @@ class ModuleCTIClientController extends BaseController
             return;
         }
 
+        // Handle success if saving is successful
         $this->flash->success($this->translation->_('ms_SuccessfulSaved'));
         $this->view->success = true;
     }
 
     /**
-     * Получить список пользователей АТС с номерами и картинками в JSON
+     * Retrieves a list of PBX extensions with numbers and avatars in JSON format.
      *
-     * Пример:
+     * Example:
      * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getExtensions"
-     *
      */
     public function getExtensionsAction(): void
     {
@@ -179,7 +219,7 @@ class ModuleCTIClientController extends BaseController
             }
         }
 
-        // Преобразуем в массив одинаковой структуры
+        // Transform into an array with the same structure
         foreach ($extensionTable as $extension) {
             $resultTable[] = [
                 'userid'   => $extension['userid'],
@@ -209,11 +249,10 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
-     * Получить список очередей и приложений с человекочитаемым названием
+     * Retrieves a list of queues and applications with human-readable names in JSON format.
      *
-     * Пример:
+     * Example:
      * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getIdMatchNamesList"
-     *
      */
     public function getIdMatchNamesListAction(): void
     {
@@ -275,7 +314,8 @@ class ModuleCTIClientController extends BaseController
                 default:
             }
         }
-        // Добавим список провайдров
+
+        // Add the list of providers
         $providers = Providers::find();
         foreach ($providers as $provider) {
             $modelType        = ucfirst($provider->type);
@@ -304,13 +344,15 @@ class ModuleCTIClientController extends BaseController
 
 
     /**
-     * Обновление картинки пользователя
+     * Updates the user's avatar image.
      *
-     * POST запрос с параметрами id и img на адрес
+     * HTTP POST request with parameters 'id' and 'img' to the address:
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserAvatar
      *
-     * id -  идентификатор пользователя
-     * Пример:
+     * - id: The user's identifier.
+     * - img: The user's avatar image encoded as base64.
+     *
+     * Example:
      * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserAvatar" \
      *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
      * --data-urlencode "id=110" \
@@ -353,13 +395,15 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
-     * Обновление мобильного телефона пользователя
+     * Updates the user's mobile phone number.
      *
-     * POST запрос с параметрами id и newMobile на адрес
+     * HTTP POST request with parameters 'id' and 'newMobile' to the address:
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserMobile
-     * id -  идентификатор пользователя
      *
-     * Пример:
+     * - id: The user's identifier.
+     * - newMobile: The new mobile phone number for the user.
+     *
+     * Example:
      * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserMobile" \
      *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
      * --data-urlencode "id=110" \
@@ -449,12 +493,12 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
-     * Возвращает картинку в Base64 по переданному хешу картинки
+     * Retrieves the image in Base64 format based on the provided image hash.
      *
-     * Пример:
+     * Example:
      * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getUserAvatar/0e6c772f5c977666aa03207927be1781"
      *
-     * @param string $imgHash
+     * @param string $imgHash The image hash.
      */
     public function getUserAvatarAction(string $imgHash)
     {
@@ -490,46 +534,48 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
-     * Создает файл jpeg из переданной картинки
+     * Creates a JPEG file from the provided base64 image string.
      *
-     * @param $base64_string
-     * @param $output_file
+     * @param string $base64_string The base64 image string.
+     * @param string $output_file The output file path.
      *
-     * @return mixed
+     * @return string The output file path.
      */
     private function base64ToJpeg($base64_string, $output_file)
     {
-        // open the output file for writing
+        // Open the output file for writing
         $ifp = fopen($output_file, 'wb');
 
-        // split the string on commas
-        // $data[ 0 ] == "data:image/png;base64"
-        // $data[ 1 ] == <actual base64 string>
+        // Split the string on commas
+        // $data[0] == "data:image/png;base64"
+        // $data[1] == <actual base64 string>
         $data = explode(',', $base64_string);
 
-        // we could add validation here with ensuring count( $data ) > 1
+        // We could add validation here to ensure count($data) > 1
+
+        // Write the base64-decoded image data to the file
         fwrite($ifp, base64_decode($data[1]));
 
-        // clean up the file resource
+        // Clean up the file resource
         fclose($ifp);
 
         return $output_file;
     }
 
     /**
-     * Обновление email пользователя
+     * Updates the email of a user.
      *
-     * POST запрос с параметрами id и email на адрес
+     * HTTP POST request with parameters 'id' and 'email' to the address:
      * http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserEmail
      *
-     * id -  идентификатор пользователя
+     * - id: The user's identifier.
+     * - email: The new email for the user.
      *
-     * Пример:
+     * Example:
      * curl -X "POST" "http://127.0.0.1/admin-cabinet/module-c-t-i-client/updateUserEmail" \
      *  -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
      * --data-urlencode "id=110" \
      * --data-urlencode "email=nb@mikopbx.com"
-     *
      */
     public function updateUserEmailAction()
     {
@@ -568,12 +614,11 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
-     * Generate connections JSON and pack it on BASE64 set
+     * Generates the connections JSON and packs it into BASE64 format.
      *
+     * @param ModuleCTIClient $dataSet The ModuleCTIClient data set.
      *
-     * @param \Modules\ModuleCTIClient\Models\ModuleCTIClient $dataSet
-     *
-     * @return string
+     * @return string The generated BASE64 string.
      */
     private function generateAutoSettingsString(ModuleCTIClient $dataSet): string
     {

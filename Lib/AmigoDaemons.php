@@ -17,13 +17,6 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Copyright (C) MIKO LLC - All Rights Reserved
- * Unauthorized copying of this file, via any medium is strictly prohibited
- * Proprietary and confidential
- * Written by Nikolay Beketov, 5 2020
- *
- */
 
 namespace Modules\ModuleCTIClient\Lib;
 
@@ -60,24 +53,32 @@ class AmigoDaemons extends Di\Injectable
     private string $moduleUniqueID = 'ModuleCTIClient';
     private MikoPBXConfig $mikoPBXConfig;
 
+    /**
+     * Constructor for the class.
+     */
     public function __construct()
     {
+        // Check if the module is enabled
         if (PbxExtensionUtils::isEnabled($this->moduleUniqueID)) {
+
+            // Retrieve the module settings from the database
             $module_settings = ModuleCTIClient::findFirst();
             if ($module_settings !== null) {
                 $this->module_settings = $module_settings->toArray();
             }
         }
+
+        // Create an instance of MikoPBXConfig
         $this->mikoPBXConfig = new MikoPBXConfig();
 
+        // Get the module directories
         $this->dirs = $this->getModuleDirs();
     }
 
     /**
-     * Подготавливает директории для хранения конфигов и логов модуля
+     * Prepares directories for storing module configurations and logs.
      *
-     * @return array
-     *
+     * @return array An array containing the directory paths.
      */
     private function getModuleDirs(): array
     {
@@ -126,7 +127,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Удаление логов старше недели
+     * Deletes logs older than one week.
      */
     public function deleteOldLogs(): void
     {
@@ -145,7 +146,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Остановка сервисов панели
+     * Stops all CTI services.
      */
     public function stopAllServices(): void
     {
@@ -168,9 +169,9 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Запуск или перезапуск всех сервисов
+     * Starts or restarts all services.
      *
-     * @param bool $restart
+     * @param bool $restart Whether to restart the services.
      */
     public function startAllServices(bool $restart = false): void
     {
@@ -182,7 +183,7 @@ class AmigoDaemons extends Di\Injectable
             && $restart === false
             && $moduleEnabled === true
         ) {
-            return; // Ничего не надо делать, все запущено и работает
+            return;  // Nothing to do, everything is already running
         }
 
         // Monitord
@@ -208,7 +209,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Create configs for all files
+     * Create configs for all services
      */
     private function generateConfFiles(): void
     {
@@ -225,7 +226,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Старт сервера обработки очередей задач.
+     * Start the task queue server and makes - nats.conf
      */
     private function generateNatsConf(): void
     {
@@ -281,7 +282,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Порт, на котором работает NATS очередь
+     * Get the port on which the NATS queue is running.
      *
      * @return string
      */
@@ -291,7 +292,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Web порт, на котором работает NATS очередь
+     * Get the HTTP port on which the NATS queue is running.
      *
      * @return string
      */
@@ -302,7 +303,7 @@ class AmigoDaemons extends Di\Injectable
 
 
     /**
-     * Создает файл настроек автоподъема трубки
+     * Generate the auto-answer settings file.
      */
     private function generateHeadersConf(): void
     {
@@ -421,8 +422,8 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создает файл настроек для демона crmd
-     * Который отвечает за взаимодействие с CRM
+     * Generate the configuration file for the crmd daemon
+     * responsible for interacting with CRM.
      */
     private function generateCrmdConf(): void
     {
@@ -467,7 +468,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для authd.
+     * Generate the configuration file for authd.
      */
     private function generateAuthdConf(): void
     {
@@ -493,7 +494,7 @@ class AmigoDaemons extends Di\Injectable
 
 
     /**
-     * Создание файла конфигурации для chatsd.
+     * Generate the configuration file for chatsd.
      */
     private function generateChatsConf(): void
     {
@@ -525,7 +526,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для telegram.
+     * Generate the configuration file for telegram.
      */
     private function generateTelegramConf(): void
     {
@@ -557,7 +558,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для proxyd.
+     * Generate the configuration file for proxyd.
      */
     private function generateProxyConf(): void
     {
@@ -586,7 +587,8 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для authd.
+     * Generates the configuration file for the amid daemon.
+     * Subscribes to AMI events, processes them, and sends them to the queue.
      */
     private function generateAmidConf(): void
     {
@@ -596,13 +598,12 @@ class AmigoDaemons extends Di\Injectable
         $WEBPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('WEBPort'));
         $AMIPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('AMIPort'));
 
-        // Поддержка перехвата на ответственного
+        // Interception support
         $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
         $interceptionSupport = false;
         if (version_compare($pbxVersion, '2021.3.23', '>')) {
             $interceptionSupport = true;
         }
-
 
         $settings_amid = [
             'pbx' => 'Askozia',
@@ -644,7 +645,6 @@ class AmigoDaemons extends Di\Injectable
             'files' => $this->dirs['filesDir'],
         ];
 
-
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/ami.json",
             json_encode($settings_amid, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
@@ -652,7 +652,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для monitord.
+     * Generate the configuration file for monitord.
      */
     private function generateMonitordConf(): void
     {
@@ -710,7 +710,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для speechd.
+     * Generate the configuration file for speechd.
      */
     private function generateSpeechdConf(): void
     {
@@ -741,9 +741,10 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Тестирование живой ли модуль, доступны ли сервисы
+     * Check if the module is working properly.
      *
      * @return PBXApiResult An object containing the result of the API call.
+     *
      */
     public function checkModuleWorkProperly(): PBXApiResult
     {
@@ -774,7 +775,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Проверка, запущена ли служба NATS
+     * Check the status of NATS server.
      *
      * @return array
      */
@@ -814,7 +815,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Возвращает статус воркеров запущенных через monitor
+     * Check the statuses of worker processes started through the Monitor service.
      *
      * @return array
      */
@@ -850,8 +851,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Возвращает статус монитора
-     *
+     * Check the status of the monitor process.
      *
      * @return array
      */
@@ -871,11 +871,10 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Ask caller id from CRM system
+     * Get the caller ID for a given number from CRM system
      *
-     * @param string $number
-     *
-     * @return string
+     * @param string $number The phone number.
+     * @return string The caller ID.
      */
     public static function getCallerId(string $number): string
     {

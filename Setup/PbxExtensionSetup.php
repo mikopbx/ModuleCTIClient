@@ -17,13 +17,6 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Copyright © MIKO LLC - All Rights Reserved
- * Unauthorized copying of this file, via any medium is strictly prohibited
- * Proprietary and confidential
- * Written by Alexey Portnov, 10 2019
- */
-
 namespace Modules\ModuleCTIClient\Setup;
 
 use MikoPBX\Common\Models\Extensions;
