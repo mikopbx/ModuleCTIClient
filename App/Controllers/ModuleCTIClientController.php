@@ -134,6 +134,10 @@ class ModuleCTIClientController extends BaseController
             }
         }
 
+        if (empty($record->publish_name_with_auth)){
+            $record->publish_name_with_auth = $record->database;
+        }
+
         // Save the record
         if ($record->save() === false) {
             // Handle errors if saving fails

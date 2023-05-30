@@ -57,6 +57,7 @@ class ModuleCTIClientForm extends Form
         $this->add(new Text('login'));
         $this->add(new Password('secret'));
         $this->add(new Text('database'));
+        $this->add(new Text('publish_name_with_auth'));
 
         // Web service mode
         if ($entity->web_service_mode==='1') {

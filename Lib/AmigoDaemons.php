@@ -455,6 +455,7 @@ class AmigoDaemons extends Di\Injectable
                 'login' => $this->module_settings['login'],
                 'password' => $this->module_settings['secret'],
                 'url' => "/{$this->module_settings['database']}/ws/miko_crm_api.1cws",
+                'auth-url'=> "/{$this->module_settings['publish_name_with_auth']}",
                 'cookie_path' => $cookiesDir,
                 'keep-alive' => 3000,
                 'timeout' => 10,

@@ -37,9 +37,8 @@
 
         <div class="field only-auto-settings">
             <label for="auto_settings_value">{{ t._('mod_cti_AutoSettingsData') }}</label>
-              <textarea  name="auto_settings_value" readonly style="overflow: hidden; overflow-wrap: break-word; resize: horizontal; height: 134px;" spellcheck="false">{{ autoSettingsValue }}</textarea>
+            <textarea  name="auto_settings_value" readonly style="overflow: hidden; overflow-wrap: break-word; resize: horizontal; height: 134px;" spellcheck="false">{{ autoSettingsValue }}</textarea>
         </div>
-
 
 
         <div class="grouped fields only-manual-settings">
@@ -47,20 +46,20 @@
             <div class="field">
                 <div class="ui radio checkbox web-service-radio">
                     {{ form.render('web_service_mode_off') }}
-                    <label>{{ t._('mod_cti_PublicationOverLongPool') }}</label>
+                    <label for="web_service_mode_off">{{ t._('mod_cti_PublicationOverLongPool') }}</label>
                 </div>
             </div>
             <div class="field">
                 <div class="ui radio checkbox web-service-radio" id="web-service-mode-toggle">
                     {{ form.render('web_service_mode_on') }}
-                    <label>{{ t._('mod_cti_PublicationOverWebServices') }}</label>
+                    <label for="web_service_mode_on">{{ t._('mod_cti_PublicationOverWebServices') }}</label>
                 </div>
             </div>
         </div>
 
-        <div class="twelve wide field ws-only disabled only-manual-settings">
+        <div class="field ws-only disabled only-manual-settings">
             <label>{{ t._('mod_cti_Server1CHostPort') }}</label>
-            <div class="inline fields">
+            <div class="twelve wide inline fields">
                 <div class="twelve wide field">
                     <div class="ui left labeled input">
                         <div class="ui dropdown label server1c_scheme">
@@ -76,24 +75,36 @@
                 </div>
             </div>
         </div>
-        <div class="five wide field ws-only disabled only-manual-settings">
-            <label>{{ t._('mod_cti_PublicationName') }}</label>
-            {{ form.render('database') }}
+        <div class="field ws-only disabled only-manual-settings">
+            <label for="database">{{ t._('mod_cti_PublicationName') }}</label>
+            <div class="five wide field">
+                {{ form.render('database') }}
+            </div>
         </div>
-        <div class="five wide field ws-only disabled only-manual-settings">
-            <label>{{ t._('mod_cti_Login') }}</label>
-            {{ form.render('login') }}
+        <div class="field ws-only disabled only-manual-settings">
+            <label for="publish_name_with_auth">{{ t._('mod_cti_PublicationNameForAuth') }}</label>
+            <div class="five wide field">
+                {{ form.render('publish_name_with_auth') }}
+            </div>
         </div>
-        <div class="five wide field ws-only disabled only-manual-settings">
-            <label>{{ t._('mod_cti_Password') }}</label>
-            {{ form.render('secret') }}
+        <div class="field ws-only disabled only-manual-settings">
+            <label for="login">{{ t._('mod_cti_Login') }}</label>
+            <div class="five wide field">
+                {{ form.render('login') }}
+            </div>
+        </div>
+        <div class="field ws-only disabled only-manual-settings">
+            <label for="secret">{{ t._('mod_cti_Password') }}</label>
+            <div class="five wide field">
+                {{ form.render('secret') }}
+            </div>
         </div>
 
         <div class="field">
             <div class="ui segment">
                 <div class="ui toggle checkbox " id="debug-mode-toggle">
                     {{ form.render('debug_mode') }}
-                    <label>{{ t._('mod_cti_EnableDebugMode') }}</label>
+                    <label for="debug_mode">{{ t._('mod_cti_EnableDebugMode') }}</label>
                 </div>
             </div>
         </div>
@@ -102,7 +113,7 @@
             <div class="ui segment">
                 <div class="ui toggle checkbox " id="setup-caller-id-toggle">
                     {{ form.render('setup_caller_id') }}
-                    <label>{{ t._('mod_cti_EnableSetCallerID') }}</label>
+                    <label for="setup_caller_id">{{ t._('mod_cti_EnableSetCallerID') }}</label>
                 </div>
             </div>
         </div>
@@ -110,14 +121,17 @@
             <div class="ui segment">
                 <div class="ui toggle checkbox " id="transliterate-caller-id-toggle">
                     {{ form.render('transliterate_caller_id') }}
-                    <label>{{ t._('mod_cti_TransliterateCallerID') }}</label>
+                    <label for="transliterate_caller_id">{{ t._('mod_cti_TransliterateCallerID') }}</label>
                 </div>
             </div>
         </div>
     </div>
+
     {# debug tab #}
     <div class="ui bottom attached tab segment" data-tab="debug">
         <span id="debug-info"></span>
     </div>
+
+    {# submit button #}
     {{ partial("partials/submitbutton",['indexurl':'pbx-extension-modules/index/']) }}
 </form>

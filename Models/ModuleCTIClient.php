@@ -21,6 +21,12 @@ namespace Modules\ModuleCTIClient\Models;
 
 use MikoPBX\Modules\Models\ModulesModelsBase;
 
+
+/**
+ * Class ModuleCTIClient
+ *
+ * Represents the CTI Client module.
+ */
 class ModuleCTIClient extends ModulesModelsBase
 {
 
@@ -32,97 +38,107 @@ class ModuleCTIClient extends ModulesModelsBase
     public $id;
 
     /**
-     * Адрес сервера 1С
+     * @var string|null The address of the 1C server
      *
      * @Column(type='string', nullable=true, default='')
      */
     public ?string $server1chost = '';
 
     /**
-     * Порт, где опубликован сервер 1С
+     * @var string|null The port where the 1C server is published
      *
      * @Column(type='integer', nullable=true, default='80')
      */
     public ?string $server1cport = '80';
 
     /**
-     * Использовать SSL подключение к серверу 1С
+     * @var string|null Use SSL connection to the 1C server
      *
      * @Column(type='string', length=1, nullable=true, default='http')
      */
     public ?string $server1c_scheme = 'http';
 
     /**
-     * Логин к вебсервису
+     * @var string|null Login to the web service
      *
      * @Column(type='string', nullable=true, default='')
      */
     public ?string $login = '';
 
     /**
-     * Пароль к вебсервису
+     * @var string|null Password for the web service
      *
      * @Column(type='string', nullable=true, default='')
      */
     public ?string $secret = '';
 
     /**
-     * Имя публикации
+     * @var string|null The name of the publication on the 1C server
      *
      * @Column(type='string', nullable=true, default='')
      */
     public ?string $database = '';
 
     /**
-     * Режим требующий публикации базы 1С
+     * @var string|null The name of the publication on the 1C server with domain authentication enabled
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $publish_name_with_auth = '';
+
+    /**
+     * @var string|null Mode requiring publication of the 1C database
      *
      * @Column(type='string', length=1, nullable=true, default='0')
      */
     public ?string $web_service_mode = '0';
 
     /**
-     * Режим отладки модуля
+     * @var string|null Debug mode of the module
      *
      * @Column(type='string', length=1, nullable=true, default='0')
      */
     public ?string $debug_mode = '0';
 
     /**
-     * Пароль AMI для создаваемого менеджера
+     * @var string|null AMI password for the created manager
      *
      * @Column(type='string', nullable=true, default='')
      */
     public ?string $ami_password = '';
 
     /**
-     * Пароль GNATS для автонастройки
+     * @var string|null GNATS password for auto-configuration
      *
      * @Column(type='string', nullable=true, default='')
      */
     public ?string $nats_password = '';
 
     /**
-     * Режим настройки модуля со стороны 1С
+     * @var string|null Module configuration mode from the 1C side
      *
      * @Column(type='string', length=1, nullable=true, default='0')
      */
     public ?string $auto_settings_mode = '1';
 
     /**
-     * Устанавливать ли CallerID по данным в 1С
+     * @var string|null Whether to set CallerID based on data from 1C
      *
      * @Column(type='string', length=1, nullable=true, default='0')
      */
     public ?string $setup_caller_id = '1';
 
     /**
-     * Выполнять транслитерацию CallerID
+     * @var string|null Whether to transliterate CallerID
      *
      * @Column(type='string', length=1, nullable=true, default='0')
      */
     public ?string $transliterate_caller_id = '0';
 
-
+    /**
+     * Initialize model for module
+     * @return void
+     */
     public function initialize(): void
     {
         $this->setSource('m_ModuleCTIClient');

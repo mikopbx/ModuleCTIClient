@@ -28,6 +28,7 @@ return [
     'mod_cti_Login'                      => 'Логин для веб-сервиса 1C',
     'mod_cti_Password'                   => 'Пароль для авторизации в 1С',
     'mod_cti_PublicationName'            => 'Имя публикации',
+    'mod_cti_PublicationNameForAuth'     => 'Имя публикации с аутентификацией средствами ОС',
     'mod_cti_UseAutoSettings'            => 'Автоматическая настройка параметров связи модуля и 1С',
     'mod_cti_PublicationOverHeader'      => 'Режим соединения с 1С',
     'mod_cti_PublicationOverWebServices' => 'через web сервис (MikoPBX подключается к 1С)',
