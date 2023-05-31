@@ -455,12 +455,17 @@ class AmigoDaemons extends Di\Injectable
                 'login' => $this->module_settings['login'],
                 'password' => $this->module_settings['secret'],
                 'url' => "/{$this->module_settings['database']}/ws/miko_crm_api.1cws",
-                'auth-url'=> "/{$this->module_settings['publish_name_with_auth']}",
+                'auth-url'=> '',
                 'cookie_path' => $cookiesDir,
                 'keep-alive' => 3000,
                 'timeout' => 10,
             ];
+
+            if (!empty($this->module_settings['publish_name_with_auth'])){
+                $settings_crm['wsdl']['auth-url']="/{$this->module_settings['publish_name_with_auth']}";
+            }
         }
+
 
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/crm.json",
