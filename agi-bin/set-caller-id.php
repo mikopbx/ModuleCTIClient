@@ -2,7 +2,7 @@
 <?php
 /*
  * MikoPBX - free phone system for small business
- * Copyright (C) 2017-2021 Alexey Portnov and Nikolay Beketov
+ * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,11 +24,20 @@ use MikoPBX\Core\Asterisk\AGI;
 use Modules\ModuleCTIClient\Lib\AmigoDaemons;
 
 require_once 'Globals.php';
+
+/**
+ * Retrieves the caller ID name from the CRM and sets it as the caller ID name for the call.
+ * If no caller ID name is found, logs a message indicating the absence of contact in the CRM.
+ */
 try {
     $agi    = new AGI();
     $number = $agi->request['agi_callerid'];
+
+    // Retrieve caller ID name from the CRM
     $callerIDName = AmigoDaemons::getCallerId($number);
+
     if (!empty($callerIDName)){
+        // Set the caller ID name for the call
         $agi->set_variable('CALLERID(name)', $callerIDName);
         $agi->noop('Receive a caller name "'.$callerIDName.'" from the CRM');
     } else {

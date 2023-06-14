@@ -1,11 +1,22 @@
 <?php
-/**
- * Copyright (C) MIKO LLC - All Rights Reserved
- * Unauthorized copying of this file, via any medium is strictly prohibited
- * Proprietary and confidential
- * Written by Nikolay Beketov, 5 2020
+/*
+ * MikoPBX - free phone system for small business
+ * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
  *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
  */
+
 
 namespace Modules\ModuleCTIClient\Lib;
 
@@ -35,30 +46,39 @@ class AmigoDaemons extends Di\Injectable
     public const SERVICE_MONITOR = 'monitord';
     public const SERVICE_CHATS = 'chatsd';
     public const SERVICE_PROXY = 'proxyd';
+    public const SERVICE_TELEGRAM = 'tgd';
 
     public array $dirs;
     private array $module_settings = [];
     private string $moduleUniqueID = 'ModuleCTIClient';
     private MikoPBXConfig $mikoPBXConfig;
 
+    /**
+     * Constructor for the class.
+     */
     public function __construct()
     {
+        // Check if the module is enabled
         if (PbxExtensionUtils::isEnabled($this->moduleUniqueID)) {
+
+            // Retrieve the module settings from the database
             $module_settings = ModuleCTIClient::findFirst();
             if ($module_settings !== null) {
                 $this->module_settings = $module_settings->toArray();
             }
         }
+
+        // Create an instance of MikoPBXConfig
         $this->mikoPBXConfig = new MikoPBXConfig();
 
+        // Get the module directories
         $this->dirs = $this->getModuleDirs();
     }
 
     /**
-     * Подготавливает директории для хранения конфигов и логов модуля
+     * Prepares directories for storing module configurations and logs.
      *
-     * @return array
-     *
+     * @return array An array containing the directory paths.
      */
     private function getModuleDirs(): array
     {
@@ -107,7 +127,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Удаление логов старше недели
+     * Deletes logs older than one week.
      */
     public function deleteOldLogs(): void
     {
@@ -126,7 +146,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Остановка сервисов панели
+     * Stops all CTI services.
      */
     public function stopAllServices(): void
     {
@@ -138,6 +158,7 @@ class AmigoDaemons extends Di\Injectable
             self::SERVICE_CRM,
             self::SERVICE_SPEECH,
             self::SERVICE_CHATS,
+            self::SERVICE_TELEGRAM,
             self::SERVICE_PROXY
         ];
 
@@ -148,9 +169,9 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Запуск или перезапуск всех сервисов
+     * Starts or restarts all services.
      *
-     * @param bool $restart
+     * @param bool $restart Whether to restart the services.
      */
     public function startAllServices(bool $restart = false): void
     {
@@ -162,7 +183,7 @@ class AmigoDaemons extends Di\Injectable
             && $restart === false
             && $moduleEnabled === true
         ) {
-            return; // Ничего не надо делать, все запущено и работает
+            return;  // Nothing to do, everything is already running
         }
 
         // Monitord
@@ -188,7 +209,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Create configs for all files
+     * Create configs for all services
      */
     private function generateConfFiles(): void
     {
@@ -199,12 +220,13 @@ class AmigoDaemons extends Di\Injectable
         $this->generateAmidConf();
         $this->generateSpeechdConf();
         $this->generateChatsConf();
+        $this->generateTelegramConf();
         $this->generateProxyConf();
         $this->generateMonitordConf();
     }
 
     /**
-     * Старт сервера обработки очередей задач.
+     * Start the task queue server and makes - nats.conf
      */
     private function generateNatsConf(): void
     {
@@ -260,7 +282,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Порт, на котором работает NATS очередь
+     * Get the port on which the NATS queue is running.
      *
      * @return string
      */
@@ -270,7 +292,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Web порт, на котором работает NATS очередь
+     * Get the HTTP port on which the NATS queue is running.
      *
      * @return string
      */
@@ -281,7 +303,7 @@ class AmigoDaemons extends Di\Injectable
 
 
     /**
-     * Создает файл настроек автоподъема трубки
+     * Generate the auto-answer settings file.
      */
     private function generateHeadersConf(): void
     {
@@ -400,8 +422,8 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создает файл настроек для демона crmd
-     * Который отвечает за взаимодействие с CRM
+     * Generate the configuration file for the crmd daemon
+     * responsible for interacting with CRM.
      */
     private function generateCrmdConf(): void
     {
@@ -433,11 +455,17 @@ class AmigoDaemons extends Di\Injectable
                 'login' => $this->module_settings['login'],
                 'password' => $this->module_settings['secret'],
                 'url' => "/{$this->module_settings['database']}/ws/miko_crm_api.1cws",
+                'auth-url'=> '',
                 'cookie_path' => $cookiesDir,
                 'keep-alive' => 3000,
                 'timeout' => 10,
             ];
+
+            if (!empty($this->module_settings['publish_name_with_auth'])){
+                $settings_crm['wsdl']['auth-url']="/{$this->module_settings['publish_name_with_auth']}";
+            }
         }
+
 
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/crm.json",
@@ -446,7 +474,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для authd.
+     * Generate the configuration file for authd.
      */
     private function generateAuthdConf(): void
     {
@@ -472,7 +500,7 @@ class AmigoDaemons extends Di\Injectable
 
 
     /**
-     * Создание файла конфигурации для chatsd.
+     * Generate the configuration file for chatsd.
      */
     private function generateChatsConf(): void
     {
@@ -504,7 +532,39 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для proxyd.
+     * Generate the configuration file for telegram.
+     */
+    private function generateTelegramConf(): void
+    {
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_TELEGRAM;
+        Util::mwMkdir($logDir);
+
+        $chatDataBasesPath = "{$this->dirs['moduleDir']}/db/tg";
+        Util::mwMkdir($chatDataBasesPath);
+
+        $settings_chats = [
+            'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
+            'log_path' => $logDir,
+            'mq' => [
+                'host' => '127.0.0.1',
+                'port' => $this->getNatsPort(),
+            ],
+            'http' => [
+                'port' => '8228',
+            ],
+            'database' => [
+                'path' => $chatDataBasesPath,
+            ],
+        ];
+
+        Util::fileWriteContent(
+            "{$this->dirs['confDir']}/tg.json",
+            json_encode($settings_chats, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+    /**
+     * Generate the configuration file for proxyd.
      */
     private function generateProxyConf(): void
     {
@@ -533,7 +593,8 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для authd.
+     * Generates the configuration file for the amid daemon.
+     * Subscribes to AMI events, processes them, and sends them to the queue.
      */
     private function generateAmidConf(): void
     {
@@ -543,13 +604,12 @@ class AmigoDaemons extends Di\Injectable
         $WEBPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('WEBPort'));
         $AMIPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('AMIPort'));
 
-        // Поддержка перехвата на ответственного
+        // Interception support
         $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
         $interceptionSupport = false;
         if (version_compare($pbxVersion, '2021.3.23', '>')) {
             $interceptionSupport = true;
         }
-
 
         $settings_amid = [
             'pbx' => 'Askozia',
@@ -591,7 +651,6 @@ class AmigoDaemons extends Di\Injectable
             'files' => $this->dirs['filesDir'],
         ];
 
-
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/ami.json",
             json_encode($settings_amid, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
@@ -599,7 +658,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для monitord.
+     * Generate the configuration file for monitord.
      */
     private function generateMonitordConf(): void
     {
@@ -657,7 +716,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Создание файла конфигурации для speechd.
+     * Generate the configuration file for speechd.
      */
     private function generateSpeechdConf(): void
     {
@@ -688,9 +747,10 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Тестирование живой ли модуль, доступны ли сервисы
+     * Check if the module is working properly.
      *
-     * @return PBXApiResult
+     * @return PBXApiResult An object containing the result of the API call.
+     *
      */
     public function checkModuleWorkProperly(): PBXApiResult
     {
@@ -721,7 +781,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Проверка, запущена ли служба NATS
+     * Check the status of NATS server.
      *
      * @return array
      */
@@ -761,7 +821,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Возвращает статус воркеров запущенных через monitor
+     * Check the statuses of worker processes started through the Monitor service.
      *
      * @return array
      */
@@ -797,8 +857,7 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Возвращает статус монитора
-     *
+     * Check the status of the monitor process.
      *
      * @return array
      */
@@ -818,11 +877,10 @@ class AmigoDaemons extends Di\Injectable
     }
 
     /**
-     * Ask caller id from CRM system
+     * Get the caller ID for a given number from CRM system
      *
-     * @param string $number
-     *
-     * @return string
+     * @param string $number The phone number.
+     * @return string The caller ID.
      */
     public static function getCallerId(string $number): string
     {
