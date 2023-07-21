@@ -543,7 +543,7 @@ class AmigoDaemons extends Di\Injectable
         Util::mwMkdir($chatDataBasesPath);
 
         $settings_chats = [
-            'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
+            'log_level' => $this->module_settings['debug_mode'] ? -1 : 2,
             'log_path' => $logDir,
             'mq' => [
                 'host' => '127.0.0.1',

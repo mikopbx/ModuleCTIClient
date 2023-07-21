@@ -139,7 +139,7 @@ class CTIClientConf extends ConfigClass
 
 
     /**
-     *  Process CoreAPI requests under root rights
+     * Process CoreAPI requests under root rights
      *
      * @param array $request
      *
