@@ -276,6 +276,8 @@ class ModuleCTIClientController extends BaseController
                 'avatar' => $extension['avatar'],
                 'email' => $extension['email'],
                 'port' => $extension['port'],
+                'transport' => $extension['transport'],
+                'dtmfmode' => $extension['dtmfmode'],
             ];
         }
 
@@ -366,15 +368,7 @@ class ModuleCTIClientController extends BaseController
             ];
         }
 
-        $this->view->disableLevel(
-            [
-                View::LEVEL_ACTION_VIEW => true,
-                View::LEVEL_LAYOUT => true,
-                View::LEVEL_MAIN_LAYOUT => true,
-                View::LEVEL_AFTER_TEMPLATE => true,
-                View::LEVEL_BEFORE_TEMPLATE => true,
-            ]
-        );
+        $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
         $data = json_encode($extensionTable);
         $this->response->setContent($data);
@@ -397,15 +391,7 @@ class ModuleCTIClientController extends BaseController
      */
     public function updateUserAvatarAction()
     {
-        $this->view->disableLevel(
-            [
-                View::LEVEL_ACTION_VIEW => true,
-                View::LEVEL_LAYOUT => true,
-                View::LEVEL_MAIN_LAYOUT => true,
-                View::LEVEL_AFTER_TEMPLATE => true,
-                View::LEVEL_BEFORE_TEMPLATE => true,
-            ]
-        );
+        $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
         if (!$this->request->isPost()) {
             $data = json_encode(['error' => 'Only post requests accepted']);
@@ -448,15 +434,7 @@ class ModuleCTIClientController extends BaseController
      */
     public function updateUserMobileAction(): void
     {
-        $this->view->disableLevel(
-            [
-                View::LEVEL_ACTION_VIEW => true,
-                View::LEVEL_LAYOUT => true,
-                View::LEVEL_MAIN_LAYOUT => true,
-                View::LEVEL_AFTER_TEMPLATE => true,
-                View::LEVEL_BEFORE_TEMPLATE => true,
-            ]
-        );
+        $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
         if (!$this->request->isPost()) {
             $data = json_encode(['error' => 'Only post requests accepted']);
@@ -539,15 +517,7 @@ class ModuleCTIClientController extends BaseController
      */
     public function getUserAvatarAction(string $imgHash)
     {
-        $this->view->disableLevel(
-            [
-                View::LEVEL_ACTION_VIEW => true,
-                View::LEVEL_LAYOUT => true,
-                View::LEVEL_MAIN_LAYOUT => true,
-                View::LEVEL_AFTER_TEMPLATE => true,
-                View::LEVEL_BEFORE_TEMPLATE => true,
-            ]
-        );
+        $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
         $imgCacheDir = appPath('sites/admin-cabinet/assets/img/cache');
         $imgFile = "{$imgCacheDir}/$imgHash.jpg";
@@ -616,15 +586,7 @@ class ModuleCTIClientController extends BaseController
      */
     public function updateUserEmailAction()
     {
-        $this->view->disableLevel(
-            [
-                View::LEVEL_ACTION_VIEW => true,
-                View::LEVEL_LAYOUT => true,
-                View::LEVEL_MAIN_LAYOUT => true,
-                View::LEVEL_AFTER_TEMPLATE => true,
-                View::LEVEL_BEFORE_TEMPLATE => true,
-            ]
-        );
+        $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
         if (!$this->request->isPost()) {
             $data = json_encode(['error' => 'Only post requests accepted']);
