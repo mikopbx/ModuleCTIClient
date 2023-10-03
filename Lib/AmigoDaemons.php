@@ -265,6 +265,8 @@ class AmigoDaemons extends Di\Injectable
             $settings['nats_password'] = '"' . $this->module_settings['nats_password'] . '"';
         }
 
+        $settings['web_port'] = PbxSettings::getValueByKey('WEBPort');
+
         $config = '';
         foreach ($settings as $key => $val) {
             $config .= "{$key}: {$val} \n";
