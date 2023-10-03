@@ -265,6 +265,8 @@ class AmigoDaemons extends Di\Injectable
             $settings['nats_password'] = '"' . $this->module_settings['nats_password'] . '"';
         }
 
+        $settings['web_port'] = PbxSettings::getValueByKey('WEBPort');
+
         $config = '';
         foreach ($settings as $key => $val) {
             $config .= "{$key}: {$val} \n";
@@ -763,7 +765,7 @@ class AmigoDaemons extends Di\Injectable
 
             return $res;
         }
-
+        $statuses = [];
         $statuses[] = $this->checkMonitorStatus();
         $statuses[] = $this->checkNatsStatus();
         $statuses = array_merge($statuses, $this->checkWorkerStatuses());
@@ -795,8 +797,12 @@ class AmigoDaemons extends Di\Injectable
 
         try {
             $response = curl_exec($curl);
-            $response = str_replace('\n', '', $response);
-            $data = json_decode($response, true);
+            if (is_string($response)){
+                $response = str_replace('\n', '', $response);
+                $data = json_decode($response, true);
+            } else {
+                $data = null;
+            }
         } catch (Throwable $e) {
             $data = null;
         }
@@ -840,7 +846,7 @@ class AmigoDaemons extends Di\Injectable
         } catch (Throwable $e) {
             $data = null;
         }
-
+        $result = [];
         curl_close($curl);
         if ($data !== null
             && array_key_exists('result', $data)

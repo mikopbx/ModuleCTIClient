@@ -2,7 +2,7 @@
     "name": "mikopbx/modulecticlient",
     "description": "ModuleCTIClient",
     "require": {
-        "mikopbx/core": ">=2020.2.757"
+        "mikopbx/core": ">=2023.2.206"
     },
     "autoload": {
         "psr-4": {
@@ -26,10 +26,10 @@
     "homepage": "https://github.com/mikopbx/ModuleCTIClient",
     "support": {
         "email": "help@mikopbx.com",
-        "wiki": "https://wiki.mikopbx.com",
-        "issues": "https://github.com/mikopbx/Core/issues",
-        "source": "https://github.com/mikopbx/Core",
-        "forum": "https://qa.askozia.ru",
+        "wiki": "https://docs.telefon1c.ru",
+        "issues": "https://github.com/mikopbx/ModuleCTIClient/issues",
+        "source": "https://github.com/mikopbx/ModuleCTIClient",
+        "forum": "https://qa.mikopbx.ru",
         "chat": "https://t.me/mikopbx_dev"
     },
     "authors": [

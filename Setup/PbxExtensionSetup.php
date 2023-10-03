@@ -123,6 +123,10 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             $this->transferOldSettings();
         }
 
+        if ($result) {
+            $result = $this->addToSidebar();
+        }
+
         return $result;
     }
 
@@ -248,22 +252,30 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     }
 
     /**
-     * Выполняет активацию триалов, проверку лицензионного ключа
+     * Adds the module to the sidebar menu.
+     * @see https://docs.mikopbx.com/mikopbx-development/module-developement/module-installer#addtosidebar
      *
-     * @return bool Результат активации лицензии
+     * @return bool The result of the addition process.
      */
-    public function activateLicense(): bool
+    public function addToSidebar(): bool
     {
-        $lic = PbxSettings::getValueByKey('PBXLicense');
-        if (empty($lic)) {
-            $this->messges[] = 'License key not found...';
-
-            return false;
+        $menuSettingsKey           = "AdditionalMenuItem{$this->moduleUniqueID}";
+        $menuSettings              = PbxSettings::findFirstByKey($menuSettingsKey);
+        if ($menuSettings === null) {
+            $menuSettings      = new PbxSettings();
+            $menuSettings->key = $menuSettingsKey;
         }
-        // Получение пробной лицензии. Продукт "Панель телефонии для 1С версии ПРОФ".
-        $this->license->addtrial('85');
+        $value               = [
+            'uniqid'        => $this->moduleUniqueID,
+            'group'         => 'integrations',
+            'iconClass'     => 'puzzle',
+            'caption'       => "Breadcrumb{$this->moduleUniqueID}",
+            'showAtSidebar' => true,
+        ];
+        $menuSettings->value = json_encode($value);
 
-        return true;
+        return $menuSettings->save();
     }
+
 
 }
