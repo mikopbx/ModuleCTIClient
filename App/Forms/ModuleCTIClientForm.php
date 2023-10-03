@@ -30,7 +30,7 @@ use Phalcon\Forms\Form;
 class ModuleCTIClientForm extends Form
 {
 
-    public function initialize($entity = null, $options = null)
+    public function initialize($entity = null)
     {
         $this->add(new Text('server1chost'));
         $this->add(new Numeric('server1cport'));

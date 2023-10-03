@@ -98,6 +98,7 @@ class ModuleCTIClientController extends BaseController
      */
     private function generateAutoSettingsString(ModuleCTIClient $dataSet): string
     {
+        $ipAddresses = [];
         $ipAddresses[] = $this->request->getServerAddress();
         $internetInterfaces = LanInterfaces::find(['hydration' => Resultset::HYDRATE_ARRAYS]);
 
@@ -279,15 +280,7 @@ class ModuleCTIClientController extends BaseController
         }
 
 
-        $this->view->disableLevel(
-            [
-                View::LEVEL_ACTION_VIEW => true,
-                View::LEVEL_LAYOUT => true,
-                View::LEVEL_MAIN_LAYOUT => true,
-                View::LEVEL_AFTER_TEMPLATE => true,
-                View::LEVEL_BEFORE_TEMPLATE => true,
-            ]
-        );
+        $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
         $data = json_encode($resultTable);
         $this->response->setContent($data);
