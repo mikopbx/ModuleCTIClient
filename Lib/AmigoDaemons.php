@@ -643,6 +643,7 @@ class AmigoDaemons extends Di\Injectable
             ],
             'records' => [
                 'request' => "http://127.0.0.1:$WEBPort/pbxcore/api/cdr/playback?view=%s",
+                'path' => "/storage/usbdisk1/mikopbx/astspool/monitor/",
                 'result' => '',
                 'login' => '',
                 'password' => '',
@@ -698,11 +699,12 @@ class AmigoDaemons extends Di\Injectable
                     'args' => "-c {$this->dirs['confDir']}/auth.json",
                     'subject' => 'daemon.auth.ping',
                 ],
-                [
-                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH,
-                    'args' => "-c {$this->dirs['confDir']}/speech.json",
-                    'subject' => 'daemon.speech.ping',
-                ],
+//                 https://jira.miko.ru/browse/PT-870
+//                [
+//                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH,
+//                    'args' => "-c {$this->dirs['confDir']}/speech.json",
+//                    'subject' => 'daemon.speech.ping',
+//                ],
                 [
                     'path' => "{$this->dirs['binDir']}/" . self::SERVICE_PROXY,
                     'args' => "-c {$this->dirs['confDir']}/proxy.json",
