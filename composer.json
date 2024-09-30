@@ -2,7 +2,7 @@
     "name": "mikopbx/modulecticlient",
     "description": "ModuleCTIClient",
     "require": {
-        "mikopbx/core": ">=2023.2.206"
+        "php": "^7.4 || ^8.0"
     },
     "autoload": {
         "psr-4": {
@@ -55,7 +55,7 @@
     "config": {
         "sort-packages": true,
         "platform": {
-            "php": "7.4.6"
+            "php": "^7.4 || ^8.0"
         }
     }
 }

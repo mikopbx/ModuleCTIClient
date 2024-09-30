@@ -30,13 +30,13 @@ use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
-use Phalcon\Di;
+use Phalcon\Di\Injectable;
 use Throwable;
 
 /**
- * @property \Phalcon\Config $config
+ * @property \Phalcon\Config\Config $config
  */
-class AmigoDaemons extends Di\Injectable
+class AmigoDaemons extends Injectable
 {
     public const SERVICE_GNATS = 'gnatsd-cti';
     public const SERVICE_CRM = 'crmd';

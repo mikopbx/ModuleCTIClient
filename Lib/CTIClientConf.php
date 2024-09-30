@@ -24,7 +24,6 @@ use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\System\System;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore as WorkerSafeScriptsCore;
 use MikoPBX\Modules\Config\ConfigClass;
-use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 
@@ -268,13 +267,7 @@ class CTIClientConf extends ConfigClass
     public function generateIncomingRoutBeforeDial($rout_number): string
     {
         $conf = '';
-        // TODO::Можно будет удалить после обновления внешних панелей у пользователей, например после 31.12.2022
-        if ( ! PbxExtensionUtils::isEnabled('ModulePT1CCore')) {
-            $conf = "\t" . 'same => n,UserEvent(Interception,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})' . "\n\t";
-        }
-
         $conf .= "\t" . 'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})' . "\n\t";
-
 
         $module_settings = ModuleCTIClient::findFirst();
         if ($module_settings === null
