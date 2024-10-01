@@ -606,13 +606,6 @@ class AmigoDaemons extends Injectable
         $WEBPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('WEBPort'));
         $AMIPort = escapeshellcmd($this->mikoPBXConfig->getGeneralSettings('AMIPort'));
 
-        // Interception support
-        $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
-        $interceptionSupport = false;
-        if (version_compare($pbxVersion, '2021.3.23', '>')) {
-            $interceptionSupport = true;
-        }
-
         $settings_amid = [
             'pbx' => 'Askozia',
             'originate' => [
@@ -625,7 +618,7 @@ class AmigoDaemons extends Injectable
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'interception_support' => $interceptionSupport,
+            'interception_support' => true,
             'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
             'log_path' => $logDir,
             'ami' => [
