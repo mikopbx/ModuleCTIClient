@@ -271,8 +271,8 @@ class CTIClientConf extends ConfigClass
 
         $module_settings = ModuleCTIClient::findFirst();
         if ($module_settings === null
-            || $module_settings->setup_caller_id === '1') {
-            if ($module_settings->transliterate_caller_id === '1') {
+            || intval($module_settings->setup_caller_id) === 1) {
+            if (intval($module_settings->transliterate_caller_id) === 1) {
                 $agiFile = "set-caller-id-with-transliteration.php";
             } else {
                 $agiFile = "set-caller-id.php";

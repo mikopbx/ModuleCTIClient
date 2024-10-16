@@ -1,4 +1,5 @@
 <?php
+
 /*
  * MikoPBX - free phone system for small business
  * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
@@ -18,6 +19,7 @@
  */
 
 namespace Modules\ModuleCTIClient\App\Forms;
+
 use Phalcon\Forms\Element\Check;
 use Phalcon\Forms\Element\Numeric;
 use Phalcon\Forms\Element\Password;
@@ -26,10 +28,8 @@ use Phalcon\Forms\Element\Select;
 use Phalcon\Forms\Element\Text;
 use Phalcon\Forms\Form;
 
-
 class ModuleCTIClientForm extends Form
 {
-
     public function initialize($entity = null)
     {
         $this->add(new Text('server1chost'));
@@ -41,8 +41,10 @@ class ModuleCTIClientForm extends Form
             'https'    => 'https://',
         ];
 
-        $sslmode = new Select(
-            'server1c_scheme', $sslModes, [
+        $sslMode = new Select(
+            'server1c_scheme',
+            $sslModes,
+            [
                 'using'    => [
                     'id',
                     'name',
@@ -51,7 +53,7 @@ class ModuleCTIClientForm extends Form
                 'value'    => $entity->server1c_scheme
             ]
         );
-        $this->add($sslmode);
+        $this->add($sslMode);
 
 
         $this->add(new Text('login'));
@@ -60,40 +62,39 @@ class ModuleCTIClientForm extends Form
         $this->add(new Text('publish_name_with_auth'));
 
         // Web service mode
-        if ($entity->web_service_mode==='1') {
-            $this->add(new Radio('web_service_mode_on', ['name'=>'web_service_mode', 'checked'=>'checked', 'value'=>'on']));
-            $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode', 'value'=>'off']));
+        if (intval($entity->web_service_mode) === 1) {
+            $this->add(new Radio('web_service_mode_on', ['name' => 'web_service_mode', 'checked' => 'on', 'value' => 'on']));
+            $this->add(new Radio('web_service_mode_off', ['name' => 'web_service_mode', 'value' => 'off']));
         } else {
-            $this->add(new Radio('web_service_mode_on', ['name'=>'web_service_mode', 'value'=>'on']));
-            $this->add(new Radio('web_service_mode_off', ['name'=>'web_service_mode', 'checked'=>'checked', 'value'=>'off']));
+            $this->add(new Radio('web_service_mode_on', ['name' => 'web_service_mode', 'value' => 'on']));
+            $this->add(new Radio('web_service_mode_off', ['name' => 'web_service_mode', 'checked' => 'off', 'value' => 'off']));
         }
 
-        // Debug mode
-        $cheskarr = ['value' => null];
-        if ($entity->debug_mode==='1') {
-            $cheskarr = ['checked' => 'checked', 'value' => null];
-        }
-        $this->add(new Check('debug_mode', $cheskarr));
-
-        // Auto settings mode
-        $cheskarr = ['value' => null];
-        if ($entity->auto_settings_mode==='1') {
-            $cheskarr = ['checked' => 'checked', 'value' => null];
-        }
-        $this->add(new Check('auto_settings_mode', $cheskarr));
+        $this->addCheckBox('debug_mode', intval($entity->debug_mode) === 1);
+        $this->addCheckBox('auto_settings_mode', intval($entity->auto_settings_mode) === 1);
 
         // Set CallerID by 1C data
-        $cheskarr = ['value' => null];
-        if ($entity->setup_caller_id==='1') {
-            $cheskarr = ['checked' => 'checked', 'value' => null];
-        }
-        $this->add(new Check('setup_caller_id', $cheskarr));
+        $this->addCheckBox('setup_caller_id', intval($entity->setup_caller_id) === 1);
 
         // Set Transliterate caller ID
-         $cheskarr = ['value' => null];
-        if ($entity->transliterate_caller_id==='1') {
-            $cheskarr = ['checked' => 'checked', 'value' => null];
+        $this->addCheckBox('transliterate_caller_id', intval($entity->transliterate_caller_id) === 1);
+    }
+
+    /**
+     * Adds a checkbox to the form field with the given name.
+     * Can be deleted if the module depends on MikoPBX later than 2024.3.0
+     *
+     * @param string $fieldName The name of the form field.
+     * @param bool $checked Indicates whether the checkbox is checked by default.
+     * @param string $checkedValue The value assigned to the checkbox when it is checked.
+     * @return void
+     */
+    public function addCheckBox(string $fieldName, bool $checked, string $checkedValue = 'on'): void
+    {
+        $checkAr = ['value' => null];
+        if ($checked) {
+            $checkAr = ['checked' => $checkedValue,'value' => $checkedValue];
         }
-        $this->add(new Check('transliterate_caller_id', $cheskarr));
+        $this->add(new Check($fieldName, $checkAr));
     }
 }

@@ -1,4 +1,5 @@
 <?php
+
 /*
  * MikoPBX - free phone system for small business
  * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
@@ -19,7 +20,6 @@
 
 
 namespace Modules\ModuleCTIClient\Lib;
-
 
 use MikoPBX\Common\Models\PbxExtensionModules;
 use MikoPBX\Common\Models\PbxSettings;
@@ -60,7 +60,6 @@ class AmigoDaemons extends Injectable
     {
         // Check if the module is enabled
         if (PbxExtensionUtils::isEnabled($this->moduleUniqueID)) {
-
             // Retrieve the module settings from the database
             $module_settings = ModuleCTIClient::findFirst();
             if ($module_settings !== null) {
@@ -179,7 +178,8 @@ class AmigoDaemons extends Injectable
 
         $monitorPID = Processes::getPidOfProcess(self::SERVICE_MONITOR);
 
-        if ($monitorPID !== ''
+        if (
+            $monitorPID !== ''
             && $restart === false
             && $moduleEnabled === true
         ) {
@@ -238,16 +238,16 @@ class AmigoDaemons extends Injectable
 
         $pid_file = "{$this->dirs['pidDir']}/gnatsd-cti.pid";
 
-        $moduleVersion='unknown';
+        $moduleVersion = 'unknown';
         $currentModuleInfo = PbxExtensionModules::findFirstByUniqid($this->moduleUniqueID);
-        if ($currentModuleInfo){
+        if ($currentModuleInfo) {
             $moduleVersion = $currentModuleInfo->version;
         }
 
         $settings = [
             'port' => $this->getNatsPort(),
             'http_port' => $this->getNatsHttpPort(),
-            'debug' => $this->module_settings['debug_mode'] ? 'true' : 'false',
+            'debug' => intval($this->module_settings['debug_mode']) === 1 ? 'true' : 'false',
             'trace' => 'false',
             'logtime' => 'true',
             'pid_file' => $pid_file,
@@ -256,12 +256,12 @@ class AmigoDaemons extends Injectable
             'max_control_line' => '512',
             'sessions_path' => $sessionsDir,
             'log_file' => "{$logDir}/gnatsd.log",
-            'log_size_limit'=>10485760, //10Mb
+            'log_size_limit' => 10485760, //10Mb
             'pbx' => "MikoPBX",
-            'module_version' => '"' . $moduleVersion. '"',
+            'module_version' => '"' . $moduleVersion . '"',
         ];
 
-        if ($this->module_settings['auto_settings_mode'] === '1') {
+        if (intval($this->module_settings['auto_settings_mode']) === 1) {
             $settings['nats_password'] = '"' . $this->module_settings['nats_password'] . '"';
         }
 
@@ -437,7 +437,7 @@ class AmigoDaemons extends Injectable
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
             'cleanup_period' => 10,  // Cache of links cleanup period.
             'long_poll' => [
@@ -446,25 +446,25 @@ class AmigoDaemons extends Injectable
             ],
         ];
 
-        if ($this->module_settings['web_service_mode'] === '1') {
+        if (intval($this->module_settings['web_service_mode']) === 1) {
             $cookiesDir = "{$this->dirs['spoolDir']}/cookies";
             Util::mwMkdir($cookiesDir);
 
             $settings_crm['wsdl'] = [
                 'host' => $this->module_settings['server1chost'],
                 'port' => $this->module_settings['server1cport'],
-                'scheme'=> $this->module_settings['server1c_scheme']??'http',
+                'scheme' => $this->module_settings['server1c_scheme'] ?? 'http',
                 'login' => $this->module_settings['login'],
                 'password' => $this->module_settings['secret'],
                 'url' => "/{$this->module_settings['database']}/ws/miko_crm_api.1cws",
-                'auth-url'=> '',
+                'auth-url' => '',
                 'cookie_path' => $cookiesDir,
                 'keep-alive' => 3000,
                 'timeout' => 10,
             ];
 
-            if (!empty($this->module_settings['publish_name_with_auth'])){
-                $settings_crm['wsdl']['auth-url']="/{$this->module_settings['publish_name_with_auth']}";
+            if (!empty($this->module_settings['publish_name_with_auth'])) {
+                $settings_crm['wsdl']['auth-url'] = "/{$this->module_settings['publish_name_with_auth']}";
             }
         }
 
@@ -486,7 +486,7 @@ class AmigoDaemons extends Injectable
         Util::mwMkdir($cachePath);
 
         $settings_auth = [
-            'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
             'mq' => [
                 'host' => '127.0.0.1',
@@ -513,7 +513,7 @@ class AmigoDaemons extends Injectable
         Util::mwMkdir($chatDataBasesPath);
 
         $settings_chats = [
-            'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
             'log_path' => $logDir,
             'mq' => [
                 'host' => '127.0.0.1',
@@ -545,7 +545,7 @@ class AmigoDaemons extends Injectable
         Util::mwMkdir($chatDataBasesPath);
 
         $settings_chats = [
-            'log_level' => $this->module_settings['debug_mode'] ? -1 : 2,
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? -1 : 2,
             'log_path' => $logDir,
             'mq' => [
                 'host' => '127.0.0.1',
@@ -576,7 +576,7 @@ class AmigoDaemons extends Injectable
         $certsPath = "{$this->dirs['moduleDir']}/etc/ssl";
 
         $settings_proxy = [
-            'log_level' => $this->module_settings['debug_mode'] ? 5 : 2,
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
             'log_path' => $logDir,
             'mq' => [
                 'host' => '127.0.0.1',
@@ -619,7 +619,7 @@ class AmigoDaemons extends Injectable
                 'port' => $this->getNatsPort(),
             ],
             'interception_support' => true,
-            'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
             'ami' => [
                 'user' => CTIClientConf::MODULE_AMI_USER,
@@ -666,7 +666,7 @@ class AmigoDaemons extends Injectable
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
             'work_dir' => $this->dirs['spoolDir'],
             'binary_dir' => $this->dirs['binDir'],
@@ -722,7 +722,7 @@ class AmigoDaemons extends Injectable
         $workDir = "{$this->dirs['spoolDir']}/speech";
         Util::mwMkdir($workDir);
         $settings_auth = [
-            'log_level' => $this->module_settings['debug_mode'] ? 6 : 2,
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
             'mq' => [
                 'host' => '127.0.0.1',
@@ -792,7 +792,7 @@ class AmigoDaemons extends Injectable
 
         try {
             $response = curl_exec($curl);
-            if (is_string($response)){
+            if (is_string($response)) {
                 $response = str_replace('\n', '', $response);
                 $data = json_decode($response, true);
             } else {
@@ -843,7 +843,8 @@ class AmigoDaemons extends Injectable
         }
         $result = [];
         curl_close($curl);
-        if ($data !== null
+        if (
+            $data !== null
             && array_key_exists('result', $data)
             && is_array($data['result'])
         ) {
@@ -900,7 +901,8 @@ class AmigoDaemons extends Injectable
         }
         curl_close($curl);
         $result = '';
-        if ($parsedAnswer !== null
+        if (
+            $parsedAnswer !== null
             && $parsedAnswer['result'] === 'Success'
         ) {
             if (!empty($parsedAnswer['data']['caller_id'])) {
@@ -912,5 +914,4 @@ class AmigoDaemons extends Injectable
 
         return $result;
     }
-
 }
