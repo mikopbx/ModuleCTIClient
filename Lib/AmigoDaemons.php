@@ -452,7 +452,7 @@ class AmigoDaemons extends Injectable
 
             $settings_crm['wsdl'] = [
                 'host' => $this->module_settings['server1chost'],
-                'port' => $this->module_settings['server1cport'],
+                'port' => strval($this->module_settings['server1cport']),
                 'scheme' => $this->module_settings['server1c_scheme'] ?? 'http',
                 'login' => $this->module_settings['login'],
                 'password' => $this->module_settings['secret'],
