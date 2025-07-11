@@ -1,4 +1,5 @@
 <?php
+
 /*
  * MikoPBX - free phone system for small business
  * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
@@ -32,6 +33,7 @@ use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 use Phalcon\Mvc\Model\Resultset;
 use Phalcon\Mvc\View;
+
 use function MikoPBX\Common\Config\appPath;
 
 class ModuleCTIClientController extends BaseController
@@ -110,7 +112,8 @@ class ModuleCTIClientController extends BaseController
         ];
         foreach ($internetInterfaces as $interface) {
             foreach ($interface as $key => $value) {
-                if (in_array($key, $possibleAttributes)
+                if (
+                    in_array($key, $possibleAttributes)
                     && !empty($value)
                     && !in_array($value, $ipAddresses)
                 ) {

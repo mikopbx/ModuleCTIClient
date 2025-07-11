@@ -2,7 +2,7 @@
     "name": "mikopbx/modulecticlient",
     "description": "ModuleCTIClient",
     "require": {
-        "mikopbx/core": ">=2023.2.206"
+        "php": "^7.4 || ^8.0"
     },
     "autoload": {
         "psr-4": {
@@ -42,7 +42,7 @@
         {
             "name": "Nikolay Beketov",
             "email": "nbek@miko.ru",
-            "homepage": "http://facebook.com/jorikfon",
+            "homepage": "https://www.linkedin.com/in/nikolay-beketov",
             "role": "Developer"
         }
     ],
@@ -55,7 +55,7 @@
     "config": {
         "sort-packages": true,
         "platform": {
-            "php": "7.4.6"
+            "php": "^7.4 || ^8.0"
         }
     }
 }
