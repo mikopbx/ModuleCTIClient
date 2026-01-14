@@ -136,6 +136,13 @@ class ModuleCTIClient extends ModulesModelsBase
     public ?string $transliterate_caller_id = '0';
 
     /**
+     * @var string|null Chats proxy address
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $chats_proxy_address = '';
+
+    /**
      * Initialize model for module
      * @return void
      */

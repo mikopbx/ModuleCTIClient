@@ -33,6 +33,16 @@ class MikoPBXVersion
         return version_compare($pbxVersion, '2024.2.30', '>');
     }
 
+     /**
+     * Return true if current version of PBX based on Phalcon 5+
+     * @return bool
+     */
+    public static function isPhalcon512Version(): bool
+    {
+        $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
+        return version_compare($pbxVersion, '2025.1.1', '>');
+    }
+
     /**
      * Return Di interface for the current version of PBX
      * @return \Phalcon\Di\DiInterface|null
