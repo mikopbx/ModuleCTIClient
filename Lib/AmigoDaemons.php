@@ -305,6 +305,20 @@ class AmigoDaemons extends Injectable
 
 
     /**
+     * Get the proxy server connection string.
+     *
+     * @return string
+     */
+    public function getChatsProxyAddress(): string
+    {
+        if (empty($this->module_settings['chats_proxy_address'])) {
+            return '';
+        }
+
+        return escapeshellcmd($this->module_settings['chats_proxy_address']);
+    }
+
+    /**
      * Generate the auto-answer settings file.
      */
     private function generateHeadersConf(): void
@@ -525,6 +539,7 @@ class AmigoDaemons extends Injectable
             'database' => [
                 'path' => $chatDataBasesPath,
             ],
+            'proxy_address' => $this->getChatsProxyAddress(),
         ];
 
         Util::fileWriteContent(
@@ -557,6 +572,7 @@ class AmigoDaemons extends Injectable
             'database' => [
                 'path' => $chatDataBasesPath,
             ],
+            'proxy_address' => $this->getChatsProxyAddress(),
         ];
 
         Util::fileWriteContent(
@@ -646,6 +662,11 @@ class AmigoDaemons extends Injectable
             ],
             'files' => $this->dirs['filesDir'],
         ];
+
+        if (MikoPBXVersion::isPhalcon512Version()){
+            $settings_amid['records']['request'] = "http://127.0.0.1:$WEBPort/pbxcore/api/v3/cdr:playback?view=%s";
+        }
+
 
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/ami.json",

@@ -125,6 +125,13 @@
                 </div>
             </div>
         </div>
+
+        <div class="field">
+            <label for="chats_proxy_address">{{ t._('mod_cti_ChatsProxyAddress') }}</label>
+            <div class="ten wide field">
+                {{ form.render('chats_proxy_address') }}
+            </div>
+        </div>
     </div>
 
     {# debug tab #}
