@@ -30,6 +30,7 @@ use MikoPBX\Common\Models\Sip;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
+use Modules\ModuleCTIClient\Lib\MikoPBXVersion;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 use Phalcon\Mvc\Model\Resultset;
 use Phalcon\Mvc\View;
@@ -252,7 +253,8 @@ class ModuleCTIClientController extends BaseController
                     $extensionTable[$extension->userid]['transport'] = $extension->transport;
                     $extensionTable[$extension->userid]['dtmfmode'] = $extension->dtmfmode;
                     if (!empty($extension->avatar)) {
-                        $extensionTable[$extension->userid]['avatar'] = md5($extension->avatar);
+                        $parsed = $this->parseAvatarData($extension->avatar);
+                        $extensionTable[$extension->userid]['avatar'] = $parsed['hash'];
                     } else {
                         $extensionTable[$extension->userid]['avatar'] = '';
                     }
@@ -403,6 +405,21 @@ class ModuleCTIClientController extends BaseController
             return;
         }
         $userId = $this->request->getPost('id');
+
+        if (MikoPBXVersion::isPhalcon512Version()) {
+            $restAnswer = $this->di->get('restAPIClient', [
+                '/pbxcore/api/v3/employees/' . $userId,
+                'PATCH',
+                ['user_avatar' => $this->request->getPost('img')],
+                ['Content-Type' => 'application/json'],
+            ]);
+            $this->response->setContent(
+                json_encode($this->transformRestApiResponse($restAnswer))
+            );
+
+            return;
+        }
+
         $user = Users::findFirstById($userId);
         if ($user !== null) {
             $user->avatar = $this->request->getPost('img');
@@ -448,6 +465,21 @@ class ModuleCTIClientController extends BaseController
 
         $newMobile = preg_replace('/[^0-9]/', '', $this->request->getPost('newMobile'));
         $userId = $this->request->getPost('id');
+
+        if (MikoPBXVersion::isPhalcon512Version()) {
+            $restAnswer = $this->di->get('restAPIClient', [
+                '/pbxcore/api/v3/employees/' . $userId,
+                'PATCH',
+                ['mobile_number' => $newMobile, 'mobile_dialstring' => $newMobile],
+                ['Content-Type' => 'application/json'],
+            ]);
+            $this->response->setContent(
+                json_encode($this->transformRestApiResponse($restAnswer))
+            );
+
+            return;
+        }
+
         $user = Users::findFirstById($userId);
         if ($user === null) {
             $data = json_encode(['error' => "Unknown user with id={$userId}"]);
@@ -522,6 +554,32 @@ class ModuleCTIClientController extends BaseController
     {
         $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
+
+        if (MikoPBXVersion::isPhalcon512Version()) {
+            // New version: avatar is a file path like /avatars/user_1.jpg
+            // md5 of the path string is used as hash identifier
+            $users = Users::find();
+            foreach ($users as $user) {
+                $parsed = $this->parseAvatarData($user->avatar ?? '');
+                if (!empty($parsed['hash']) && $parsed['hash'] === $imgHash) {
+                    $mediaDir = \MikoPBX\Core\System\Directories::getDir(
+                        \MikoPBX\Core\System\Directories::AST_MEDIA_DIR
+                    );
+                    $filePath = $mediaDir . $parsed['path'];
+                    if (file_exists($filePath)) {
+                        $base64 = 'data:image/jpeg;base64,' . base64_encode(file_get_contents($filePath));
+                        $this->response->setContent(json_encode(['img' => $base64]));
+
+                        return;
+                    }
+                }
+            }
+            $this->response->setContent(json_encode(['error' => 'Image not found']));
+
+            return;
+        }
+
+        // Legacy: avatar is base64 blob stored directly in database
         $imgCacheDir = appPath('sites/admin-cabinet/assets/img/cache');
         $imgFile = "{$imgCacheDir}/$imgHash.jpg";
         if (!file_exists($imgFile)) {
@@ -573,6 +631,50 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
+     * Parses avatar data supporting multiple formats: JSON, path-only, and legacy base64.
+     *
+     * @param string $avatarData Raw avatar data from the database.
+     * @return array{path: string, hash: string}
+     */
+    private function parseAvatarData(string $avatarData): array
+    {
+        if (empty($avatarData)) {
+            return ['path' => '', 'hash' => ''];
+        }
+
+        // New JSON format: {"path": "/avatars/user_1.jpg", "hash": "md5..."}
+        if ($avatarData[0] === '{') {
+            $decoded = json_decode($avatarData, true);
+            if (is_array($decoded) && isset($decoded['path'], $decoded['hash'])) {
+                return ['path' => $decoded['path'], 'hash' => $decoded['hash']];
+            }
+        }
+
+        // Legacy base64 blob
+        if (strpos($avatarData, 'data:image') === 0) {
+            return ['path' => '', 'hash' => md5($avatarData)];
+        }
+
+        // Old path-only format
+        return ['path' => $avatarData, 'hash' => md5($avatarData)];
+    }
+
+    /**
+     * Transforms REST API v3 response to the legacy CTI client format.
+     *
+     * @param object $restAnswer PBXApiResult from restAPIClient
+     * @return array ['result' => 'ok'] on success or ['error' => '...'] on failure
+     */
+    private function transformRestApiResponse($restAnswer): array
+    {
+        if ($restAnswer->success) {
+            return ['result' => 'ok'];
+        }
+        $errorMessages = $restAnswer->messages['error'] ?? ['Unknown error'];
+        return ['error' => implode('; ', $errorMessages)];
+    }
+
+    /**
      * Updates the email of a user.
      *
      * HTTP POST request with parameters 'id' and 'email' to the address:
@@ -598,6 +700,21 @@ class ModuleCTIClientController extends BaseController
             return;
         }
         $userId = $this->request->getPost('id');
+
+        if (MikoPBXVersion::isPhalcon512Version()) {
+            $restAnswer = $this->di->get('restAPIClient', [
+                '/pbxcore/api/v3/employees/' . $userId,
+                'PATCH',
+                ['user_email' => $this->request->getPost('email')],
+                ['Content-Type' => 'application/json'],
+            ]);
+            $this->response->setContent(
+                json_encode($this->transformRestApiResponse($restAnswer))
+            );
+
+            return;
+        }
+
         $user = Users::findFirstById($userId);
         if ($user !== null) {
             $user->email = $this->request->getPost('email');
