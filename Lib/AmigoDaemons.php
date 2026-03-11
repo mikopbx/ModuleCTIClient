@@ -663,10 +663,9 @@ class AmigoDaemons extends Injectable
             'files' => $this->dirs['filesDir'],
         ];
 
-        if (MikoPBXVersion::isPhalcon512Version()){
+        if (MikoPBXVersion::isPhalcon512Version()) {
             $settings_amid['records']['request'] = "http://127.0.0.1:$WEBPort/pbxcore/api/v3/cdr:playback?view=%s";
         }
-
 
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/ami.json",

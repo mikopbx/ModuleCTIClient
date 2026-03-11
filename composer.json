@@ -9,7 +9,7 @@
             "Modules\\ModuleCTIClient\\": "/"
         }
     },
-    "type": "application",
+    "type": "library",
     "keywords": [
         "pbx",
         "asterisk",

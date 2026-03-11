@@ -34,7 +34,7 @@ class MikoPBXVersion
     }
 
      /**
-     * Return true if current version of PBX based on Phalcon 5+
+     * Return true if current version of PBX is 2025.1.1+
      * @return bool
      */
     public static function isPhalcon512Version(): bool
