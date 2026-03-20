@@ -1,0 +1,14 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Binary files
+bin/* binary
+Resources/pymorphy2_dicts_ru/*.dawg binary
+Resources/pymorphy2_dicts_ru/*.intdawg binary
+Resources/pymorphy2_dicts_ru/*.array binary
+
+# Export ignore (excluded from release archives)
+.github/ export-ignore
+CLAUDE.md export-ignore
+.gitattributes export-ignore
+CONTRIBUTING.md export-ignore

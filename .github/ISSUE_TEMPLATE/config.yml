@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://docs.telefon1c.ru
+    about: Read the module documentation
+  - name: Product Website
+    url: https://telefon.miko.ru
+    about: Visit the product website
+  - name: Support Email
+    url: mailto:help@miko.ru
+    about: Contact support for urgent issues

@@ -172,6 +172,7 @@ const moduleCTIClient = {
 		if (value==='https' && port==='80'){
 			moduleCTIClient.$formObj.form('set value','server1cport', 443);
 		}
+		return true;
 	},
 	cbBeforeSendForm(settings) {
 		const result = settings;

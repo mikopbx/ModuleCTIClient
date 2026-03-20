@@ -39,4 +39,5 @@ return [
  *
  */
     'BreadcrumbModuleCTIClient' => 'Painel de telefonia 1.0 para 1C',
+    'mod_cti_PublicationNameForAuth' => 'Nome da publicação com autenticação do SO (opcional)',
 ];

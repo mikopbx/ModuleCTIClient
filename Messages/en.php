@@ -18,7 +18,6 @@ return [
     'mod_cti_Password' => 'Webservice password',
     'mod_cti_PublicationName' => 'Webservice name',
     'mod_cti_PublicationOverWebServices' => 'Your server 1C:Enterprise has a published webservice and ready to incoming connections (optional)',
-    'mod_cti_trying' => ' Trying to establish a connection',
     'mod_cti_AuthApp_Name' => 'CTI client register',
     'mod_cti_AuthApp_Description' => 'Provide an auth service to link extension and desktop CTI application',
     'mod_cti_EnableDebugMode' => 'Enable debug mode',
@@ -42,4 +41,10 @@ return [
     'mod_cti_PublicationOverLongPool' => 'via LongPool connection (1C connects to MikoPBX)',
     'mod_cti_PublicationOverHeader' => 'Connection mode with 1C',
     'mod_cti_UseAutoSettings' => 'Automatic configuration of the communication parameters of the module and 1C',
+    'mod_cti_ChatsProxyAddress' => 'Proxy server for WhatsApp and Telegram bots (Socks5 or https)',
+    'mod_cti_tab_Messengers' => 'Messengers',
+    'mod_cti_MtProxyAddress' => 'Address',
+    'mod_cti_MtProxySecret' => 'Secret',
+    'mod_cti_MtProxyHeader' => 'MT Proxy for Telegram (client mode)',
+    'mod_cti_ProxyHeader' => 'Proxy server for WhatsApp and Telegram bots',
 ];

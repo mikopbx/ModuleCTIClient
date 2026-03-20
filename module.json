@@ -1,7 +1,13 @@
 {
-  "developer":"MIKO",
-  "moduleUniqueID":"ModuleCTIClient",
+  "developer": "MIKO",
+  "moduleUniqueID": "ModuleCTIClient",
   "support_email": "help@miko.ru",
   "version": "%ModuleVersion%",
-  "min_pbx_version": "2022.3.15"
+  "min_pbx_version": "2023.2.206",
+  "lic_product_id": 85,
+  "lic_feature_id": 0,
+  "wiki_links": {
+    "ru": {"https://wiki.mikopbx.com/module-cti-client": "https://docs.telefon1c.ru"},
+    "en": {"https://wiki.mikopbx.com/module-cti-client": "https://telefon.miko.ru"}
+  }
 }
