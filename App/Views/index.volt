@@ -5,6 +5,7 @@
     {# top menu #}
     <div class="ui top attached tabular menu" id="module-cti-client-tabs">
         <a class="item active" data-tab="settings">{{ t._('mod_cti_tab_Settings') }}</a>
+        <a class="item" data-tab="messengers">{{ t._('mod_cti_tab_Messengers') }}</a>
         <a class="item" data-tab="debug">{{ t._('mod_cti_tab_debug') }}</a>
     </div>
 
@@ -126,10 +127,26 @@
             </div>
         </div>
 
+    </div>
+
+    {# messengers tab #}
+    <div class="ui bottom attached tab segment" data-tab="messengers">
+        <h4 class="ui dividing header">{{ t._('mod_cti_ProxyHeader') }}</h4>
         <div class="field">
-            <label for="chats_proxy_address">{{ t._('mod_cti_ChatsProxyAddress') }}</label>
             <div class="ten wide field">
                 {{ form.render('chats_proxy_address') }}
+            </div>
+        </div>
+
+        <h4 class="ui dividing header">{{ t._('mod_cti_MtProxyHeader') }}</h4>
+        <div class="two fields">
+            <div class="field">
+                <label>{{ t._('mod_cti_MtProxyAddress') }}</label>
+                {{ form.render('mt_proxy_address') }}
+            </div>
+            <div class="field">
+                <label>{{ t._('mod_cti_MtProxySecret') }}</label>
+                {{ form.render('mt_proxy_secret') }}
             </div>
         </div>
     </div>

@@ -143,6 +143,20 @@ class ModuleCTIClient extends ModulesModelsBase
     public ?string $chats_proxy_address = '';
 
     /**
+     * @var string|null MT Proxy address for Telegram client mode
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $mt_proxy_address = '';
+
+    /**
+     * @var string|null MT Proxy secret for Telegram client mode
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $mt_proxy_secret = '';
+
+    /**
      * Initialize model for module
      * @return void
      */

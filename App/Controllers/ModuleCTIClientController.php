@@ -39,6 +39,8 @@ use function MikoPBX\Common\Config\appPath;
 
 class ModuleCTIClientController extends BaseController
 {
+    private const SECRET_MASK = '******';
+
     private $moduleUniqueID = 'ModuleCTIClient';
     private $moduleDir;
 
@@ -84,12 +86,41 @@ class ModuleCTIClientController extends BaseController
             $settings = new ModuleCTIClient();
         }
 
+        // Mask secrets before passing to form
+        $this->maskSecretFields($settings);
+
         // Initialize view variables
         $this->view->form = new ModuleCTIClientForm($settings);
         $this->view->autoSettingsValue = $this->generateAutoSettingsString($settings);
 
         // Set the view template
         $this->view->pick("{$this->moduleDir}/App/Views/index");
+    }
+
+    /**
+     * Masks sensitive data in settings before sending to the browser.
+     * Replaces password inside proxy URL and mt_proxy_secret with a mask.
+     *
+     * @param ModuleCTIClient $settings
+     */
+    private function maskSecretFields(ModuleCTIClient $settings): void
+    {
+        // Mask password inside proxy URL: socks5://user:password@host:port -> socks5://user:******@host:port
+        if (!empty($settings->chats_proxy_address)) {
+            $parsed = parse_url($settings->chats_proxy_address);
+            if (isset($parsed['pass'])) {
+                $settings->chats_proxy_address = str_replace(
+                    ':' . $parsed['pass'] . '@',
+                    ':' . self::SECRET_MASK . '@',
+                    $settings->chats_proxy_address
+                );
+            }
+        }
+
+        // Mask MT Proxy secret
+        if (!empty($settings->mt_proxy_secret)) {
+            $settings->mt_proxy_secret = self::SECRET_MASK;
+        }
     }
 
     /**
@@ -174,7 +205,9 @@ class ModuleCTIClientController extends BaseController
                     }
                     break;
                 default:
-                    if (array_key_exists($key, $data)) {
+                    if (array_key_exists($key, $data)
+                        && strpos($data[$key], self::SECRET_MASK) === false
+                    ) {
                         $record->$key = $data[$key];
                     }
             }

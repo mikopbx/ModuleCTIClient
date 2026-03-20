@@ -559,7 +559,7 @@ class AmigoDaemons extends Injectable
         $chatDataBasesPath = "{$this->dirs['moduleDir']}/db/tg";
         Util::mwMkdir($chatDataBasesPath);
 
-        $settings_chats = [
+        $settings_tg = [
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? -1 : 2,
             'log_path' => $logDir,
             'mq' => [
@@ -575,9 +575,18 @@ class AmigoDaemons extends Injectable
             'proxy_address' => $this->getChatsProxyAddress(),
         ];
 
+        $mtProxyAddress = trim($this->module_settings['mt_proxy_address'] ?? '');
+        $mtProxySecret = trim($this->module_settings['mt_proxy_secret'] ?? '');
+        if ($mtProxyAddress !== '' && $mtProxySecret !== '') {
+            $settings_tg['mt_proxy'] = [
+                'address' => $mtProxyAddress,
+                'secret' => $mtProxySecret,
+            ];
+        }
+
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/tg.json",
-            json_encode($settings_chats, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+            json_encode($settings_tg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
     }
 

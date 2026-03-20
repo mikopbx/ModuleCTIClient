@@ -60,7 +60,9 @@ class ModuleCTIClientForm extends Form
         $this->add(new Password('secret'));
         $this->add(new Text('database'));
         $this->add(new Text('publish_name_with_auth'));
-        $this->add(new Text('chats_proxy_address', ['placeholder' => 'socks5://user:password@host:port']));
+        $this->add(new Text('chats_proxy_address', ['placeholder' => 'socks5://user:password@host:port or http://host:port']));
+        $this->add(new Text('mt_proxy_address', ['placeholder' => '185.154.194.147:443']));
+        $this->add(new Text('mt_proxy_secret', ['placeholder' => 'ddb73df2f75e3040671668c6066328e5d5']));
 
         // Web service mode
         if (intval($entity->web_service_mode) === 1) {
