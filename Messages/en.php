@@ -41,10 +41,10 @@ return [
     'mod_cti_PublicationOverLongPool' => 'via LongPool connection (1C connects to MikoPBX)',
     'mod_cti_PublicationOverHeader' => 'Connection mode with 1C',
     'mod_cti_UseAutoSettings' => 'Automatic configuration of the communication parameters of the module and 1C',
-    'mod_cti_ChatsProxyAddress' => 'Proxy server for WhatsApp and Telegram bots (Socks5 or https)',
+    'mod_cti_ChatsProxyAddress' => 'Proxy server for WhatsApp and Telegram (Socks5 or https)',
     'mod_cti_tab_Messengers' => 'Messengers',
     'mod_cti_MtProxyAddress' => 'Address',
     'mod_cti_MtProxySecret' => 'Secret',
-    'mod_cti_MtProxyHeader' => 'MT Proxy for Telegram (client mode)',
-    'mod_cti_ProxyHeader' => 'Proxy server for WhatsApp and Telegram bots',
+    'mod_cti_MtProxyHeader' => 'MT Proxy for Telegram',
+    'mod_cti_ProxyHeader' => 'Proxy server for WhatsApp and Telegram',
 ];
