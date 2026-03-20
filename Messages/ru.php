@@ -55,11 +55,11 @@ return [
     'mod_cti_OdinEsSetupMessageStep4'  => 'Нажмите Ctrl+O (или Файл&#8594;Открыть) и выберите файл "Установщик.epf"',
     'mod_cti_EnableSetCallerID'        => 'Устанавливать CallerID из 1С',
     'mod_cti_TransliterateCallerID'    => 'Выполнять транслитерацию CallerID полученного из 1С',
-    'mod_cti_ChatsProxyAddress'        => 'Прокси-сервер для WhatsApp и Telegram ботов (Socks5 или https)',
+    'mod_cti_ChatsProxyAddress'        => 'Прокси-сервер для WhatsApp и Telegram (Socks5 или https)',
     'mod_cti_tab_Messengers'           => 'Мессенджеры',
     'mod_cti_MtProxyAddress'           => 'Адрес',
     'mod_cti_MtProxySecret'            => 'Секрет',
-    'mod_cti_MtProxyHeader'            => 'MT Proxy для Telegram (режим клиента)',
-    'mod_cti_ProxyHeader'              => 'Прокси-сервер для WhatsApp и Telegram ботов',
+    'mod_cti_MtProxyHeader'            => 'MT Proxy для Telegram',
+    'mod_cti_ProxyHeader'              => 'Прокси-сервер для WhatsApp и Telegram',
 
 ];
