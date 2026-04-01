@@ -47,6 +47,7 @@ class AmigoDaemons extends Injectable
     public const SERVICE_CHATS = 'chatsd';
     public const SERVICE_PROXY = 'proxyd';
     public const SERVICE_TELEGRAM = 'tgd';
+    public const SERVICE_MAX = 'maxd';
 
     public array $dirs;
     private array $module_settings = [];
@@ -158,6 +159,7 @@ class AmigoDaemons extends Injectable
             self::SERVICE_SPEECH,
             self::SERVICE_CHATS,
             self::SERVICE_TELEGRAM,
+            self::SERVICE_MAX,
             self::SERVICE_PROXY
         ];
 
@@ -221,6 +223,7 @@ class AmigoDaemons extends Injectable
         $this->generateSpeechdConf();
         $this->generateChatsConf();
         $this->generateTelegramConf();
+        $this->generateMaxConf();
         $this->generateProxyConf();
         $this->generateMonitordConf();
     }
@@ -533,9 +536,6 @@ class AmigoDaemons extends Injectable
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'http' => [
-                'port' => '8228',
-            ],
             'database' => [
                 'path' => $chatDataBasesPath,
             ],
@@ -566,9 +566,6 @@ class AmigoDaemons extends Injectable
                 'host' => '127.0.0.1',
                 'port' => $this->getNatsPort(),
             ],
-            'http' => [
-                'port' => '8228',
-            ],
             'database' => [
                 'path' => $chatDataBasesPath,
             ],
@@ -587,6 +584,36 @@ class AmigoDaemons extends Injectable
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/tg.json",
             json_encode($settings_tg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+    /**
+     * Generate the configuration file for maxd.
+     */
+    private function generateMaxConf(): void
+    {
+        $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_MAX;
+        Util::mwMkdir($logDir);
+
+        $maxDataBasesPath = "{$this->dirs['moduleDir']}/db/max";
+        Util::mwMkdir($maxDataBasesPath);
+
+        $settings_max = [
+            'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
+            'log_path' => $logDir,
+            'mq' => [
+                'host' => '127.0.0.1',
+                'port' => $this->getNatsPort(),
+            ],
+            'database' => [
+                'path' => $maxDataBasesPath,
+            ],
+            'proxy_address' => $this->getChatsProxyAddress(),
+        ];
+
+        Util::fileWriteContent(
+            "{$this->dirs['confDir']}/max.json",
+            json_encode($settings_max, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
     }
 
@@ -727,6 +754,11 @@ class AmigoDaemons extends Injectable
 //                    'args' => "-c {$this->dirs['confDir']}/speech.json",
 //                    'subject' => 'daemon.speech.ping',
 //                ],
+                [
+                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_MAX,
+                    'args' => "-c {$this->dirs['confDir']}/max.json",
+                    'subject' => 'daemon.max.ping',
+                ],
                 [
                     'path' => "{$this->dirs['binDir']}/" . self::SERVICE_PROXY,
                     'args' => "-c {$this->dirs['confDir']}/proxy.json",
