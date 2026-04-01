@@ -755,11 +755,6 @@ class AmigoDaemons extends Injectable
 //                    'subject' => 'daemon.speech.ping',
 //                ],
                 [
-                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_MAX,
-                    'args' => "-c {$this->dirs['confDir']}/max.json",
-                    'subject' => 'daemon.max.ping',
-                ],
-                [
                     'path' => "{$this->dirs['binDir']}/" . self::SERVICE_PROXY,
                     'args' => "-c {$this->dirs['confDir']}/proxy.json",
                     'subject' => 'daemon.proxy.ping',

@@ -165,9 +165,11 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     {
         $this->moveModuleCDRToDBFolder();
 
-        // Create chatdb folder
-        $chat_database_path = $this->moduleDir . '/db/chats/';
-        Util::mwMkdir($chat_database_path);
+        // Create database folders
+        Util::mwMkdir($this->moduleDir . '/db/chats/');
+        Util::mwMkdir($this->moduleDir . '/db/tg/');
+        Util::mwMkdir($this->moduleDir . '/db/max/');
+        Util::mwMkdir($this->moduleDir . '/db/auth/');
 
         parent::installFiles();
 
