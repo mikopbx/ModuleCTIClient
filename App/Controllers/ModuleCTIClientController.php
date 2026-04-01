@@ -239,6 +239,7 @@ class ModuleCTIClientController extends BaseController
         $extensionTable = [];
         $resultTable = [];
         $pjsipPort = PbxSettings::getValueByKey('SIPPort');
+        $tlsPort = PbxSettings::getValueByKey('TLS_PORT');
         $parameters = [
             'models' => [
                 'Extensions' => Extensions::class,
@@ -282,7 +283,7 @@ class ModuleCTIClientController extends BaseController
                     $extensionTable[$extension->userid]['number'] = $extension->number;
                     $extensionTable[$extension->userid]['username'] = $extension->username;
                     $extensionTable[$extension->userid]['email'] = $extension->email;
-                    $extensionTable[$extension->userid]['port'] = $pjsipPort;
+                    $extensionTable[$extension->userid]['port'] = ($extension->transport === 'tls') ? $tlsPort : $pjsipPort;
                     $extensionTable[$extension->userid]['transport'] = $extension->transport;
                     $extensionTable[$extension->userid]['dtmfmode'] = $extension->dtmfmode;
                     if (!empty($extension->avatar)) {
