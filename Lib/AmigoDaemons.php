@@ -67,13 +67,13 @@ class AmigoDaemons extends Injectable
      */
     public function __construct()
     {
-        // Check if the module is enabled
-        if (PbxExtensionUtils::isEnabled($this->moduleUniqueID)) {
-            // Retrieve the module settings from the database
-            $module_settings = ModuleCTIClient::findFirst();
-            if ($module_settings !== null) {
-                $this->module_settings = $module_settings->toArray();
-            }
+        // Always retrieve the module settings — onAfterModuleDisable runs
+        // AFTER the disabled flag is flipped in m_PbxExtensionModules, but the
+        // module's own settings row (with remote_host / remote_ssh_key) is
+        // still there and we need it to tell the VPS stack to shut down.
+        $module_settings = ModuleCTIClient::findFirst();
+        if ($module_settings !== null) {
+            $this->module_settings = $module_settings->toArray();
         }
 
         // Create an instance of MikoPBXConfig
