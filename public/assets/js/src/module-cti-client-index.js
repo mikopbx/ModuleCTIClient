@@ -132,6 +132,19 @@ const moduleCTIClient = {
 		if ($btn.length === 0) {
 			return;
 		}
+		const renderResult = (probe, fallbackErr) => {
+			$btn.removeClass('loading disabled');
+			if (probe && probe.ok === true) {
+				const okLabel = globalTranslate.mod_cti_RemoteTestOk || 'connected';
+				const arch = probe.arch ? ` (${probe.arch})` : '';
+				$result.css('color', '#21ba45').text(`${okLabel}${arch}`);
+				return;
+			}
+			const failLabel = globalTranslate.mod_cti_RemoteTestFail || 'failed';
+			const err = (probe && probe.error) ? probe.error : (fallbackErr || '');
+			$result.css('color', '#db2828').text(err ? `${failLabel}: ${err}` : failLabel);
+		};
+
 		$btn.on('click', (e) => {
 			e.preventDefault();
 			$btn.addClass('loading disabled');
@@ -139,31 +152,25 @@ const moduleCTIClient = {
 				.css('color', '#666')
 				.text(globalTranslate.mod_cti_RemoteTestRunning || 'Probing…');
 			$.ajax({
-				url: `${globalRootUrl}module-c-t-i-client/testRemoteConnection`,
+				url: `${Config.pbxUrl}/pbxcore/api/modules/ModuleCTIClient/testRemoteConnection`,
 				method: 'POST',
+				contentType: 'application/json',
 				dataType: 'json',
-				data: {
-					remote_host: $('#remote_host').val() || '',
-					remote_ssh_port: $('#remote_ssh_port').val() || '',
-					remote_ssh_login: $('#remote_ssh_login').val() || '',
-					remote_ssh_key: $('#remote_ssh_key').val() || '',
+				data: JSON.stringify({
+					host: $('#remote_host').val() || '',
+					port: $('#remote_ssh_port').val() || '',
+					login: $('#remote_ssh_login').val() || '',
+					key: $('#remote_ssh_key').val() || '',
+				}),
+				success(response) {
+					// PBXApiResult: { result, data: {ok, arch, error}, messages, ... }
+					const probe = (response && response.data) ? response.data : null;
+					const msg = (response && Array.isArray(response.messages) && response.messages.length > 0)
+						? response.messages.join('; ') : '';
+					renderResult(probe, msg);
 				},
-				success(data) {
-					$btn.removeClass('loading disabled');
-					if (data && data.ok === true) {
-						const okLabel = globalTranslate.mod_cti_RemoteTestOk || 'connected';
-						const arch = data.arch ? ` (${data.arch})` : '';
-						$result.css('color', '#21ba45').text(`${okLabel}${arch}`);
-					} else {
-						const failLabel = globalTranslate.mod_cti_RemoteTestFail || 'failed';
-						const err = data && data.error ? `: ${data.error}` : '';
-						$result.css('color', '#db2828').text(`${failLabel}${err}`);
-					}
-				},
-				error() {
-					$btn.removeClass('loading disabled');
-					$result.css('color', '#db2828')
-						.text(globalTranslate.mod_cti_RemoteTestFail || 'request failed');
+				error(xhr) {
+					renderResult(null, `HTTP ${xhr.status || 'error'}`);
 				},
 			});
 		});

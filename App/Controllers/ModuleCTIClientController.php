@@ -776,46 +776,4 @@ class ModuleCTIClientController extends BaseController
         }
     }
 
-    /**
-     * Probe an SSH connection to the remote messenger VPS using ad-hoc form
-     * values (NOT yet saved). Operator triggers this from the "Test connection"
-     * button on the Remote messengers tab; the request body carries
-     * host/port/login/key and we run `ssh ... uname -m` with a short timeout.
-     *
-     * Empty `key` in the POST means the operator did not edit it — fall back
-     * to the value already in the DB so we can re-test a previously saved
-     * profile without re-pasting the PEM.
-     */
-    public function testRemoteConnectionAction(): void
-    {
-        $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
-        $this->response->setContentType('application/json', 'UTF-8');
-
-        $payload = ['ok' => false, 'arch' => '', 'error' => ''];
-
-        try {
-            $req = $this->request;
-            $params = [
-                'host'  => (string)$req->getPost('remote_host', null, ''),
-                'port'  => (string)$req->getPost('remote_ssh_port', null, ''),
-                'login' => (string)$req->getPost('remote_ssh_login', null, ''),
-                'key'   => (string)$req->getPost('remote_ssh_key', null, ''),
-            ];
-
-            if (trim($params['key']) === '') {
-                $saved = ModuleCTIClient::findFirst();
-                if ($saved !== null) {
-                    $params['key'] = (string)($saved->remote_ssh_key ?? '');
-                }
-            }
-
-            $cti = new AmigoDaemons();
-            $payload = $cti->testRemoteSshConnection($params);
-        } catch (\Throwable $e) {
-            $payload['ok']    = false;
-            $payload['error'] = $e->getMessage();
-        }
-
-        $this->response->setContent(json_encode($payload));
-    }
 }

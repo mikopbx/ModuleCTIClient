@@ -156,6 +156,25 @@ class CTIClientConf extends ConfigClass
                 $amigoDaemons = new AmigoDaemons();
                 $res          = $amigoDaemons->checkModuleWorkProperly();
                 break;
+            case 'TESTREMOTECONNECTION':
+                // Ad-hoc SSH probe from the "Test connection" button on the
+                // Remote messengers tab. Operator-supplied parameters live in
+                // $request['data']; we never touch the DB here.
+                $amigoDaemons = new AmigoDaemons();
+                $data         = is_array($request['data'] ?? null) ? $request['data'] : [];
+                if (trim((string)($data['key'] ?? '')) === '') {
+                    $saved = ModuleCTIClient::findFirst();
+                    if ($saved !== null) {
+                        $data['key'] = (string)($saved->remote_ssh_key ?? '');
+                    }
+                }
+                $probe          = $amigoDaemons->testRemoteSshConnection($data);
+                $res->success   = (bool)$probe['ok'];
+                $res->data      = $probe;
+                if (!$probe['ok'] && $probe['error'] !== '') {
+                    $res->messages[] = $probe['error'];
+                }
+                break;
             default:
                 $res->success    = false;
                 $res->messages[] = 'API action not found in moduleRestAPICallback ModuleCTIClient';
