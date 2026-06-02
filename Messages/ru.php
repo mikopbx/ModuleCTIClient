@@ -43,7 +43,7 @@ return [
     'mod_cti_ConnectionProgress'  => 'Запускаются сервисы модуля',
     'mod_cti_ConnectionError'     => 'Ошибка работы модуля',
     'mod_cti_ConnectionTo1CError' => 'Нет удалось подключиться к вебсервису 1С',
-    'mod_cti_UpdateStatus'        => 'Обновление статуса',
+    'mod_cti_UpdateStatus'        => 'Обновляем статус…',
     'mod_cti_ConnectionWait'      => 'Ожидаем подключения к MikoPBX со стороны 1С',
 
     'mod_cti_tab_Settings'             => 'Настройки',
@@ -81,6 +81,10 @@ return [
     'mod_cti_RemoteTunnelDisconnected' => 'нет соединения',
     'mod_cti_RemoteTunnelDisabled'     => 'выключен',
     'mod_cti_RemoteTunnelUnknown'      => 'неизвестно',
+    'mod_cti_RemoteTestConnection'     => 'Проверить SSH-подключение',
+    'mod_cti_RemoteTestRunning'        => 'Проверяем…',
+    'mod_cti_RemoteTestOk'             => 'Подключение успешно',
+    'mod_cti_RemoteTestFail'           => 'Подключение не удалось',
 
     // Панель статуса сервисов
     'mod_cti_tab_Status'               => 'Статус сервисов',

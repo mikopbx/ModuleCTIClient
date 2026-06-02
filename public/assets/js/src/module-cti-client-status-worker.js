@@ -120,45 +120,38 @@ const moduleCTIClientConnectionCheckWorker = {
 					window.clearTimeout(moduleCTIClientConnectionCheckWorker.timeOutHandle);
 				},
 				onFailure(response) {
-					if (Object.keys(response).length > 0
-						&& response.result === false
-						&& typeof (response.data) !== 'undefined'
-					) {
-						moduleCTIClientConnectionCheckWorker.errorCounts += 1;
-						if (typeof (response.data) !== 'undefined'
-							&& typeof (response.data.statuses) !== 'undefined'
-						) {
-							let countHealthy = 0;
-							let status1C = 'undefined';
-
-							$.each(response.data.statuses, (_key, value) => {
-								if (typeof (value.name) !== 'undefined'
-									&& value.state === 'ok') {
-									countHealthy += 1;
-								}
-								if (typeof (value.name) !== 'undefined'
-									&& value.name === 'crm-1c') {
-									status1C = value.state;
-								}
-							});
-							if (status1C !== 'ok' && countHealthy === 6) {
-								if (moduleCTIClientConnectionCheckWorker.$webServiceToggle.checkbox('is checked')) {
-									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CError');
-								} else {
-									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CWait');
-								}
-							} else if (countHealthy < 6) {
-								if (moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
-									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
-								} else {
-									moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
-								}
-							}
-						} else { // Unknown
-							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
-						}
-					} else {
+					moduleCTIClientConnectionCheckWorker.errorCounts += 1;
+					const statuses = (response && response.data && Array.isArray(response.data.statuses))
+						? response.data.statuses : null;
+					if (!statuses) {
 						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
+						return;
+					}
+					// Classify the response by the worst non-system state.
+					// crm-1c is special: it's the 1C bridge — its own error label.
+					let crm1c = null;
+					let hasError = false;
+					let hasStarting = false;
+					statuses.forEach((s) => {
+						if (!s || typeof s.name === 'undefined') return;
+						if (s.name === 'crm-1c') crm1c = s.state;
+						if (s.state === 'error' || s.state === 'fail' || s.state === 'failed'
+							|| s.state === 'down' || s.state === 'stopped') hasError = true;
+						if (s.state === 'starting' || s.state === 'pending'
+							|| s.state === 'unknown') hasStarting = true;
+					});
+					if (crm1c && crm1c !== 'ok') {
+						if (moduleCTIClientConnectionCheckWorker.$webServiceToggle.checkbox('is checked')) {
+							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CError');
+						} else {
+							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CWait');
+						}
+					} else if (hasStarting && moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
+						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
+					} else if (hasError) {
+						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
+					} else {
+						moduleCTIClientConnectionCheckWorker.changeStatus('Connected');
 					}
 				},
 			});
@@ -263,7 +256,6 @@ const moduleCTIClientConnectionCheckWorker = {
 		const displayName = grouped
 			? moduleCTIClientConnectionCheckWorker.shortArea(svc.area)
 			: moduleCTIClientConnectionCheckWorker.serviceLabel(svc.name);
-		const stateText = moduleCTIClientConnectionCheckWorker.stateText(stateRaw);
 		const uptime = (typeof svc.uptime === 'string' && svc.uptime.length > 0) ? svc.uptime : '';
 		const version = (typeof svc.version === 'string' && svc.version.length > 0) ? svc.version : '';
 		const lastError = (typeof svc.last_error === 'string' && svc.last_error.length > 0) ? svc.last_error : '';
@@ -278,7 +270,6 @@ const moduleCTIClientConnectionCheckWorker = {
 		const esc = moduleCTIClientConnectionCheckWorker.escapeHtml;
 
 		const metaParts = [];
-		metaParts.push(`<span class="cti-svc-state">${esc(stateText)}</span>`);
 		if (uptime !== '') {
 			metaParts.push(`<span class="cti-svc-meta">${esc(uptimeLabel)}: ${esc(uptime)}</span>`);
 		}

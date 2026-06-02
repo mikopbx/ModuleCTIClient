@@ -1317,10 +1317,29 @@ class AmigoDaemons extends Injectable
         $statuses = [];
         $statuses[] = $this->checkMonitorStatus();
         $statuses[] = $this->checkNatsStatus();
-        $statuses = array_merge($statuses, $this->checkWorkerStatuses());
+        // System-level remote messenger tunnel goes BEFORE messenger channels
+        // so it visually sits with the infrastructure rows, not under tg.
         $tunnel = $this->checkRemoteTunnelStatus();
         if ($tunnel !== null) {
             $statuses[] = $tunnel;
+        }
+        $statuses = array_merge($statuses, $this->checkWorkerStatuses());
+
+        // Warm-up: anything that just started reports state=ok with a sub-10s
+        // uptime — surface that as "starting" so the LED stays yellow while
+        // monitord hasn't finished its first probe cycle yet.
+        foreach ($statuses as $idx => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $state = (string)($row['state'] ?? '');
+            if ($state !== 'ok' || !isset($row['uptime']) || !is_string($row['uptime'])) {
+                continue;
+            }
+            $sec = $this->parseUptimeSeconds($row['uptime']);
+            if ($sec !== null && $sec < 10) {
+                $statuses[$idx]['state'] = 'starting';
+            }
         }
 
         $res->success = true;
@@ -1494,6 +1513,89 @@ class AmigoDaemons extends Injectable
         }
 
         return $row;
+    }
+
+    /**
+     * Parse compact "1h2m3s" / "12m5s" / "30s" uptime strings (as emitted by
+     * monitord and our own formatUptime) into seconds. Returns null if the
+     * string does not match.
+     */
+    private function parseUptimeSeconds(string $uptime): ?int
+    {
+        if (!preg_match('/^(?:(\d+)h)?(?:(\d+)m)?(\d+)s$/', $uptime, $m)) {
+            return null;
+        }
+        $h = isset($m[1]) && $m[1] !== '' ? (int)$m[1] : 0;
+        $mn = isset($m[2]) && $m[2] !== '' ? (int)$m[2] : 0;
+        $s = (int)$m[3];
+        return $h * 3600 + $mn * 60 + $s;
+    }
+
+    /**
+     * Test an SSH connection to a remote VPS using ad-hoc parameters
+     * (NOT yet saved to the DB). Used by the "Test connection" button on
+     * the Remote messengers tab — operator types host/port/login/key, this
+     * method writes the key to a private temp file with chmod 600 and runs
+     * `ssh ... uname -m` with a short timeout, returning the architecture
+     * or the connection error.
+     *
+     * @param array{host:string,port:string,login:string,key:string} $params
+     * @return array{ok:bool,arch:string,error:string}
+     */
+    public function testRemoteSshConnection(array $params): array
+    {
+        $host = trim($params['host'] ?? '');
+        $port = trim($params['port'] ?? '');
+        $login = trim($params['login'] ?? '');
+        $key = (string)($params['key'] ?? '');
+
+        if ($host === '' || $login === '' || $key === '') {
+            return ['ok' => false, 'arch' => '', 'error' => 'host, login and SSH key are required'];
+        }
+        if ($port === '') {
+            $port = '22';
+        }
+
+        $keyContent = str_replace("\r\n", "\n", $key);
+        if (substr($keyContent, -1) !== "\n") {
+            $keyContent .= "\n";
+        }
+
+        $tmpKey = tempnam(sys_get_temp_dir(), 'cti_sshtest_');
+        if ($tmpKey === false) {
+            return ['ok' => false, 'arch' => '', 'error' => 'cannot create temp key file'];
+        }
+        if (@file_put_contents($tmpKey, $keyContent) === false) {
+            @unlink($tmpKey);
+            return ['ok' => false, 'arch' => '', 'error' => 'cannot write temp key file'];
+        }
+        @chmod($tmpKey, 0600);
+
+        $cmd = '/usr/bin/ssh'
+            . ' -i ' . escapeshellarg($tmpKey)
+            . ' -p ' . escapeshellarg($port)
+            . ' -o BatchMode=yes'
+            . ' -o StrictHostKeyChecking=accept-new'
+            . ' -o UserKnownHostsFile=/dev/null'
+            . ' -o ConnectTimeout=5'
+            . ' -o LogLevel=ERROR'
+            . ' ' . escapeshellarg($login . '@' . $host)
+            . ' uname -m 2>&1';
+
+        $out = [];
+        $rc = 0;
+        exec($cmd, $out, $rc);
+        @unlink($tmpKey);
+
+        $lastLine = trim(end($out) ?: '');
+        if ($rc === 0) {
+            return ['ok' => true, 'arch' => $lastLine, 'error' => ''];
+        }
+        return [
+            'ok'    => false,
+            'arch'  => '',
+            'error' => $lastLine !== '' ? $lastLine : ('ssh exit ' . $rc),
+        ];
     }
 
     /**

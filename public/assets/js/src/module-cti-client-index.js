@@ -118,7 +118,55 @@ const moduleCTIClient = {
 		moduleCTIClient.initializeForm();
 		moduleCTIClient.checkStatusToggle();
 		moduleCTIClient.setCallerIdToggle();
+		moduleCTIClient.initializeRemoteConnectionTest();
 		window.addEventListener('ModuleStatusChanged', moduleCTIClient.checkStatusToggle);
+	},
+	/**
+	 * Кнопка «Проверить подключение» на вкладке Удалённые мессенджеры —
+	 * берёт значения формы (host/port/login/key), POSTит на бекенд,
+	 * показывает результат inline. Сохранение не делает.
+	 */
+	initializeRemoteConnectionTest() {
+		const $btn = $('#cti-test-remote-conn');
+		const $result = $('#cti-test-remote-conn-result');
+		if ($btn.length === 0) {
+			return;
+		}
+		$btn.on('click', (e) => {
+			e.preventDefault();
+			$btn.addClass('loading disabled');
+			$result.removeClass('green red')
+				.css('color', '#666')
+				.text(globalTranslate.mod_cti_RemoteTestRunning || 'Probing…');
+			$.ajax({
+				url: `${globalRootUrl}module-c-t-i-client/testRemoteConnection`,
+				method: 'POST',
+				dataType: 'json',
+				data: {
+					remote_host: $('#remote_host').val() || '',
+					remote_ssh_port: $('#remote_ssh_port').val() || '',
+					remote_ssh_login: $('#remote_ssh_login').val() || '',
+					remote_ssh_key: $('#remote_ssh_key').val() || '',
+				},
+				success(data) {
+					$btn.removeClass('loading disabled');
+					if (data && data.ok === true) {
+						const okLabel = globalTranslate.mod_cti_RemoteTestOk || 'connected';
+						const arch = data.arch ? ` (${data.arch})` : '';
+						$result.css('color', '#21ba45').text(`${okLabel}${arch}`);
+					} else {
+						const failLabel = globalTranslate.mod_cti_RemoteTestFail || 'failed';
+						const err = data && data.error ? `: ${data.error}` : '';
+						$result.css('color', '#db2828').text(`${failLabel}${err}`);
+					}
+				},
+				error() {
+					$btn.removeClass('loading disabled');
+					$result.css('color', '#db2828')
+						.text(globalTranslate.mod_cti_RemoteTestFail || 'request failed');
+				},
+			});
+		});
 	},
 	/**
 	 * Проверка состояния модуля

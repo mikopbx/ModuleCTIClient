@@ -4,15 +4,15 @@
                 class="spinner loading icon"></i>{{ t._("mod_cti_UpdateStatus") }}</div>
     {# top menu #}
     <div class="ui top attached tabular menu" id="module-cti-client-tabs">
-        <a class="item active" data-tab="settings">{{ t._('mod_cti_tab_Settings') }}</a>
+        <a class="item active" data-tab="status">{{ t._('mod_cti_tab_Status') }}</a>
+        <a class="item" data-tab="settings">{{ t._('mod_cti_tab_Settings') }}</a>
         <a class="item" data-tab="messengers">{{ t._('mod_cti_tab_Messengers') }}</a>
         <a class="item" data-tab="remote">{{ t._('mod_cti_tab_Remote') }}</a>
-        <a class="item" data-tab="status">{{ t._('mod_cti_tab_Status') }}</a>
         <a class="item" data-tab="debug">{{ t._('mod_cti_tab_debug') }}</a>
     </div>
 
     {# general tab #}
-    <div class="ui bottom attached tab segment active" data-tab="settings">
+    <div class="ui bottom attached tab segment" data-tab="settings">
         <div class="field">
             <div class="ui icon message">
                 <i class="wrench icon"></i>
@@ -188,6 +188,13 @@
             <label for="remote_ssh_key">{{ t._('mod_cti_RemoteSshKey') }}</label>
             {{ form.render('remote_ssh_key') }}
             <div class="ui small text" style="color:#666;">{{ t._('mod_cti_RemoteSshKeyHint') }}</div>
+        </div>
+        <div class="field">
+            <button type="button" class="ui basic button" id="cti-test-remote-conn">
+                <i class="plug icon"></i>
+                <span id="cti-test-remote-conn-label">{{ t._('mod_cti_RemoteTestConnection') }}</span>
+            </button>
+            <span id="cti-test-remote-conn-result" class="ui small text" style="margin-left:1em;"></span>
         </div>
 
         <h4 class="ui dividing header">{{ t._('mod_cti_RemoteServicesHeader') }}</h4>

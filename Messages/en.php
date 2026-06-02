@@ -26,7 +26,7 @@ return [
     'mod_cti_ConnectionProgress' => 'Module services are starting',
     'mod_cti_Disconnected' => 'Disconnected',
     'mod_cti_ConnectionError' => 'Failure',
-    'mod_cti_UpdateStatus' => 'Update status',
+    'mod_cti_UpdateStatus' => 'Updating status…',
     'mod_cti_TransliterateCallerID' => 'Perform transliteration of CallerID received from 1C',
     'mod_cti_EnableSetCallerID' => 'Install CallerID from 1C',
     'mod_cti_OdinEsSetupMessageStep4' => 'Press Ctrl+O (or File&#8594;Open) and select the "Установщик.epf" file',
@@ -66,6 +66,10 @@ return [
     'mod_cti_RemoteTunnelDisconnected' => 'disconnected',
     'mod_cti_RemoteTunnelDisabled' => 'disabled',
     'mod_cti_RemoteTunnelUnknown' => 'unknown',
+    'mod_cti_RemoteTestConnection' => 'Test SSH connection',
+    'mod_cti_RemoteTestRunning' => 'Probing…',
+    'mod_cti_RemoteTestOk' => 'Connection OK',
+    'mod_cti_RemoteTestFail' => 'Connection failed',
 
     // Services status panel
     'mod_cti_tab_Status'             => 'Services status',
