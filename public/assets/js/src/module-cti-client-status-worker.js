@@ -187,6 +187,17 @@ const moduleCTIClientConnectionCheckWorker = {
 			return;
 		}
 
+		const $rows = $('#cti-services-status-rows');
+		const $placeholder = $('#cti-services-status-placeholder');
+		const showPlaceholder = (text) => {
+			$rows.empty();
+			if ($placeholder.length > 0) {
+				$placeholder.html(`<span>&nbsp;${moduleCTIClientConnectionCheckWorker.escapeHtml(text)}</span>`).show();
+			} else {
+				$panel.html(`<div class="ui basic segment">${moduleCTIClientConnectionCheckWorker.escapeHtml(text)}</div>`);
+			}
+		};
+
 		const statuses = (data && data.statuses) ? data.statuses : null;
 
 		// Бэк может вернуть строку 'Module disabled' вместо массива.
@@ -196,7 +207,7 @@ const moduleCTIClientConnectionCheckWorker = {
 				: ((typeof globalTranslate !== 'undefined' && globalTranslate.mod_cti_StatusUnavailable)
 					? globalTranslate.mod_cti_StatusUnavailable
 					: 'Status unavailable');
-			$panel.html(`<div class="ui basic segment">${moduleCTIClientConnectionCheckWorker.escapeHtml(text)}</div>`);
+			showPlaceholder(text);
 			return;
 		}
 
@@ -236,11 +247,14 @@ const moduleCTIClientConnectionCheckWorker = {
 			const empty = (typeof globalTranslate !== 'undefined' && globalTranslate.mod_cti_StatusEmpty)
 				? globalTranslate.mod_cti_StatusEmpty
 				: 'No services reported';
-			$panel.html(`<div class="ui basic segment">${moduleCTIClientConnectionCheckWorker.escapeHtml(empty)}</div>`);
+			showPlaceholder(empty);
 			return;
 		}
 
-		$panel.html(parts.join(''));
+		$rows.html(parts.join(''));
+		if ($placeholder.length > 0) {
+			$placeholder.hide();
+		}
 	},
 
 	/**

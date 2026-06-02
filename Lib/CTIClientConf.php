@@ -162,10 +162,23 @@ class CTIClientConf extends ConfigClass
                 // $request['data']; we never touch the DB here.
                 $amigoDaemons = new AmigoDaemons();
                 $data         = is_array($request['data'] ?? null) ? $request['data'] : [];
-                if (trim((string)($data['key'] ?? '')) === '') {
+                // The form masks the saved SSH key as '******' — if the value
+                // coming back contains the mask sentinel (or is empty) the
+                // operator did not paste a new key, so we fall back to what
+                // is already in the DB instead of trying to log in with stars.
+                $key = (string)($data['key'] ?? '');
+                if ($key === '' || strpos($key, '******') !== false) {
                     $saved = ModuleCTIClient::findFirst();
                     if ($saved !== null) {
                         $data['key'] = (string)($saved->remote_ssh_key ?? '');
+                    }
+                }
+                // Fall back to the saved base dir too when the form doesn't
+                // send one, otherwise the rw probe lands in the wrong place.
+                if (trim((string)($data['base'] ?? '')) === '') {
+                    $saved = $saved ?? ModuleCTIClient::findFirst();
+                    if ($saved !== null) {
+                        $data['base'] = (string)($saved->remote_bin_dir ?? '');
                     }
                 }
                 $probe          = $amigoDaemons->testRemoteSshConnection($data);

@@ -135,12 +135,13 @@ const moduleCTIClient = {
 		const renderResult = (probe, fallbackErr) => {
 			$btn.removeClass('loading disabled');
 			if (probe && probe.ok === true) {
-				const okLabel = globalTranslate.mod_cti_RemoteTestOk || 'connected';
-				const arch = probe.arch ? ` (${probe.arch})` : '';
-				$result.css('color', '#21ba45').text(`${okLabel}${arch}`);
+				const okLabel = globalTranslate.mod_cti_RemoteTestOk || 'Connection OK';
+				const arch = probe.arch ? ` ${probe.arch}` : '';
+				const rwLabel = globalTranslate.mod_cti_RemoteTestRwOk || 'rw OK';
+				$result.css('color', '#21ba45').text(`${okLabel} —${arch}, ${rwLabel}`);
 				return;
 			}
-			const failLabel = globalTranslate.mod_cti_RemoteTestFail || 'failed';
+			const failLabel = globalTranslate.mod_cti_RemoteTestFail || 'Connection failed';
 			const err = (probe && probe.error) ? probe.error : (fallbackErr || '');
 			$result.css('color', '#db2828').text(err ? `${failLabel}: ${err}` : failLabel);
 		};
@@ -151,6 +152,10 @@ const moduleCTIClient = {
 			$result.removeClass('green red')
 				.css('color', '#666')
 				.text(globalTranslate.mod_cti_RemoteTestRunning || 'Probing…');
+			// Don't send the masked saved key back to the server — empty key
+			// tells the backend to fall back to the DB value transparently.
+			const rawKey = $('#remote_ssh_key').val() || '';
+			const keyForPost = rawKey.indexOf('******') !== -1 ? '' : rawKey;
 			$.ajax({
 				url: `${Config.pbxUrl}/pbxcore/api/modules/ModuleCTIClient/testRemoteConnection`,
 				method: 'POST',
@@ -160,7 +165,8 @@ const moduleCTIClient = {
 					host: $('#remote_host').val() || '',
 					port: $('#remote_ssh_port').val() || '',
 					login: $('#remote_ssh_login').val() || '',
-					key: $('#remote_ssh_key').val() || '',
+					key: keyForPost,
+					base: $('#remote_bin_dir').val() || '',
 				}),
 				success(response) {
 					// PBXApiResult: { result, data: {ok, arch, error}, messages, ... }

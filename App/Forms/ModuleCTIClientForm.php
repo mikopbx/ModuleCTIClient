@@ -61,7 +61,14 @@ class ModuleCTIClientForm extends Form
         $this->add(new Password('secret'));
         $this->add(new Text('database'));
         $this->add(new Text('publish_name_with_auth'));
-        $this->add(new Text('chats_proxy_address', ['placeholder' => 'socks5://user:password@host:port or http://host:port']));
+        $proxyPlaceholder = 'socks5://user:password@host:port or http://host:port';
+        $this->add(new Text('whatsapp_proxy_address', ['placeholder' => $proxyPlaceholder]));
+        $this->add(new Text('telegram_proxy_address', ['placeholder' => $proxyPlaceholder]));
+        $this->add(new Text('max_proxy_address', ['placeholder' => $proxyPlaceholder]));
+        // Legacy single-proxy field kept registered (hidden in the UI) so the
+        // generator's fallback path keeps working for installs that haven't
+        // moved to the per-messenger fields yet.
+        $this->add(new Text('chats_proxy_address', ['placeholder' => $proxyPlaceholder]));
         $this->add(new Text('mt_proxy_address', ['placeholder' => '185.154.194.147:443']));
         $this->add(new Text('mt_proxy_secret', ['placeholder' => 'ddb73df2f75e3040671668c6066328e5d5']));
 

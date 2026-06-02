@@ -711,11 +711,37 @@ class AmigoDaemons extends Injectable
      */
     public function getChatsProxyAddress(): string
     {
-        if (empty($this->module_settings['chats_proxy_address'])) {
+        return $this->getMessengerProxyAddress('whatsapp');
+    }
+
+    /**
+     * Per-messenger HTTP proxy address. Each messenger now has its own field
+     * (`whatsapp_proxy_address`, `telegram_proxy_address`, `max_proxy_address`)
+     * because the values land in separate daemon configs and may need to
+     * differ. Empty per-messenger field falls back to the legacy single
+     * `chats_proxy_address` so existing installs keep working unchanged.
+     *
+     * @param string $messenger One of 'whatsapp', 'telegram', 'max'.
+     */
+    public function getMessengerProxyAddress(string $messenger): string
+    {
+        $fieldByMessenger = [
+            'whatsapp' => 'whatsapp_proxy_address',
+            'telegram' => 'telegram_proxy_address',
+            'max'      => 'max_proxy_address',
+        ];
+        $field = $fieldByMessenger[$messenger] ?? null;
+        if ($field !== null) {
+            $own = trim((string)($this->module_settings[$field] ?? ''));
+            if ($own !== '') {
+                return escapeshellcmd($own);
+            }
+        }
+        $legacy = trim((string)($this->module_settings['chats_proxy_address'] ?? ''));
+        if ($legacy === '') {
             return '';
         }
-
-        return escapeshellcmd($this->module_settings['chats_proxy_address']);
+        return escapeshellcmd($legacy);
     }
 
     /**
@@ -936,7 +962,7 @@ class AmigoDaemons extends Injectable
             'database' => [
                 'path' => $chatDataBasesPath,
             ],
-            'proxy_address' => $this->getChatsProxyAddress(),
+            'proxy_address' => $this->getMessengerProxyAddress('whatsapp'),
         ];
 
         Util::fileWriteContent(
@@ -966,7 +992,7 @@ class AmigoDaemons extends Injectable
             'database' => [
                 'path' => $chatDataBasesPath,
             ],
-            'proxy_address' => $this->getChatsProxyAddress(),
+            'proxy_address' => $this->getMessengerProxyAddress('telegram'),
         ];
 
         $mtProxyAddress = trim($this->module_settings['mt_proxy_address'] ?? '');
@@ -1005,7 +1031,7 @@ class AmigoDaemons extends Injectable
             'database' => [
                 'path' => $maxDataBasesPath,
             ],
-            'proxy_address' => $this->getChatsProxyAddress(),
+            'proxy_address' => $this->getMessengerProxyAddress('max'),
         ];
 
         Util::fileWriteContent(
@@ -1206,7 +1232,14 @@ class AmigoDaemons extends Injectable
 
         $base = $this->getRemoteBaseDir();
         $debug = intval($this->module_settings['debug_mode'] ?? 0) === 1;
-        $proxyAddress = $this->getChatsProxyAddress();
+        // Per-messenger proxy: each service uses its own configured proxy
+        // (with fallback to the legacy single field). 'chats' on the remote
+        // side maps to the whatsapp_proxy_address field.
+        $proxyByService = [
+            'chats' => $this->getMessengerProxyAddress('whatsapp'),
+            'tg'    => $this->getMessengerProxyAddress('telegram'),
+            'max'   => $this->getMessengerProxyAddress('max'),
+        ];
 
         // Remote monitord: binds loopback (reachable only through the ssh tunnel) and supervises
         // only the messenger daemons it spawns on the VPS (added dynamically via manager.api).
@@ -1252,7 +1285,7 @@ class AmigoDaemons extends Injectable
                 'database' => [
                     'path' => "{$base}/{$dbDirs[$service]}",
                 ],
-                'proxy_address' => $proxyAddress,
+                'proxy_address' => $proxyByService[$service] ?? '',
             ];
 
             if ($service === 'tg') {
@@ -1580,13 +1613,18 @@ class AmigoDaemons extends Injectable
     /**
      * Test an SSH connection to a remote VPS using ad-hoc parameters
      * (NOT yet saved to the DB). Used by the "Test connection" button on
-     * the Remote messengers tab — operator types host/port/login/key, this
-     * method writes the key to a private temp file with chmod 600 and runs
-     * `ssh ... uname -m` with a short timeout, returning the architecture
-     * or the connection error.
+     * the Remote messengers tab — operator types host/port/login/key/base,
+     * this method writes the key to a private temp file with chmod 600 and
+     * runs a single ssh shell that reports:
+     *   * arch       — `uname -m` so we know the remote target is x86_64
+     *   * rwOk       — whether the login can mkdir+touch+rm inside the base
+     *                  directory (caught early instead of failing later
+     *                  during scpPush)
+     * Either failing flags ok=false; the human-readable diagnostic is
+     * stuffed into `error`.
      *
-     * @param array{host:string,port:string,login:string,key:string} $params
-     * @return array{ok:bool,arch:string,error:string}
+     * @param array{host:string,port:string,login:string,key:string,base?:string} $params
+     * @return array{ok:bool,arch:string,rwOk:bool,base:string,error:string}
      */
     public function testRemoteSshConnection(array $params): array
     {
@@ -1594,12 +1632,19 @@ class AmigoDaemons extends Injectable
         $port = trim($params['port'] ?? '');
         $login = trim($params['login'] ?? '');
         $key = (string)($params['key'] ?? '');
+        $base = trim($params['base'] ?? '');
 
         if ($host === '' || $login === '' || $key === '') {
-            return ['ok' => false, 'arch' => '', 'error' => 'host, login and SSH key are required'];
+            return [
+                'ok' => false, 'arch' => '', 'rwOk' => false, 'base' => $base,
+                'error' => 'host, login and SSH key are required',
+            ];
         }
         if ($port === '') {
             $port = '22';
+        }
+        if ($base === '') {
+            $base = '/opt/mikopbx-cti';
         }
 
         $keyContent = str_replace("\r\n", "\n", $key);
@@ -1609,13 +1654,31 @@ class AmigoDaemons extends Injectable
 
         $tmpKey = tempnam(sys_get_temp_dir(), 'cti_sshtest_');
         if ($tmpKey === false) {
-            return ['ok' => false, 'arch' => '', 'error' => 'cannot create temp key file'];
+            return [
+                'ok' => false, 'arch' => '', 'rwOk' => false, 'base' => $base,
+                'error' => 'cannot create temp key file',
+            ];
         }
         if (@file_put_contents($tmpKey, $keyContent) === false) {
             @unlink($tmpKey);
-            return ['ok' => false, 'arch' => '', 'error' => 'cannot write temp key file'];
+            return [
+                'ok' => false, 'arch' => '', 'rwOk' => false, 'base' => $base,
+                'error' => 'cannot write temp key file',
+            ];
         }
         @chmod($tmpKey, 0600);
+
+        // Single round-trip: arch on stdout line 1, rw verdict on line 2.
+        // Probe-rm is best-effort — base.test file is unique per call.
+        $probeFile = '.cti-rw-probe-' . bin2hex(random_bytes(4));
+        $remoteShell = 'set -e; '
+            . 'arch=$(uname -m); '
+            . 'echo "ARCH:$arch"; '
+            . 'if mkdir -p ' . escapeshellarg($base) . ' 2>/dev/null '
+                . '&& : > ' . escapeshellarg($base . '/' . $probeFile) . ' 2>/dev/null '
+                . '&& rm -f ' . escapeshellarg($base . '/' . $probeFile) . ' 2>/dev/null; then '
+                . 'echo "RW:OK"; '
+            . 'else echo "RW:FAIL"; fi';
 
         $cmd = '/usr/bin/ssh'
             . ' -i ' . escapeshellarg($tmpKey)
@@ -1626,21 +1689,46 @@ class AmigoDaemons extends Injectable
             . ' -o ConnectTimeout=5'
             . ' -o LogLevel=ERROR'
             . ' ' . escapeshellarg($login . '@' . $host)
-            . ' uname -m 2>&1';
+            . ' ' . escapeshellarg($remoteShell)
+            . ' 2>&1';
 
         $out = [];
         $rc = 0;
         exec($cmd, $out, $rc);
         @unlink($tmpKey);
 
-        $lastLine = trim(end($out) ?: '');
-        if ($rc === 0) {
-            return ['ok' => true, 'arch' => $lastLine, 'error' => ''];
+        $arch = '';
+        $rwOk = false;
+        $diag = [];
+        foreach ($out as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            if (strpos($line, 'ARCH:') === 0) {
+                $arch = substr($line, 5);
+            } elseif ($line === 'RW:OK') {
+                $rwOk = true;
+            } elseif ($line === 'RW:FAIL') {
+                $rwOk = false;
+            } else {
+                $diag[] = $line;
+            }
+        }
+
+        if ($rc === 0 && $arch !== '' && $rwOk) {
+            return ['ok' => true, 'arch' => $arch, 'rwOk' => true, 'base' => $base, 'error' => ''];
+        }
+        $err = $diag !== [] ? implode('; ', $diag) : ('ssh exit ' . $rc);
+        if ($arch !== '' && !$rwOk) {
+            $err = 'no write access to ' . $base . ($diag !== [] ? ' (' . implode('; ', $diag) . ')' : '');
         }
         return [
             'ok'    => false,
-            'arch'  => '',
-            'error' => $lastLine !== '' ? $lastLine : ('ssh exit ' . $rc),
+            'arch'  => $arch,
+            'rwOk'  => $rwOk,
+            'base'  => $base,
+            'error' => $err,
         ];
     }
 

@@ -136,11 +136,35 @@ class ModuleCTIClient extends ModulesModelsBase
     public ?string $transliterate_caller_id = '0';
 
     /**
-     * @var string|null Chats proxy address
+     * @var string|null Legacy single proxy address used for chats/tg/max.
+     * Kept for backward compatibility — new installs should populate the
+     * per-messenger fields below. When a per-messenger field is empty the
+     * generator falls back to this one.
      *
      * @Column(type='string', nullable=true, default='')
      */
     public ?string $chats_proxy_address = '';
+
+    /**
+     * @var string|null HTTP proxy for WhatsApp (chatsd) channels.
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $whatsapp_proxy_address = '';
+
+    /**
+     * @var string|null HTTP proxy for Telegram (tgd) channels.
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $telegram_proxy_address = '';
+
+    /**
+     * @var string|null HTTP proxy for MAX (maxd) channels.
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $max_proxy_address = '';
 
     /**
      * @var string|null MT Proxy address for Telegram client mode

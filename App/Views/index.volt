@@ -133,14 +133,22 @@
 
     {# messengers tab #}
     <div class="ui bottom attached tab segment" data-tab="messengers">
-        <h4 class="ui dividing header">{{ t._('mod_cti_ProxyHeader') }}</h4>
+        <p style="color:#666;margin-bottom:1.2em;">{{ t._('mod_cti_ProxyIntro') }}</p>
+
         <div class="field">
-            <div class="ten wide field">
-                {{ form.render('chats_proxy_address') }}
-            </div>
+            <label>{{ t._('mod_cti_WhatsappProxyHeader') }}</label>
+            {{ form.render('whatsapp_proxy_address') }}
+        </div>
+        <div class="field">
+            <label>{{ t._('mod_cti_TelegramProxyHeader') }}</label>
+            {{ form.render('telegram_proxy_address') }}
+        </div>
+        <div class="field">
+            <label>{{ t._('mod_cti_MaxProxyHeader') }}</label>
+            {{ form.render('max_proxy_address') }}
         </div>
 
-        <h4 class="ui dividing header">{{ t._('mod_cti_MtProxyHeader') }}</h4>
+        <h5 class="ui dividing header" style="margin-top:1.5em;">{{ t._('mod_cti_MtProxyHeader') }}</h5>
         <div class="two fields">
             <div class="field">
                 <label>{{ t._('mod_cti_MtProxyAddress') }}</label>
@@ -151,6 +159,9 @@
                 {{ form.render('mt_proxy_secret') }}
             </div>
         </div>
+        <div class="ui small text" style="color:#666;">{{ t._('mod_cti_MtProxyHint') }}</div>
+
+        <div style="display:none;">{{ form.render('chats_proxy_address') }}</div>
     </div>
 
     {# remote messenger server tab #}
@@ -228,12 +239,26 @@
     <div class="ui bottom attached tab segment" data-tab="status">
         <h4 class="ui dividing header">{{ t._('mod_cti_StatusHeader') }}</h4>
         <div id="cti-services-status" class="cti-services-status">
+            <div id="cti-services-status-rows"></div>
             <div class="ui basic segment" id="cti-services-status-placeholder">
                 <div class="ui active inline loader"></div>
                 <span>&nbsp;{{ t._('mod_cti_StatusLoading') }}</span>
             </div>
         </div>
         <style>
+            #cti-services-status {
+                position: relative;
+                min-height: 280px;
+            }
+            #cti-services-status-placeholder {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: rgba(255,255,255,.85);
+                z-index: 2;
+            }
             .cti-services-status .cti-svc-row {
                 display: flex;
                 align-items: center;
