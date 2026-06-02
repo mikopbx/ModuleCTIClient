@@ -48,6 +48,7 @@ class AmigoDaemons extends Injectable
     public const SERVICE_PROXY = 'proxyd';
     public const SERVICE_TELEGRAM = 'tgd';
     public const SERVICE_MAX = 'maxd';
+    public const SERVICE_REMOTE_TUNNEL = 'remote-tunnel';
 
     public array $dirs;
     private array $module_settings = [];
@@ -1317,6 +1318,10 @@ class AmigoDaemons extends Injectable
         $statuses[] = $this->checkMonitorStatus();
         $statuses[] = $this->checkNatsStatus();
         $statuses = array_merge($statuses, $this->checkWorkerStatuses());
+        $tunnel = $this->checkRemoteTunnelStatus();
+        if ($tunnel !== null) {
+            $statuses[] = $tunnel;
+        }
 
         $res->success = true;
         foreach ($statuses as $workerStatus) {
@@ -1429,6 +1434,88 @@ class AmigoDaemons extends Injectable
         }
 
         return $result;
+    }
+
+    /**
+     * Synthetic status row for the remote messenger SSH tunnel, read from the
+     * status file written by WorkerRemoteTunnel.
+     *
+     * Returns null when remote offload is not configured at all — in that case
+     * we don't surface the row to keep the UI clean.
+     *
+     * @return array{name:string,state:string,uptime?:string,last_error?:string}|null
+     */
+    private function checkRemoteTunnelStatus(): ?array
+    {
+        if (empty($this->getRemoteServices())) {
+            return null;
+        }
+
+        $row = [
+            'name'  => self::SERVICE_REMOTE_TUNNEL,
+            'state' => 'pending',
+        ];
+
+        $path = $this->getRemoteTunnelStatusFile();
+        if (!is_file($path)) {
+            return $row;
+        }
+
+        $raw = @file_get_contents($path);
+        if (!is_string($raw) || $raw === '') {
+            return $row;
+        }
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            return $row;
+        }
+
+        $connected = !empty($data['connected']);
+        $lastError = (string)($data['last_error'] ?? '');
+
+        if ($connected) {
+            $row['state'] = 'ok';
+            $okTs = intval($data['last_ok_ts'] ?? 0);
+            if ($okTs > 0) {
+                $elapsed = time() - $okTs;
+                if ($elapsed >= 0) {
+                    $row['uptime'] = $this->formatUptime($elapsed);
+                }
+            }
+        } elseif (strpos($lastError, 'offload disabled') !== false) {
+            // Operator-disabled: report as pending so the row does not look red.
+            $row['state'] = 'pending';
+        } else {
+            $row['state'] = 'error';
+        }
+
+        if ($lastError !== '') {
+            $row['last_error'] = $lastError;
+        }
+
+        return $row;
+    }
+
+    /**
+     * Format seconds as a compact "1h2m3s" / "12m5s" / "30s" string for
+     * status rows.
+     */
+    private function formatUptime(int $seconds): string
+    {
+        if ($seconds < 1) {
+            return '0s';
+        }
+        $h = intdiv($seconds, 3600);
+        $m = intdiv($seconds % 3600, 60);
+        $s = $seconds % 60;
+        $out = '';
+        if ($h > 0) {
+            $out .= $h . 'h';
+        }
+        if ($h > 0 || $m > 0) {
+            $out .= $m . 'm';
+        }
+        return $out . $s . 's';
     }
 
     /**

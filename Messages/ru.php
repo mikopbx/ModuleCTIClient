@@ -103,6 +103,7 @@ return [
     'mod_cti_svc_tg'                   => 'Telegram-каналы',
     'mod_cti_svc_max'                  => 'MAX-каналы',
     'mod_cti_svc_manager_api'          => 'Manager API',
+    'mod_cti_svc_remote_tunnel'        => 'SSH-туннель удалённых мессенджеров',
 
     // Состояния сервиса
     'mod_cti_state_ok'                 => 'Работает',

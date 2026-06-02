@@ -776,41 +776,4 @@ class ModuleCTIClientController extends BaseController
         }
     }
 
-    /**
-     * Returns the current SSH tunnel status for the remote messenger VPS.
-     * The payload is written by WorkerRemoteTunnel into spool/remote_tunnel.status.
-     *
-     * Example:
-     * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getRemoteTunnelStatus"
-     */
-    public function getRemoteTunnelStatusAction(): void
-    {
-        $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
-        $this->response->setContentType('application/json', 'UTF-8');
-
-        $payload = [
-            'connected'   => false,
-            'last_ok_ts'  => '',
-            'last_error'  => 'status file missing',
-            'updated_ts'  => '',
-        ];
-
-        try {
-            $cti = new AmigoDaemons();
-            $path = $cti->getRemoteTunnelStatusFile();
-            if (is_file($path)) {
-                $raw = @file_get_contents($path);
-                if (is_string($raw) && $raw !== '') {
-                    $decoded = json_decode($raw, true);
-                    if (is_array($decoded)) {
-                        $payload = array_merge($payload, $decoded);
-                    }
-                }
-            }
-        } catch (\Throwable $e) {
-            $payload['last_error'] = $e->getMessage();
-        }
-
-        $this->response->setContent(json_encode($payload));
-    }
 }

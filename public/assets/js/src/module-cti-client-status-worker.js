@@ -324,6 +324,7 @@ const moduleCTIClientConnectionCheckWorker = {
 			tg: 'mod_cti_svc_tg',
 			max: 'mod_cti_svc_max',
 			'manager.api': 'mod_cti_svc_manager_api',
+			'remote-tunnel': 'mod_cti_svc_remote_tunnel',
 		};
 		const key = map[name];
 		if (key && typeof globalTranslate !== 'undefined' && globalTranslate[key]) {

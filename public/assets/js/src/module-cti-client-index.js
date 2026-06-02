@@ -211,78 +211,7 @@ $.fn.form.settings.rules.wrongPortCustomRule = function (value) {
 	return true;
 };
 
-/**
- * Polls the remote tunnel status endpoint and reflects it in the Remote tab.
- * Status comes from spool/remote_tunnel.status, written by WorkerRemoteTunnel.
- * Stays silent (no popups) when offload is disabled — we just show "unknown".
- */
-const remoteTunnelStatus = {
-	pollIntervalMs: 5000,
-	$indicator: null,
-	$text: null,
-	$error: null,
-	timer: null,
-	initialize() {
-		remoteTunnelStatus.$indicator = $('#remote-tunnel-status-indicator');
-		remoteTunnelStatus.$text = $('#remote-tunnel-status-text');
-		remoteTunnelStatus.$error = $('#remote-tunnel-status-error');
-		if (remoteTunnelStatus.$indicator.length === 0) {
-			return;
-		}
-		remoteTunnelStatus.refresh();
-		if (remoteTunnelStatus.timer !== null) {
-			clearInterval(remoteTunnelStatus.timer);
-		}
-		remoteTunnelStatus.timer = setInterval(
-			remoteTunnelStatus.refresh,
-			remoteTunnelStatus.pollIntervalMs
-		);
-	},
-	refresh() {
-		$.ajax({
-			url: `${globalRootUrl}module-c-t-i-client/getRemoteTunnelStatus`,
-			method: 'GET',
-			dataType: 'json',
-			cache: false,
-			success(data) {
-				remoteTunnelStatus.render(data || {});
-			},
-			error() {
-				remoteTunnelStatus.render({
-					connected: false,
-					last_error: 'request failed',
-				});
-			},
-		});
-	},
-	render(data) {
-		const $i = remoteTunnelStatus.$indicator;
-		const $t = remoteTunnelStatus.$text;
-		const $e = remoteTunnelStatus.$error;
-		$i.removeClass('green red grey yellow');
-		if (data.connected === true) {
-			$i.addClass('green');
-			let label = globalTranslate.mod_cti_RemoteTunnelConnected || 'connected';
-			if (data.last_ok_ts) {
-				const ts = parseInt(data.last_ok_ts, 10);
-				if (!isNaN(ts) && ts > 0) {
-					label += ' (' + new Date(ts * 1000).toLocaleTimeString() + ')';
-				}
-			}
-			$t.text(label);
-		} else if (data.last_error && data.last_error.indexOf('offload disabled') !== -1) {
-			$i.addClass('grey');
-			$t.text(globalTranslate.mod_cti_RemoteTunnelDisabled || 'disabled');
-		} else {
-			$i.addClass('red');
-			$t.text(globalTranslate.mod_cti_RemoteTunnelDisconnected || 'disconnected');
-		}
-		$e.text(data.last_error || '');
-	},
-};
-
 $(document).ready(() => {
 	moduleCTIClient.initialize();
-	remoteTunnelStatus.initialize();
 });
 

@@ -88,6 +88,7 @@ return [
     'mod_cti_svc_tg'                 => 'Telegram channels',
     'mod_cti_svc_max'                => 'MAX messenger channels',
     'mod_cti_svc_manager_api'        => 'Manager API',
+    'mod_cti_svc_remote_tunnel'      => 'Remote messenger SSH tunnel',
 
     // Service states
     'mod_cti_state_ok'               => 'OK',

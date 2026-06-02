@@ -163,17 +163,6 @@
             </div>
         </div>
 
-        <div class="field">
-            <div class="ui segment" id="remote-tunnel-status">
-                <strong>{{ t._('mod_cti_RemoteTunnelStatus') }}:</strong>
-                <span id="remote-tunnel-status-indicator" class="ui label">
-                    <i class="circle icon"></i>
-                    <span id="remote-tunnel-status-text">{{ t._('mod_cti_RemoteTunnelUnknown') }}</span>
-                </span>
-                <span id="remote-tunnel-status-error" class="ui small text" style="margin-left:1em;color:#9f3a38;"></span>
-            </div>
-        </div>
-
         <h4 class="ui dividing header">{{ t._('mod_cti_RemoteConnectionHeader') }}</h4>
         <div class="two fields">
             <div class="field">
