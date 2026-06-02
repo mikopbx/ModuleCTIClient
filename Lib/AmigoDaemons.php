@@ -50,6 +50,13 @@ class AmigoDaemons extends Injectable
     public const SERVICE_MAX = 'maxd';
     public const SERVICE_REMOTE_TUNNEL = 'remote-tunnel';
 
+    /**
+     * Grace window for newly-started services: any row reported as ok with an
+     * uptime under this many seconds is downgraded to "starting" so the LED
+     * stays yellow until monitord has a stable read.
+     */
+    private const WARMUP_SECONDS = 60;
+
     public array $dirs;
     private array $module_settings = [];
     private string $moduleUniqueID = 'ModuleCTIClient';
@@ -1325,7 +1332,7 @@ class AmigoDaemons extends Injectable
         }
         $statuses = array_merge($statuses, $this->checkWorkerStatuses());
 
-        // Warm-up: anything that just started reports state=ok with a sub-10s
+        // Warm-up: anything that just started reports state=ok with a sub-60s
         // uptime — surface that as "starting" so the LED stays yellow while
         // monitord hasn't finished its first probe cycle yet.
         foreach ($statuses as $idx => $row) {
@@ -1337,8 +1344,23 @@ class AmigoDaemons extends Injectable
                 continue;
             }
             $sec = $this->parseUptimeSeconds($row['uptime']);
-            if ($sec !== null && $sec < 10) {
+            if ($sec !== null && $sec < self::WARMUP_SECONDS) {
                 $statuses[$idx]['state'] = 'starting';
+            }
+        }
+
+        // Fill in expected-but-missing system services as "starting" so the
+        // operator sees a yellow placeholder row instead of nothing while
+        // monitord is still bringing them up after enable.
+        $present = [];
+        foreach ($statuses as $row) {
+            if (is_array($row) && isset($row['name'])) {
+                $present[(string)$row['name']] = true;
+            }
+        }
+        foreach ($this->getExpectedSystemServices() as $name) {
+            if (!isset($present[$name])) {
+                $statuses[] = ['name' => $name, 'state' => 'starting'];
             }
         }
 
@@ -1513,6 +1535,30 @@ class AmigoDaemons extends Injectable
         }
 
         return $row;
+    }
+
+    /**
+     * Names (as reported by monitord) of the system-level services that are
+     * always expected to be present once the module finishes coming up.
+     * Messenger channels (chats/tg/max) are NOT here — those are created
+     * dynamically per area by 1C and have no fixed expected count.
+     *
+     * @return string[]
+     */
+    private function getExpectedSystemServices(): array
+    {
+        $expected = [
+            self::SERVICE_MONITOR,        // 'monitord'
+            'nats',
+            'ami-listener',
+            'crm-1c',
+            'auth',
+            'proxy',
+        ];
+        if (!empty($this->getRemoteServices())) {
+            $expected[] = self::SERVICE_REMOTE_TUNNEL;
+        }
+        return $expected;
     }
 
     /**

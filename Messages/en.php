@@ -49,7 +49,7 @@ return [
     'mod_cti_ProxyHeader' => 'Proxy server for WhatsApp and Telegram',
     'mod_cti_tab_Remote' => 'Remote messengers',
     'mod_cti_RemoteHeader' => 'Remote messenger server',
-    'mod_cti_RemoteIntro' => 'Offload WhatsApp / Telegram / MAX channels to a remote x86_64 VPS reachable over SSH. Each toggled service runs on the VPS and is reached transparently through the SSH tunnel — 1C continues to talk to MikoPBX as before.',
+    'mod_cti_RemoteIntro' => 'Optional. Offload WhatsApp / Telegram / MAX channels to a remote x86_64 VPS reachable over SSH. Each toggled service runs on the VPS and is reached transparently through the SSH tunnel — 1C continues to talk to MikoPBX as before. Leave this tab untouched if you do not need to offload messengers.',
     'mod_cti_RemoteConnectionHeader' => 'Remote VPS connection',
     'mod_cti_RemoteServicesHeader' => 'Services to offload',
     'mod_cti_RemoteHost' => 'VPS host (IP or FQDN)',

@@ -64,7 +64,7 @@ return [
 
     'mod_cti_tab_Remote'               => 'Удалённые мессенджеры',
     'mod_cti_RemoteHeader'             => 'Удалённый сервер мессенджеров',
-    'mod_cti_RemoteIntro'              => 'Вынос каналов WhatsApp / Telegram / MAX на удалённый x86_64 VPS, доступный по SSH. Каждый включённый сервис работает на VPS и доступен прозрачно через SSH-туннель — 1С продолжает обращаться к MikoPBX как раньше.',
+    'mod_cti_RemoteIntro'              => 'Опциональная настройка. Вынос каналов WhatsApp / Telegram / MAX на удалённый x86_64 VPS, доступный по SSH. Каждый включённый сервис работает на VPS и доступен прозрачно через SSH-туннель — 1С продолжает обращаться к MikoPBX как раньше. Если вынос мессенджеров не нужен — вкладку можно не трогать.',
     'mod_cti_RemoteConnectionHeader'   => 'Подключение к удалённому VPS',
     'mod_cti_RemoteServicesHeader'     => 'Сервисы для выноса',
     'mod_cti_RemoteHost'               => 'Адрес VPS (IP или FQDN)',
