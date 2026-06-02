@@ -270,13 +270,19 @@ class CTIClientConf extends ConfigClass
     }
 
     /**
-     * Kills all module daemons
-     *
+     * Kills all module daemons — local first, then the remote VPS stack if
+     * offload is configured. Without the remote step monitord + chatsd/tgd/
+     * maxd would keep running (and holding messenger sessions) on the VPS
+     * after the operator switched the module off here.
      */
     public function onAfterModuleDisable(): void
     {
         $amigoDaemons = new AmigoDaemons();
         $amigoDaemons->stopAllServices();
+        // Best-effort — if SSH params aren't filled (offload was never set up)
+        // stopRemoteServices() returns immediately, so this is safe to call
+        // unconditionally.
+        $amigoDaemons->stopRemoteServices();
         PBX::dialplanReload();
     }
 

@@ -85,10 +85,17 @@ class WorkerRemoteTunnel extends WorkerBase
 
         // SIGTERM / SIGINT inside WorkerBase ultimately calls exit(0) — that
         // unwinds shutdown functions but NOT our finally/closeTunnelProc paths.
-        // Register a best-effort killer so the ssh child dies with us.
+        // Register a best-effort killer so the ssh child dies with us, and
+        // stamp the status file with "worker stopped" so the UI doesn't sit
+        // on a stale "connected:true" while WorkerSafeScripts is mid-respawn.
         register_shutdown_function(function () {
             if ($this->tunnelPid > 0) {
                 @posix_kill($this->tunnelPid, SIGTERM);
+            }
+            try {
+                $this->writeStatus(new AmigoDaemons(), false, (string)time(), 'worker stopped');
+            } catch (Throwable $e) {
+                // Best effort — do not block shutdown if the model can't load.
             }
         });
 
