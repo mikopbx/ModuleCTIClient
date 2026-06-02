@@ -360,11 +360,339 @@ class AmigoDaemons extends Injectable
      *
      * @return string
      */
-    private function getRemoteBaseDir(): string
+    public function getRemoteBaseDir(): string
     {
         $dir = trim($this->module_settings['remote_bin_dir'] ?? '');
 
         return $dir !== '' ? rtrim($dir, '/') : '/opt/mikopbx-cti';
+    }
+
+    /**
+     * Map of manager.api service names to binary file names in the local bin/ directory.
+     * Used by the remote provisioning step to push the right binaries to the VPS.
+     *
+     * @return array<string,string>
+     */
+    private function getServiceBinaryMap(): array
+    {
+        return [
+            'chats' => self::SERVICE_CHATS,
+            'tg'    => self::SERVICE_TELEGRAM,
+            'max'   => self::SERVICE_MAX,
+        ];
+    }
+
+    /**
+     * Returns the SSH connection parameters for the remote VPS, or null when
+     * offload is not fully configured (host or key missing).
+     * The private key is written to a chmod-600 file under spool/.
+     *
+     * @return array{host:string,port:string,login:string,keyFile:string,base:string,knownHosts:string}|null
+     */
+    public function getRemoteSshParams(): ?array
+    {
+        $host  = trim($this->module_settings['remote_host'] ?? '');
+        $login = trim($this->module_settings['remote_ssh_login'] ?? '');
+        $key   = $this->module_settings['remote_ssh_key'] ?? '';
+        $port  = trim($this->module_settings['remote_ssh_port'] ?? '');
+
+        if ($host === '' || $login === '' || $key === '') {
+            return null;
+        }
+        if ($port === '') {
+            $port = '22';
+        }
+
+        $keyFile = $this->dirs['spoolDir'] . '/remote_id';
+        // Normalize line endings and ensure trailing newline (OpenSSH requirement).
+        $keyContent = str_replace("\r\n", "\n", (string)$key);
+        if (substr($keyContent, -1) !== "\n") {
+            $keyContent .= "\n";
+        }
+        if (
+            !file_exists($keyFile)
+            || (string)@file_get_contents($keyFile) !== $keyContent
+        ) {
+            file_put_contents($keyFile, $keyContent);
+        }
+        @chmod($keyFile, 0600);
+
+        $knownHosts = $this->dirs['spoolDir'] . '/remote_known_hosts';
+        if (!file_exists($knownHosts)) {
+            // TOFU: accept-new on first contact, then strict on subsequent connections.
+            touch($knownHosts);
+            @chmod($knownHosts, 0600);
+        }
+
+        return [
+            'host'       => $host,
+            'port'       => $port,
+            'login'      => $login,
+            'keyFile'    => $keyFile,
+            'base'       => $this->getRemoteBaseDir(),
+            'knownHosts' => $knownHosts,
+        ];
+    }
+
+    /**
+     * Builds the common `ssh` argv prefix that pins identity, known_hosts,
+     * timeouts and the destination — used by every helper command that runs
+     * over the management channel (provisioning, monitord launch, etc.).
+     *
+     * Returned as a string of already-escaped tokens, ready to be appended
+     * to a shell command (e.g. "{$prefix} 'mkdir -p ...'").
+     *
+     * @param array{host:string,port:string,login:string,keyFile:string,knownHosts:string} $ssh
+     * @return string
+     */
+    public static function buildSshArgs(array $ssh): string
+    {
+        // -o BatchMode=yes prevents an interactive prompt from hanging the worker.
+        // -o StrictHostKeyChecking=accept-new gives us TOFU: pin on first contact,
+        // strict on every subsequent connection. The known_hosts file is per-module
+        // (spool/remote_known_hosts) — a wholesale VPS swap requires clearing it.
+        return Util::which('ssh')
+            . ' -o BatchMode=yes'
+            . ' -o StrictHostKeyChecking=accept-new'
+            . ' -o UserKnownHostsFile=' . escapeshellarg($ssh['knownHosts'])
+            . ' -o ConnectTimeout=10'
+            . ' -o ServerAliveInterval=15'
+            . ' -o ServerAliveCountMax=3'
+            . ' -i ' . escapeshellarg($ssh['keyFile'])
+            . ' -p ' . escapeshellarg($ssh['port'])
+            . ' ' . escapeshellarg($ssh['login'] . '@' . $ssh['host']);
+    }
+
+    /**
+     * Provisions the remote VPS so it can run the messenger daemons offloaded
+     * from MikoPBX. Idempotent — safe to call on every worker loop iteration.
+     *
+     * Steps (each one keeps going if the VPS is briefly unreachable; the worker
+     * surfaces the partial failure through the status file and retries later):
+     *   1. Sanity check architecture (must be x86_64; abort otherwise).
+     *   2. Create the directory layout under {base}/{bin,conf,db/...,logs,spool}.
+     *   3. Push the binaries needed by the toggled services + monitord (size-based
+     *      diff: skip unchanged files). The patched monitord lives in the module's
+     *      bin/ on PBX and is pushed as-is.
+     *   4. Push the staged conf/ files from {spool}/remote/conf/.
+     *   5. Prune stale conf/*.json on the VPS (de-toggled service).
+     *
+     * @return array{ok:bool,error:string} ok=true means VPS is fully provisioned.
+     */
+    public function provisionRemote(): array
+    {
+        $services = $this->getRemoteServices();
+        if (empty($services)) {
+            return ['ok' => false, 'error' => 'remote offload disabled'];
+        }
+
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return ['ok' => false, 'error' => 'remote ssh params not configured'];
+        }
+
+        $sshArgs = self::buildSshArgs($ssh);
+        $base = $ssh['base'];
+
+        // 1. Architecture check. The current build only ships x86_64 binaries.
+        $arch = '';
+        $rc = 0;
+        $cmd = $sshArgs . ' ' . escapeshellarg('uname -m');
+        exec($cmd . ' 2>/dev/null', $out, $rc);
+        if ($rc !== 0) {
+            return ['ok' => false, 'error' => 'ssh failed (uname): rc=' . $rc];
+        }
+        $arch = trim(implode('', $out));
+        if ($arch !== 'x86_64') {
+            return ['ok' => false, 'error' => 'unsupported remote arch: ' . $arch];
+        }
+
+        // 2. Directory layout. Per-daemon log subdirectories match the staged
+        //    configs' log_path (monitord/chatsd/tgd/maxd) — without them the
+        //    daemons FATAL at startup the same way the local generators
+        //    work around with Util::mwMkdir before launch.
+        $mkdirCmd = 'mkdir -p '
+            . escapeshellarg("{$base}/bin") . ' '
+            . escapeshellarg("{$base}/conf") . ' '
+            . escapeshellarg("{$base}/db/chats") . ' '
+            . escapeshellarg("{$base}/db/tg") . ' '
+            . escapeshellarg("{$base}/db/max") . ' '
+            . escapeshellarg("{$base}/logs") . ' '
+            . escapeshellarg("{$base}/logs/" . self::SERVICE_MONITOR) . ' '
+            . escapeshellarg("{$base}/logs/" . self::SERVICE_CHATS) . ' '
+            . escapeshellarg("{$base}/logs/" . self::SERVICE_TELEGRAM) . ' '
+            . escapeshellarg("{$base}/logs/" . self::SERVICE_MAX) . ' '
+            . escapeshellarg("{$base}/spool");
+        exec($sshArgs . ' ' . escapeshellarg($mkdirCmd) . ' 2>/dev/null', $tmpOut, $rc);
+        if ($rc !== 0) {
+            return ['ok' => false, 'error' => 'ssh mkdir failed: rc=' . $rc];
+        }
+
+        // 3. Binaries — monitord plus the per-service daemons we need on the VPS.
+        $binMap = $this->getServiceBinaryMap();
+        $binsToPush = [self::SERVICE_MONITOR];
+        foreach ($services as $svc) {
+            if (isset($binMap[$svc])) {
+                $binsToPush[] = $binMap[$svc];
+            }
+        }
+
+        // Get remote file sizes so we only push what changed. Missing files => size 0.
+        $statCmd = '';
+        foreach ($binsToPush as $bin) {
+            $remotePath = "{$base}/bin/{$bin}";
+            $statCmd .= 'stat -c %s ' . escapeshellarg($remotePath) . ' 2>/dev/null || echo 0; ';
+        }
+        exec($sshArgs . ' ' . escapeshellarg($statCmd) . ' 2>/dev/null', $statOut, $rc);
+        $remoteSizes = [];
+        foreach ($binsToPush as $i => $bin) {
+            $remoteSizes[$bin] = isset($statOut[$i]) ? (int)trim($statOut[$i]) : 0;
+        }
+
+        foreach ($binsToPush as $bin) {
+            $localPath = $this->dirs['binDir'] . '/' . $bin;
+            if (!file_exists($localPath)) {
+                return ['ok' => false, 'error' => 'local binary missing: ' . $bin];
+            }
+            $localSize = (int)filesize($localPath);
+            if ($localSize > 0 && $remoteSizes[$bin] === $localSize) {
+                continue; // same size — assume unchanged
+            }
+            if (!$this->scpPush($ssh, $localPath, "{$base}/bin/{$bin}")) {
+                return ['ok' => false, 'error' => 'scp push failed: ' . $bin];
+            }
+        }
+
+        // chmod +x on every binary, idempotent.
+        $chmodCmd = 'chmod +x ' . escapeshellarg("{$base}/bin") . '/*';
+        exec($sshArgs . ' ' . escapeshellarg($chmodCmd) . ' 2>/dev/null', $tmpOut, $rc);
+
+        // 4. Configs — push the staged remote/conf/ directory.
+        $stageDir = $this->dirs['spoolDir'] . '/remote/conf';
+        $stagedFiles = [];
+        if (is_dir($stageDir)) {
+            foreach (glob($stageDir . '/*.json') ?: [] as $stagedPath) {
+                $name = basename($stagedPath);
+                $stagedFiles[] = $name;
+                if (!$this->scpPush($ssh, $stagedPath, "{$base}/conf/{$name}")) {
+                    return ['ok' => false, 'error' => 'scp push failed: conf/' . $name];
+                }
+            }
+        }
+
+        // 5. Prune stale conf files on the VPS that are no longer staged
+        //    (de-toggling a service must not leave its old config behind).
+        $keep = [];
+        foreach ($stagedFiles as $name) {
+            $keep[] = escapeshellarg($name);
+        }
+        $keepList = implode(' ', $keep);
+        $pruneCmd = 'cd ' . escapeshellarg("{$base}/conf") . ' && '
+            . 'for f in *.json; do '
+            . '  [ -e "$f" ] || continue; '
+            . '  case " ' . ($keepList !== '' ? $keepList . ' ' : '') . '" in '
+            . '    *" $f "*) ;; '
+            . '    *) rm -f -- "$f" ;; '
+            . '  esac; '
+            . 'done';
+        exec($sshArgs . ' ' . escapeshellarg($pruneCmd) . ' 2>/dev/null', $tmpOut, $rc);
+
+        return ['ok' => true, 'error' => ''];
+    }
+
+    /**
+     * Push a single local file to the remote VPS via scp. Returns true on success.
+     *
+     * @param array{host:string,port:string,login:string,keyFile:string,knownHosts:string} $ssh
+     * @param string $localPath
+     * @param string $remotePath
+     * @return bool
+     */
+    private function scpPush(array $ssh, string $localPath, string $remotePath): bool
+    {
+        $cmd = Util::which('scp')
+            . ' -o BatchMode=yes'
+            . ' -o StrictHostKeyChecking=accept-new'
+            . ' -o UserKnownHostsFile=' . escapeshellarg($ssh['knownHosts'])
+            . ' -o ConnectTimeout=10'
+            . ' -i ' . escapeshellarg($ssh['keyFile'])
+            . ' -P ' . escapeshellarg($ssh['port'])
+            . ' ' . escapeshellarg($localPath)
+            . ' ' . escapeshellarg($ssh['login'] . '@' . $ssh['host'] . ':' . $remotePath);
+        $rc = 0;
+        exec($cmd . ' 2>/dev/null', $tmpOut, $rc);
+        return $rc === 0;
+    }
+
+    /**
+     * Launch the remote monitord (idempotent — pgrep gate so we don't spawn duplicates).
+     * monitord on the VPS binds loopback only; it dials NATS + license on
+     * 127.0.0.1:4222/8222 which are mapped back to PBX through the ssh -R tunnels.
+     * Therefore the ssh tunnel MUST be up before this is called.
+     *
+     * @return array{ok:bool,error:string}
+     */
+    public function launchRemoteMonitord(): array
+    {
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return ['ok' => false, 'error' => 'remote ssh params not configured'];
+        }
+        $sshArgs = self::buildSshArgs($ssh);
+        $base = $ssh['base'];
+
+        // pgrep -x matches comm (binary basename), avoiding the self-match trap
+        // that `pgrep -f` falls into when the wrapper command line contains
+        // the monitord string.  Absolute path in `-c` is required: a relative
+        // path makes monitord fall back to defaults and explode with
+        // "fatal Missing work_dir".
+        $remoteCmd = 'pgrep -x ' . escapeshellarg(self::SERVICE_MONITOR) . ' >/dev/null 2>&1 || '
+            . '(cd ' . escapeshellarg($base) . ' && '
+            . 'nohup ' . escapeshellarg("{$base}/bin/" . self::SERVICE_MONITOR)
+            . ' -c ' . escapeshellarg("{$base}/conf/monitord.json")
+            . ' >> ' . escapeshellarg("{$base}/logs/monitord.out") . ' 2>&1 &)';
+
+        $rc = 0;
+        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $tmpOut, $rc);
+        if ($rc !== 0) {
+            return ['ok' => false, 'error' => 'ssh monitord launch failed: rc=' . $rc];
+        }
+        return ['ok' => true, 'error' => ''];
+    }
+
+    /**
+     * Stop the remote monitord (and its supervised messenger daemons) over ssh.
+     * Best-effort — called when offload is being switched off or all services
+     * are de-toggled. Always uses `pkill -x <comm>` (matches binary basename
+     * only) to dodge the self-match trap of `-f`.
+     *
+     * @return void
+     */
+    public function stopRemoteServices(): void
+    {
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return;
+        }
+        $sshArgs = self::buildSshArgs($ssh);
+        $remoteCmd = 'pkill -x ' . escapeshellarg(self::SERVICE_MONITOR) . '; '
+            . 'pkill -x ' . escapeshellarg(self::SERVICE_CHATS) . '; '
+            . 'pkill -x ' . escapeshellarg(self::SERVICE_TELEGRAM) . '; '
+            . 'pkill -x ' . escapeshellarg(self::SERVICE_MAX) . '; '
+            . 'true';
+        $rc = 0;
+        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $tmpOut, $rc);
+    }
+
+    /**
+     * Path to the persistent JSON status file written by WorkerRemoteTunnel.
+     * Lives in spool/ so the web UI can read it.
+     *
+     * @return string
+     */
+    public function getRemoteTunnelStatusFile(): string
+    {
+        return $this->dirs['spoolDir'] . '/remote_tunnel.status';
     }
 
 

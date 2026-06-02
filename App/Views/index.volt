@@ -6,6 +6,8 @@
     <div class="ui top attached tabular menu" id="module-cti-client-tabs">
         <a class="item active" data-tab="settings">{{ t._('mod_cti_tab_Settings') }}</a>
         <a class="item" data-tab="messengers">{{ t._('mod_cti_tab_Messengers') }}</a>
+        <a class="item" data-tab="remote">{{ t._('mod_cti_tab_Remote') }}</a>
+        <a class="item" data-tab="status">{{ t._('mod_cti_tab_Status') }}</a>
         <a class="item" data-tab="debug">{{ t._('mod_cti_tab_debug') }}</a>
     </div>
 
@@ -149,6 +151,126 @@
                 {{ form.render('mt_proxy_secret') }}
             </div>
         </div>
+    </div>
+
+    {# remote messenger server tab #}
+    <div class="ui bottom attached tab segment" data-tab="remote">
+        <div class="ui icon message">
+            <i class="server icon"></i>
+            <div class="content">
+                <div class="header">{{ t._('mod_cti_RemoteHeader') }}</div>
+                <p>{{ t._('mod_cti_RemoteIntro') }}</p>
+            </div>
+        </div>
+
+        <div class="field">
+            <div class="ui segment" id="remote-tunnel-status">
+                <strong>{{ t._('mod_cti_RemoteTunnelStatus') }}:</strong>
+                <span id="remote-tunnel-status-indicator" class="ui label">
+                    <i class="circle icon"></i>
+                    <span id="remote-tunnel-status-text">{{ t._('mod_cti_RemoteTunnelUnknown') }}</span>
+                </span>
+                <span id="remote-tunnel-status-error" class="ui small text" style="margin-left:1em;color:#9f3a38;"></span>
+            </div>
+        </div>
+
+        <h4 class="ui dividing header">{{ t._('mod_cti_RemoteConnectionHeader') }}</h4>
+        <div class="two fields">
+            <div class="field">
+                <label for="remote_host">{{ t._('mod_cti_RemoteHost') }}</label>
+                {{ form.render('remote_host') }}
+            </div>
+            <div class="field">
+                <label for="remote_ssh_port">{{ t._('mod_cti_RemoteSshPort') }}</label>
+                {{ form.render('remote_ssh_port') }}
+            </div>
+        </div>
+        <div class="two fields">
+            <div class="field">
+                <label for="remote_ssh_login">{{ t._('mod_cti_RemoteSshLogin') }}</label>
+                {{ form.render('remote_ssh_login') }}
+            </div>
+            <div class="field">
+                <label for="remote_bin_dir">{{ t._('mod_cti_RemoteBinDir') }}</label>
+                {{ form.render('remote_bin_dir') }}
+            </div>
+        </div>
+        <div class="field">
+            <label for="remote_ssh_key">{{ t._('mod_cti_RemoteSshKey') }}</label>
+            {{ form.render('remote_ssh_key') }}
+            <div class="ui small text" style="color:#666;">{{ t._('mod_cti_RemoteSshKeyHint') }}</div>
+        </div>
+
+        <h4 class="ui dividing header">{{ t._('mod_cti_RemoteServicesHeader') }}</h4>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox">
+                    {{ form.render('remote_whatsapp') }}
+                    <label for="remote_whatsapp">{{ t._('mod_cti_RemoteWhatsApp') }}</label>
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox">
+                    {{ form.render('remote_telegram') }}
+                    <label for="remote_telegram">{{ t._('mod_cti_RemoteTelegram') }}</label>
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox">
+                    {{ form.render('remote_max') }}
+                    <label for="remote_max">{{ t._('mod_cti_RemoteMax') }}</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# services status tab #}
+    <div class="ui bottom attached tab segment" data-tab="status">
+        <h4 class="ui dividing header">{{ t._('mod_cti_StatusHeader') }}</h4>
+        <div id="cti-services-status" class="cti-services-status">
+            <div class="ui basic segment" id="cti-services-status-placeholder">
+                <div class="ui active inline loader"></div>
+                <span>&nbsp;{{ t._('mod_cti_StatusLoading') }}</span>
+            </div>
+        </div>
+        <style>
+            .cti-services-status .cti-svc-row {
+                display: flex;
+                align-items: center;
+                padding: 6px 10px;
+                border-bottom: 1px solid rgba(34,36,38,.08);
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+            .cti-services-status .cti-svc-row:last-child { border-bottom: none; }
+            .cti-services-status .cti-svc-led {
+                display: inline-block;
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                background-color: #767676;
+                box-shadow: 0 0 0 2px rgba(0,0,0,.06) inset;
+                flex-shrink: 0;
+            }
+            .cti-services-status .cti-svc-led.ok      { background-color: #21ba45; }
+            .cti-services-status .cti-svc-led.warn    { background-color: #fbbd08; }
+            .cti-services-status .cti-svc-led.error   { background-color: #db2828; }
+            .cti-services-status .cti-svc-led.unknown { background-color: #767676; }
+            .cti-services-status .cti-svc-name   { font-weight: 600; min-width: 160px; }
+            .cti-services-status .cti-svc-area   { font-family: monospace; color: #888; font-size: 0.9em; }
+            .cti-services-status .cti-svc-meta   { color: #555; font-size: 0.9em; }
+            .cti-services-status .cti-svc-error  { color: #db2828; font-size: 0.9em; }
+            .cti-services-status .cti-svc-group-header {
+                margin-top: 10px;
+                font-weight: 700;
+                padding: 4px 0;
+                color: #333;
+            }
+        </style>
     </div>
 
     {# debug tab #}

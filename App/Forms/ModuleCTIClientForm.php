@@ -26,6 +26,7 @@ use Phalcon\Forms\Element\Password;
 use Phalcon\Forms\Element\Radio;
 use Phalcon\Forms\Element\Select;
 use Phalcon\Forms\Element\Text;
+use Phalcon\Forms\Element\TextArea;
 use Phalcon\Forms\Form;
 
 class ModuleCTIClientForm extends Form
@@ -81,6 +82,23 @@ class ModuleCTIClientForm extends Form
 
         // Set Transliterate caller ID
         $this->addCheckBox('transliterate_caller_id', intval($entity->transliterate_caller_id) === 1);
+
+        // ---- Remote messenger server (Phase 3) ----
+        // Connection params for the VPS that hosts offloaded chatsd/tgd/maxd.
+        $this->add(new Text('remote_host', ['placeholder' => '198.51.100.10']));
+        $this->add(new Numeric('remote_ssh_port'));
+        $this->add(new Text('remote_ssh_login', ['placeholder' => 'root']));
+        $this->add(new TextArea('remote_ssh_key', [
+            'rows' => 6,
+            'placeholder' => "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+        ]));
+        $this->add(new Text('remote_bin_dir', ['placeholder' => '/opt/mikopbx-cti']));
+
+        // Per-service offload toggles. Empty by default — the worker stays idle
+        // until the operator opts in.
+        $this->addCheckBox('remote_whatsapp', intval($entity->remote_whatsapp) === 1);
+        $this->addCheckBox('remote_telegram', intval($entity->remote_telegram) === 1);
+        $this->addCheckBox('remote_max', intval($entity->remote_max) === 1);
     }
 
     /**

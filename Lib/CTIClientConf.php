@@ -181,6 +181,10 @@ class CTIClientConf extends ConfigClass
                 'type'   => WorkerSafeScriptsCore::CHECK_BY_PID_NOT_ALERT,
                 'worker' => WorkerLogRotate::class,
             ],
+            [
+                'type'   => WorkerSafeScriptsCore::CHECK_BY_PID_NOT_ALERT,
+                'worker' => WorkerRemoteTunnel::class,
+            ],
         ];
     }
 
