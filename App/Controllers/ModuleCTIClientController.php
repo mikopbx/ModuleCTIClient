@@ -121,6 +121,11 @@ class ModuleCTIClientController extends BaseController
         if (!empty($settings->mt_proxy_secret)) {
             $settings->mt_proxy_secret = self::SECRET_MASK;
         }
+
+        // Mask the remote VPS SSH private key — never echo it back to the web UI.
+        if (!empty($settings->remote_ssh_key)) {
+            $settings->remote_ssh_key = self::SECRET_MASK;
+        }
     }
 
     /**

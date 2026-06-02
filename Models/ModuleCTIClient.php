@@ -157,6 +157,64 @@ class ModuleCTIClient extends ModulesModelsBase
     public ?string $mt_proxy_secret = '';
 
     /**
+     * @var string|null Run WhatsApp (chatsd) channels on the remote VPS
+     *
+     * @Column(type='string', length=1, nullable=true, default='0')
+     */
+    public ?string $remote_whatsapp = '0';
+
+    /**
+     * @var string|null Run Telegram (tgd) channels on the remote VPS
+     *
+     * @Column(type='string', length=1, nullable=true, default='0')
+     */
+    public ?string $remote_telegram = '0';
+
+    /**
+     * @var string|null Run MAX (maxd) channels on the remote VPS
+     *
+     * @Column(type='string', length=1, nullable=true, default='0')
+     */
+    public ?string $remote_max = '0';
+
+    /**
+     * @var string|null Remote VPS host (IP or FQDN) for messenger offload
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $remote_host = '';
+
+    /**
+     * @var string|null Remote VPS SSH port
+     *
+     * @Column(type='string', nullable=true, default='22')
+     */
+    public ?string $remote_ssh_port = '22';
+
+    /**
+     * @var string|null Remote VPS SSH login
+     *
+     * @Column(type='string', nullable=true, default='root')
+     */
+    public ?string $remote_ssh_login = 'root';
+
+    /**
+     * @var string|null Remote VPS SSH private key.
+     * SECURITY: stored as-is for now; masked in the web UI (see maskSecretFields).
+     * TODO (Phase 3): encrypt at rest (credential-manager AES) before this ships to prod.
+     *
+     * @Column(type='string', nullable=true, default='')
+     */
+    public ?string $remote_ssh_key = '';
+
+    /**
+     * @var string|null Base directory of the module deployment on the remote VPS
+     *
+     * @Column(type='string', nullable=true, default='/opt/mikopbx-cti')
+     */
+    public ?string $remote_bin_dir = '/opt/mikopbx-cti';
+
+    /**
      * Initialize model for module
      * @return void
      */

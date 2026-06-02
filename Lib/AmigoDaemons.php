@@ -226,6 +226,7 @@ class AmigoDaemons extends Injectable
         $this->generateMaxConf();
         $this->generateProxyConf();
         $this->generateMonitordConf();
+        $this->generateRemoteConfFiles();
     }
 
     /**
@@ -304,6 +305,66 @@ class AmigoDaemons extends Injectable
     public static function getNatsHttpPort(): string
     {
         return '8222';
+    }
+
+    /**
+     * Local port that forwards (ssh -L) to the remote monitord's manager.api (8225 on the VPS).
+     * The location-aware local monitord reverse-proxies remote areas here.
+     *
+     * @return string
+     */
+    public static function getRemoteMonitorPort(): string
+    {
+        return '8226';
+    }
+
+    /**
+     * Map of module toggle field => daemon service name used by manager.api (POST /daemons "name").
+     *
+     * @return array<string,string>
+     */
+    private function getRemoteServiceMap(): array
+    {
+        return [
+            'remote_whatsapp' => 'chats',
+            'remote_telegram' => 'tg',
+            'remote_max'      => 'max',
+        ];
+    }
+
+    /**
+     * List of messenger services (manager.api names) that must run on the remote VPS,
+     * derived from the per-service toggles. Empty when remote offload is off/unconfigured.
+     *
+     * @return string[]
+     */
+    public function getRemoteServices(): array
+    {
+        // No remote host configured => everything stays local.
+        if (empty($this->module_settings['remote_host'])) {
+            return [];
+        }
+
+        $services = [];
+        foreach ($this->getRemoteServiceMap() as $toggle => $service) {
+            if (intval($this->module_settings[$toggle] ?? 0) === 1) {
+                $services[] = $service;
+            }
+        }
+
+        return $services;
+    }
+
+    /**
+     * Base directory of the module deployment on the remote VPS.
+     *
+     * @return string
+     */
+    private function getRemoteBaseDir(): string
+    {
+        $dir = trim($this->module_settings['remote_bin_dir'] ?? '');
+
+        return $dir !== '' ? rtrim($dir, '/') : '/opt/mikopbx-cti';
     }
 
 
@@ -761,11 +822,119 @@ class AmigoDaemons extends Injectable
                 ],
             ],
         ];
+
+        // Remote messenger offload: the location-aware monitord forwards channels of the
+        // toggled services to the remote monitord (manager.api) reachable via the ssh -L tunnel.
+        $remoteServices = $this->getRemoteServices();
+        if (!empty($remoteServices)) {
+            $arr_settings['remote_monitor'] = '127.0.0.1:' . self::getRemoteMonitorPort();
+            $arr_settings['remote_services'] = $remoteServices;
+        }
+
         Util::fileWriteContent(
             "{$this->dirs['confDir']}/monitord.json",
             json_encode($arr_settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
         file_put_contents("{$this->dirs['spoolDir']}/auth.hash", 'd41d8cd98f00b204e9800998ecf8427e');
+    }
+
+    /**
+     * Generate configuration files for the remote VPS (monitord + messenger daemons) into a
+     * staging directory. They are rsync'd to the VPS during provisioning (WorkerRemoteTunnel).
+     *
+     * On the VPS: mq.host=127.0.0.1:4222 and the license endpoint 127.0.0.1:8222 both resolve
+     * to MikoPBX through the ssh reverse tunnel (-R 4222 / -R 8222). monitord starts with an
+     * empty daemons list; channels are added dynamically through manager.api.
+     */
+    private function generateRemoteConfFiles(): void
+    {
+        // Stage under conf/ so a straight `rsync remote/conf/ -> {base}/conf/` matches the
+        // remote monitord's settings_dir and the `-c {base}/conf/<name>.json` it launches daemons with.
+        $stageDir = "{$this->dirs['spoolDir']}/remote/conf";
+
+        // Prune previously staged files first, so a de-toggled service (or fully disabled offload)
+        // never leaves a stale config behind for provisioning to push.
+        foreach (['monitord', 'chats', 'tg', 'max'] as $name) {
+            $stale = "{$stageDir}/{$name}.json";
+            if (file_exists($stale)) {
+                unlink($stale);
+            }
+        }
+
+        $remoteServices = $this->getRemoteServices();
+        if (empty($remoteServices)) {
+            return;
+        }
+
+        Util::mwMkdir($stageDir);
+
+        $base = $this->getRemoteBaseDir();
+        $debug = intval($this->module_settings['debug_mode'] ?? 0) === 1;
+        $proxyAddress = $this->getChatsProxyAddress();
+
+        // Remote monitord: binds loopback (reachable only through the ssh tunnel) and supervises
+        // only the messenger daemons it spawns on the VPS (added dynamically via manager.api).
+        $monitord = [
+            'mq' => [
+                'host' => '127.0.0.1',
+                'port' => $this->getNatsPort(),
+            ],
+            'log_level' => $debug ? 6 : 2,
+            'log_path' => "{$base}/logs/monitord",
+            'work_dir' => "{$base}/spool",
+            'binary_dir' => "{$base}/bin",
+            'settings_dir' => "{$base}/conf",
+            'bind_address' => '127.0.0.1',
+            'period' => 30,
+            'daemons' => [],
+        ];
+        Util::fileWriteContent(
+            "{$stageDir}/monitord.json",
+            json_encode($monitord, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+
+        // Per-service messenger configs with VPS paths. Mirror the local generators
+        // (log levels, proxy_address, Telegram mt_proxy) so remote ≠ local connectivity behaviour.
+        $dbDirs = [
+            'chats' => 'db/chats',
+            'tg' => 'db/tg',
+            'max' => 'db/max',
+        ];
+        foreach ($remoteServices as $service) {
+            $logLevel = $debug ? 5 : 2;
+            if ($service === 'tg') {
+                $logLevel = $debug ? -1 : 2;
+            }
+
+            $settings = [
+                'log_level' => $logLevel,
+                'log_path' => "{$base}/logs/{$service}d",
+                'mq' => [
+                    'host' => '127.0.0.1',
+                    'port' => $this->getNatsPort(),
+                ],
+                'database' => [
+                    'path' => "{$base}/{$dbDirs[$service]}",
+                ],
+                'proxy_address' => $proxyAddress,
+            ];
+
+            if ($service === 'tg') {
+                $mtProxyAddress = trim($this->module_settings['mt_proxy_address'] ?? '');
+                $mtProxySecret = trim($this->module_settings['mt_proxy_secret'] ?? '');
+                if ($mtProxyAddress !== '' && $mtProxySecret !== '') {
+                    $settings['mt_proxy'] = [
+                        'address' => $mtProxyAddress,
+                        'secret' => $mtProxySecret,
+                    ];
+                }
+            }
+
+            Util::fileWriteContent(
+                "{$stageDir}/{$service}.json",
+                json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+            );
+        }
     }
 
     /**
