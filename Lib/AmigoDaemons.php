@@ -693,14 +693,49 @@ class AmigoDaemons extends Injectable
     }
 
     /**
-     * Path to the persistent JSON status file written by WorkerRemoteTunnel.
-     * Lives in spool/ so the web UI can read it.
+     * Fetch the in-process ssh tunnel status from the local monitord
+     * (/manager.api/tunnel/status). monitord owns the tunnel since the Go-side
+     * refactor, so this replaces the old WorkerRemoteTunnel status file.
      *
-     * @return string
+     * @return array<string,mixed>|null Decoded "result" object
+     *         ({configured,connected,state,last_ok_ts,last_error,attempts}),
+     *         or null when monitord is unreachable / the response is unusable.
      */
-    public function getRemoteTunnelStatusFile(): string
+    private function getMonitordTunnelStatus(): ?array
     {
-        return $this->dirs['spoolDir'] . '/remote_tunnel.status';
+        $curl = curl_init();
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($curl, CURLOPT_TIMEOUT, 2);
+        curl_setopt($curl, CURLOPT_URL, 'http://127.0.0.1:8225/manager.api/tunnel/status');
+
+        try {
+            $response = curl_exec($curl);
+        } catch (Throwable $e) {
+            $response = false;
+        }
+        curl_close($curl);
+
+        if (!is_string($response) || $response === '') {
+            return null;
+        }
+        $data = json_decode($response, true);
+        if (!is_array($data) || !isset($data['result']) || !is_array($data['result'])) {
+            return null;
+        }
+        return $data['result'];
+    }
+
+    /**
+     * Whether the monitord-owned ssh tunnel is currently connected. Used by the
+     * slim remote worker to gate the remote monitord launch (chatsd on the VPS
+     * FATALs without NATS, which only reaches it through the reverse forward).
+     *
+     * @return bool
+     */
+    public function isRemoteTunnelConnected(): bool
+    {
+        $data = $this->getMonitordTunnelStatus();
+        return $data !== null && !empty($data['connected']);
     }
 
 
@@ -1191,6 +1226,33 @@ class AmigoDaemons extends Injectable
         if (!empty($remoteServices)) {
             $arr_settings['remote_monitor'] = '127.0.0.1:' . self::getRemoteMonitorPort();
             $arr_settings['remote_services'] = $remoteServices;
+
+            // monitord owns the outbound ssh tunnel to the VPS (replacing the
+            // former WorkerRemoteTunnel `ssh -N`). Reverse forwards expose PBX
+            // NATS + license on the VPS loopback; the local forward maps
+            // PBX:<remoteMonitorPort> to the remote monitord's manager.api (8225).
+            // Rendered here so config regeneration always preserves it; the Go
+            // side keeps the connection up with reconnect/keepalive.
+            $ssh = $this->getRemoteSshParams();
+            if ($ssh !== null) {
+                $natsPort = $this->getNatsPort();
+                $natsHttpPort = $this->getNatsHttpPort();
+                $arr_settings['ssh_tunnel'] = [
+                    'host'             => $ssh['host'],
+                    'port'             => $ssh['port'],
+                    'login'            => $ssh['login'],
+                    'key_path'         => $ssh['keyFile'],
+                    'known_hosts_path' => $ssh['knownHosts'],
+                    'keepalive_sec'    => 15,
+                    'forwards'         => [
+                        ['listen_addr' => '127.0.0.1:' . $natsPort, 'target_addr' => '127.0.0.1:' . $natsPort],
+                        ['listen_addr' => '127.0.0.1:' . $natsHttpPort, 'target_addr' => '127.0.0.1:' . $natsHttpPort],
+                    ],
+                    'local_forwards'   => [
+                        ['listen_addr' => '127.0.0.1:' . self::getRemoteMonitorPort(), 'target_addr' => '127.0.0.1:8225'],
+                    ],
+                ];
+            }
         }
 
         Util::fileWriteContent(
@@ -1512,7 +1574,7 @@ class AmigoDaemons extends Injectable
 
     /**
      * Synthetic status row for the remote messenger SSH tunnel, read from the
-     * status file written by WorkerRemoteTunnel.
+     * monitord /manager.api/tunnel/status endpoint (monitord owns the tunnel).
      *
      * Returns null when remote offload is not configured at all — in that case
      * we don't surface the row to keep the UI clean.
@@ -1530,17 +1592,14 @@ class AmigoDaemons extends Injectable
             'state' => 'pending',
         ];
 
-        $path = $this->getRemoteTunnelStatusFile();
-        if (!is_file($path)) {
+        $data = $this->getMonitordTunnelStatus();
+        if ($data === null) {
+            // monitord unreachable (e.g. mid-restart) — keep pending, not red.
             return $row;
         }
-
-        $raw = @file_get_contents($path);
-        if (!is_string($raw) || $raw === '') {
-            return $row;
-        }
-        $data = json_decode($raw, true);
-        if (!is_array($data)) {
+        // Tunnel block not yet in monitord's config (config still regenerating
+        // after a toggle change) — pending rather than error.
+        if (empty($data['configured'])) {
             return $row;
         }
 
@@ -1556,9 +1615,6 @@ class AmigoDaemons extends Injectable
                     $row['uptime'] = $this->formatUptime($elapsed);
                 }
             }
-        } elseif (strpos($lastError, 'offload disabled') !== false) {
-            // Operator-disabled: report as pending so the row does not look red.
-            $row['state'] = 'pending';
         } else {
             $row['state'] = 'error';
         }
