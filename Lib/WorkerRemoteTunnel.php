@@ -72,6 +72,12 @@ class WorkerRemoteTunnel extends WorkerBase
     private const TUNNEL_WAIT_SECONDS = 40;
 
     /**
+     * How often (seconds) the keepalive loop re-pushes the staged remote
+     * configs, so a VPS monitord that came up on a stale config self-heals.
+     */
+    private const REPROVISION_INTERVAL_SECONDS = 30;
+
+    /**
      * Hard ceiling on the worker's lifetime. The supervisor (WorkerSafeScripts)
      * respawns workers whose PID file goes away; periodically returning lets it
      * pick up code/config changes that we may have missed via signals.
@@ -86,6 +92,12 @@ class WorkerRemoteTunnel extends WorkerBase
 
         $deadline = time() + self::MAX_LIFETIME_SECONDS;
         $backoff = self::BACKOFF_MIN_SECONDS;
+        // Upgrade hygiene: a pre-refactor `ssh -N` (run by the old worker that
+        // owned the tunnel) can survive the module upgrade as an orphan and
+        // hold the VPS-side reverse-forward ports, so monitord's own tunnel
+        // gets "tcpip-forward request denied by peer". Kill any such stale
+        // client once per worker lifetime before doing anything else.
+        $cleanedStaleSsh = false;
 
         while (time() < $deadline && !$this->needRestart) {
             // Re-read settings every iteration so the operator can toggle
@@ -99,6 +111,11 @@ class WorkerRemoteTunnel extends WorkerBase
                 // respawn us immediately for nothing) — just idle.
                 $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
                 continue;
+            }
+
+            if (!$cleanedStaleSsh) {
+                $this->killStaleSshTunnel($ssh['host']);
+                $cleanedStaleSsh = true;
             }
 
             // 1. Provisioning — idempotent. Failure usually means the VPS is
@@ -129,6 +146,7 @@ class WorkerRemoteTunnel extends WorkerBase
             // 4. Keepalive: while offload stays enabled and the tunnel stays up,
             //    re-launch the remote monitord periodically (recovers a crash).
             //    On de-toggle, tear the remote stack down and restart the loop.
+            $lastProvision = time();
             while (!$this->needRestart && time() < $deadline) {
                 $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
 
@@ -146,9 +164,36 @@ class WorkerRemoteTunnel extends WorkerBase
                     break;
                 }
 
+                // Periodically re-provision (idempotent): re-pushes the staged
+                // configs so a VPS monitord that came up on a stale/default
+                // config (e.g. it wrote its own template before the conf was
+                // delivered) self-heals instead of crash-looping forever. The
+                // bare launchRemoteMonitord() below is pgrep-gated and would
+                // otherwise keep relaunching the same broken config.
+                if (time() - $lastProvision >= self::REPROVISION_INTERVAL_SECONDS) {
+                    $ctiCheck->provisionRemote();
+                    $lastProvision = time();
+                }
+
                 $ctiCheck->launchRemoteMonitord();
             }
         }
+    }
+
+    /**
+     * Kill a stale pre-upgrade `ssh -N` tunnel client to the VPS, if one
+     * survived the module upgrade. It would hold the VPS reverse-forward ports
+     * and make monitord's own tunnel fail with "tcpip-forward request denied".
+     * The `[s]sh` bracket keeps the pattern from matching pkill's own command
+     * line (self-kill trap); the new design runs no `ssh -N` of its own.
+     */
+    private function killStaleSshTunnel(string $host): void
+    {
+        if ($host === '') {
+            return;
+        }
+        $pattern = '[s]sh -N.*' . $host;
+        exec('pkill -f ' . escapeshellarg($pattern) . ' 2>/dev/null');
     }
 
     /**
