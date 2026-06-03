@@ -1778,11 +1778,16 @@ class AmigoDaemons extends Injectable
             }
         }
 
-        if ($rc === 0 && $arch !== '' && $rwOk) {
+        if ($rc === 0 && $arch === 'x86_64' && $rwOk) {
             return ['ok' => true, 'arch' => $arch, 'rwOk' => true, 'base' => $base, 'error' => ''];
         }
         $err = $diag !== [] ? implode('; ', $diag) : ('ssh exit ' . $rc);
-        if ($arch !== '' && !$rwOk) {
+        // The current build only ships x86_64 binaries — reject any other arch
+        // here so the UI probe matches provisionRemote() instead of reporting OK
+        // and failing later during provisioning.
+        if ($rc === 0 && $arch !== '' && $arch !== 'x86_64') {
+            $err = 'unsupported remote arch: ' . $arch;
+        } elseif ($arch !== '' && !$rwOk) {
             $err = 'no write access to ' . $base . ($diag !== [] ? ' (' . implode('; ', $diag) . ')' : '');
         }
         return [

@@ -146,8 +146,15 @@ const moduleCTIClientConnectionCheckWorker = {
 						} else {
 							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CWait');
 						}
-					} else if (hasStarting && moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
-						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
+					} else if (hasStarting) {
+						// Still starting: show progress until we give up after 10
+						// failed polls, then treat the stuck daemon as an error
+						// instead of falsely reporting it as Connected.
+						if (moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
+							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
+						} else {
+							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
+						}
 					} else if (hasError) {
 						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
 					} else {

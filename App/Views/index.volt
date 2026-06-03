@@ -236,7 +236,7 @@
     </div>
 
     {# services status tab #}
-    <div class="ui bottom attached tab segment" data-tab="status">
+    <div class="ui bottom attached tab segment active" data-tab="status">
         <h4 class="ui dividing header">{{ t._('mod_cti_StatusHeader') }}</h4>
         <div id="cti-services-status" class="cti-services-status">
             <div id="cti-services-status-rows"></div>
