@@ -107,13 +107,25 @@ class ModuleCTIClientController extends BaseController
     private function maskSecretFields(ModuleCTIClient $settings): void
     {
         // Mask password inside proxy URL: socks5://user:password@host:port -> socks5://user:******@host:port
-        if (!empty($settings->chats_proxy_address)) {
-            $parsed = parse_url($settings->chats_proxy_address);
+        // Covers the legacy single field plus the per-messenger proxy fields —
+        // each accepts a user:password URL and would otherwise echo the
+        // password back to the web form in clear text.
+        $proxyFields = [
+            'chats_proxy_address',
+            'whatsapp_proxy_address',
+            'telegram_proxy_address',
+            'max_proxy_address',
+        ];
+        foreach ($proxyFields as $field) {
+            if (empty($settings->$field)) {
+                continue;
+            }
+            $parsed = parse_url($settings->$field);
             if (isset($parsed['pass'])) {
-                $settings->chats_proxy_address = str_replace(
+                $settings->$field = str_replace(
                     ':' . $parsed['pass'] . '@',
                     ':' . self::SECRET_MASK . '@',
-                    $settings->chats_proxy_address
+                    $settings->$field
                 );
             }
         }

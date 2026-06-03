@@ -590,9 +590,15 @@ class AmigoDaemons extends Injectable
 
         // 5. Prune stale conf files on the VPS that are no longer staged
         //    (de-toggling a service must not leave its old config behind).
+        //    Keep names are BARE (not escapeshellarg'd): the `case` below
+        //    matches them against the bare `$f` from `for f in *.json`, so
+        //    quoting them ('monitord.json') would never match and the prune
+        //    would delete every just-uploaded config. The whole command is
+        //    escaped once via escapeshellarg($pruneCmd) below, and the names
+        //    are controlled basenames (monitord/chats/tg/max.json).
         $keep = [];
         foreach ($stagedFiles as $name) {
-            $keep[] = escapeshellarg($name);
+            $keep[] = $name;
         }
         $keepList = implode(' ', $keep);
         $pruneCmd = 'cd ' . escapeshellarg("{$base}/conf") . ' && '
