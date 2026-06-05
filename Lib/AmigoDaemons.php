@@ -57,6 +57,29 @@ class AmigoDaemons extends Injectable
      */
     private const WARMUP_SECONDS = 60;
 
+    /**
+     * Manager.api service names of the messenger daemons that can be offloaded
+     * to the VPS. The toggle map (getRemoteServiceMap) keys to these names.
+     */
+    private const MIGRATABLE_SERVICES = ['chats', 'tg', 'max'];
+
+    /**
+     * How many consecutive STEP 1/STEP 2 failures (VPS/tunnel down) before a
+     * migration is PARKED — the service is restored to its source side and not
+     * retried until the operator re-flips the toggle (§4 FAIL-PARK).
+     */
+    private const MIGRATION_MAX_FAILS = 3;
+
+    /**
+     * How many consecutive STEP 3b confirmation ticks (Go-commit + receiver
+     * health) may fail before the migration ROLLS BACK to source. The worker
+     * advances one tick per POLL_INTERVAL (~5s) and receiverHealthy is now
+     * single-shot (§3.6 bounded work), so this is the resume-phase timeout
+     * budget in ticks — larger than MIGRATION_MAX_FAILS because a cross-host
+     * receiver (and a qrcode/2FA re-auth) legitimately takes longer to surface.
+     */
+    private const MIGRATION_MAX_CONFIRM = 12;
+
     public array $dirs;
     private array $module_settings = [];
     private string $moduleUniqueID = 'ModuleCTIClient';
@@ -364,6 +387,345 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Absolute path to the per-area migration cursor file (§3.1, R6).
+     *
+     * @return string
+     */
+    private function getRemoteStatePath(): string
+    {
+        return $this->dirs['spoolDir'] . '/remote_state.json';
+    }
+
+    /**
+     * Absolute path to Go's per-area current-location truth (CC2: PHP READS,
+     * never WRITES it). monitord renders this under its work_dir, which the
+     * local generateMonitordConf() sets to spoolDir.
+     *
+     * @return string
+     */
+    private function getCustomConfigPath(): string
+    {
+        return $this->dirs['spoolDir'] . '/custom_config.json';
+    }
+
+    /**
+     * READ-ONLY inventory of where each area of a service currently runs (R6,
+     * CC2). Parses Go's custom_config.json and returns area => Location, where
+     * Location is "local" or "remote". Reading does NOT violate CC2 — only
+     * writing does.
+     *
+     * The service of a daemon stub is read from its Subject
+     * ("daemon.<svc>.<area>.ping") which is exactly what Go stamps; the area is
+     * a dotless UUID so splitting on '.' is unambiguous.
+     *
+     * @param string $svc manager.api service name (chats|tg|max)
+     * @return array<string,string> area => "local"|"remote"
+     */
+    public function readCustomConfigAreas(string $svc): array
+    {
+        $path = $this->getCustomConfigPath();
+        if (!file_exists($path)) {
+            return [];
+        }
+        $raw = @file_get_contents($path);
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $data = json_decode($raw, true);
+        if (!is_array($data) || !isset($data['custom_daemons']) || !is_array($data['custom_daemons'])) {
+            return [];
+        }
+
+        $areas = [];
+        foreach ($data['custom_daemons'] as $d) {
+            if (!is_array($d)) {
+                continue;
+            }
+            $area = (string)($d['area'] ?? '');
+            if ($area === '') {
+                continue;
+            }
+            if ($this->serviceOfDaemon($d) !== $svc) {
+                continue;
+            }
+            $location = (string)($d['location'] ?? '');
+            $areas[$area] = ($location === 'remote') ? 'remote' : 'local';
+        }
+        return $areas;
+    }
+
+    /**
+     * Derive the manager.api service name (chats|tg|max) of a custom_config
+     * daemon entry. Prefer the Subject ("daemon.<svc>.<area>.ping"); fall back
+     * to the binary basename of Path minus the trailing "d".
+     *
+     * @param array<string,mixed> $d
+     * @return string
+     */
+    private function serviceOfDaemon(array $d): string
+    {
+        $subject = (string)($d['subject'] ?? '');
+        if ($subject !== '') {
+            $parts = explode('.', $subject);
+            // daemon.<svc>.<area>.ping
+            if (count($parts) >= 2 && $parts[0] === 'daemon') {
+                return $parts[1];
+            }
+        }
+        $path = (string)($d['path'] ?? '');
+        if ($path !== '') {
+            $base = basename($path);
+            if (substr($base, -1) === 'd') {
+                return substr($base, 0, -1);
+            }
+            return $base;
+        }
+        return '';
+    }
+
+    /**
+     * Default per-service state record used when seeding / normalizing.
+     *
+     * @return array<string,mixed>
+     */
+    private function defaultServiceState(): array
+    {
+        return [
+            'migrating'  => false,
+            'resuming'   => false,
+            'parked'     => false,
+            'fail_count' => 0,
+            'last_error' => '',
+            'areas'      => [],
+        ];
+    }
+
+    /**
+     * ONE-TIME discovery (§3.1, R6): if remote_state.json is absent, seed each
+     * area's `side` from custom_config.json's Location (READ-ONLY). Never
+     * overwrite a non-empty existing file — that would reset an in-flight area.
+     * Called once at worker start.
+     *
+     * @return void
+     */
+    public function seedRemoteState(): void
+    {
+        $path = $this->getRemoteStatePath();
+        if (file_exists($path)) {
+            return; // already seeded — never clobber an in-flight cursor
+        }
+
+        $state = [];
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            $record = $this->defaultServiceState();
+            foreach ($this->readCustomConfigAreas($svc) as $area => $location) {
+                $record['areas'][$area] = [
+                    'side'         => ($location === 'remote') ? 'remote' : 'local',
+                    'last_sync_ts' => 0,
+                    'health'       => 'unknown',
+                ];
+            }
+            $state[$svc] = $record;
+        }
+
+        $this->writeRemoteState($state);
+    }
+
+    /**
+     * Decode remote_state.json. If absent, seed it first, then read. Always
+     * returns a normalized per-service map for the migratable services.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    public function readRemoteState(): array
+    {
+        $path = $this->getRemoteStatePath();
+        if (!file_exists($path)) {
+            $this->seedRemoteState();
+        }
+
+        $state = [];
+        $raw = @file_get_contents($path);
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $state = $decoded;
+            }
+        }
+
+        // Normalize: guarantee every migratable service + every key is present.
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            $record = isset($state[$svc]) && is_array($state[$svc]) ? $state[$svc] : [];
+            $record += $this->defaultServiceState();
+            if (!isset($record['areas']) || !is_array($record['areas'])) {
+                $record['areas'] = [];
+            }
+            $state[$svc] = $record;
+        }
+        return $state;
+    }
+
+    /**
+     * Write remote_state.json with flock + atomic temp+rename (§3.1, R10/F6).
+     * The single serialized WorkerRemoteTunnel is the only writer; the lock
+     * guards against a stray second worker spawn.
+     *
+     * F6: fsync() landed in PHP 8.1 but composer allows 7.4, so guard with
+     * function_exists() and fall back to fflush() on 7.4.
+     *
+     * @param array<string,mixed> $state
+     * @return void
+     */
+    public function writeRemoteState(array $state): void
+    {
+        $path = $this->getRemoteStatePath();
+        $lockPath = $path . '.lock';
+
+        $lock = @fopen($lockPath, 'c');
+        if ($lock !== false) {
+            @flock($lock, LOCK_EX);
+            @chmod($lockPath, 0600);
+        }
+
+        $json = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            $json = '{}';
+        }
+
+        $tmp = $path . '.tmp';
+        $fp = @fopen($tmp, 'wb');
+        if ($fp !== false) {
+            fwrite($fp, $json);
+            $this->fsyncOrFlush($fp);
+            fclose($fp);
+            @chmod($tmp, 0600);
+            @rename($tmp, $path);
+            @chmod($path, 0600);
+        }
+
+        if ($lock !== false) {
+            @flock($lock, LOCK_UN);
+            @fclose($lock);
+        }
+    }
+
+    /**
+     * F6 compat helper: fsync the handle on PHP 8.1+, else fflush (7.4). On 7.4
+     * fflush pushes userland buffers to the OS so rename ordering is preserved;
+     * full power-loss durability is 8.1+ only — an accepted downgrade.
+     *
+     * @param resource $fp
+     * @return void
+     */
+    private function fsyncOrFlush($fp): void
+    {
+        if (function_exists('fsync')) {
+            @fsync($fp);
+        } else {
+            @fflush($fp);
+        }
+    }
+
+    /**
+     * Clear `parked`/`fail_count`/`last_error` for the given manager.api
+     * services so the worker resumes a previously parked migration (§3.7, F1).
+     * Called from modelsEventChangeData on a toggle re-trigger.
+     *
+     * @param string[] $svcs manager.api service names (chats|tg|max)
+     * @return void
+     */
+    public function clearParkedForServices(array $svcs): void
+    {
+        if (empty($svcs)) {
+            return;
+        }
+        $state = $this->readRemoteState();
+        $touched = false;
+        foreach ($svcs as $svc) {
+            if (!isset($state[$svc])) {
+                continue;
+            }
+            if (!empty($state[$svc]['parked']) || (int)($state[$svc]['fail_count'] ?? 0) > 0
+                || (string)($state[$svc]['last_error'] ?? '') !== '') {
+                $state[$svc]['parked'] = false;
+                $state[$svc]['fail_count'] = 0;
+                $state[$svc]['last_error'] = '';
+                $touched = true;
+            }
+        }
+        if ($touched) {
+            $this->writeRemoteState($state);
+        }
+    }
+
+    /**
+     * Services that currently have >=1 area whose session DB is on the VPS
+     * RIGHT NOW (per-area side==remote, cross-checked against custom_config).
+     * This is what `remote_services` renders to for the idle/parked case (§3.2,
+     * R5). Mixed services legally appear here while still having local areas.
+     *
+     * @return string[]
+     */
+    public function getRoutedRemoteServices(): array
+    {
+        // custom_config.json is Go's authoritative routing truth (CC2); use it
+        // directly. We deliberately do NOT OR-in the remote_state cursor: during
+        // a resume the cursor side is still `src` until the 3b commit (F2), so a
+        // cursor fallback can never help the resume case, and OR-ing a stale
+        // post-commit cursor would stall the remote->local drain (the area would
+        // be counted remote after Go already made it local, keeping infra up).
+        $routed = [];
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            foreach ($this->readCustomConfigAreas($svc) as $location) {
+                if ($location === 'remote') {
+                    $routed[] = $svc;
+                    break;
+                }
+            }
+        }
+        return $routed;
+    }
+
+    /**
+     * Services for which the remote infrastructure (ssh_tunnel, remote_monitor,
+     * staged VPS configs, worker liveness) must stay alive: ANY service with
+     * remote presence (>=1 remote area) OR mid-migration (push OR pull) (§3.3,
+     * R5/F5). SUPERSET of getRoutedRemoteServices.
+     *
+     * @return string[]
+     */
+    public function getInfraServices(): array
+    {
+        $state = $this->readRemoteState();
+        $routed = $this->getRoutedRemoteServices();
+        $infra = [];
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            $needed = in_array($svc, $routed, true);
+            if (!$needed && !empty($state[$svc]['migrating'])) {
+                $needed = true; // mid-migration (push or pull) keeps infra up
+            }
+            if ($needed) {
+                $infra[] = $svc;
+            }
+        }
+        return $infra;
+    }
+
+    /**
+     * Whether the remote infrastructure must be alive at all (R5). True when
+     * any service has remote presence OR is migrating.
+     *
+     * @return bool
+     */
+    public function isInfraNeeded(): bool
+    {
+        if (empty($this->module_settings['remote_host'])) {
+            return false;
+        }
+        return !empty($this->getInfraServices());
+    }
+
+    /**
      * Base directory of the module deployment on the remote VPS.
      *
      * @return string
@@ -489,7 +851,11 @@ class AmigoDaemons extends Injectable
      */
     public function provisionRemote(): array
     {
-        $services = $this->getRemoteServices();
+        // F5 (§3.3): key off infra-needed services, NOT the live toggle. During
+        // a remote->local drain after the last toggle is off, getRemoteServices()
+        // is empty but the VPS receiver still needs its binary/config until the
+        // last area is pulled back. Only tear down when infra is empty.
+        $services = $this->getInfraServices();
         if (empty($services)) {
             return ['ok' => false, 'error' => 'remote offload disabled'];
         }
@@ -636,6 +1002,1026 @@ class AmigoDaemons extends Injectable
         $rc = 0;
         exec($cmd . ' 2>/dev/null', $tmpOut, $rc);
         return $rc === 0;
+    }
+
+    /**
+     * In-place reconcile (§3.5): regenerate monitord.json with the new
+     * suppressed/remote_services, restage + push VPS configs, then fire the
+     * local monitord's /reconcile so Go's doReconcile relocates per area.
+     * NEVER bounces gnatsd/amid/crmd — the in-place alternative to
+     * startAllServices(true). Used at every migration step that changes
+     * suppressed or area side.
+     *
+     * @return bool true if the /reconcile POST was accepted (2xx).
+     */
+    public function applyMonitordConfigAndReconcile(): bool
+    {
+        $this->generateMonitordConf();
+        $this->generateRemoteConfFiles();
+        // Best-effort push; needs the tunnel up. A failure here just means the
+        // VPS receiver lags — the worker re-drives idempotently next tick.
+        $this->provisionRemote();
+
+        $curl = curl_init();
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($curl, CURLOPT_TIMEOUT, 2);
+        curl_setopt($curl, CURLOPT_POST, true);
+        curl_setopt($curl, CURLOPT_POSTFIELDS, '');
+        curl_setopt($curl, CURLOPT_URL, 'http://127.0.0.1:8225/manager.api/reconcile');
+
+        $ok = false;
+        try {
+            $response = curl_exec($curl);
+            $code = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
+            $ok = ($response !== false && $code >= 200 && $code < 300);
+        } catch (Throwable $e) {
+            $ok = false;
+        }
+        curl_close($curl);
+        return $ok;
+    }
+
+    /**
+     * Copy the session DBs of the given areas LOCAL -> VPS, PER AREA (§3.4,
+     * R6/R10). Only the {area}-* files of each area move (areas already on the
+     * desired side are never clobbered). Both ends' exit codes are captured and
+     * a sha256 manifest is verified on the receiver; the receiver writes into a
+     * temp dir and atomically renames into place; the SOURCE files are kept
+     * intact as rollback material.
+     *
+     * @param string   $svc   manager.api service name (chats|tg|max)
+     * @param string[] $areas areas whose current side==local but desired==remote
+     * @return array{ok:bool,error:string}
+     */
+    public function migrateAreasToRemote(string $svc, array $areas): array
+    {
+        if (empty($areas)) {
+            return ['ok' => true, 'error' => ''];
+        }
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return ['ok' => false, 'error' => 'remote ssh params not configured'];
+        }
+        $sshArgs = self::buildSshArgs($ssh);
+        $base = $ssh['base'];
+        $srcDir = $this->dirs['moduleDir'] . '/db/' . $svc;
+        $dstDir = $base . '/db/' . $svc;
+
+        foreach ($areas as $area) {
+            $files = $this->localAreaFiles($srcDir, $area);
+            if (empty($files)) {
+                // Nothing to copy for this area on the source side; treat as a
+                // no-op success (the receiver will start a fresh session).
+                continue;
+            }
+
+            $manifest = $this->buildSha256Manifest($srcDir, $files);
+            if ($manifest === null) {
+                return ['ok' => false, 'error' => "manifest build failed for {$svc}/{$area}"];
+            }
+
+            $tmp = $base . '/db/.' . $svc . '.' . $area . '.migrate.' . bin2hex(random_bytes(4));
+
+            // 1. Make the receiver temp dir.
+            $rc = 0;
+            exec($sshArgs . ' ' . escapeshellarg('mkdir -p ' . escapeshellarg($tmp))
+                . ' 2>/dev/null', $o1, $rc);
+            if ($rc !== 0) {
+                return ['ok' => false, 'error' => "ssh mkdir tmp failed for {$svc}/{$area}: rc={$rc}"];
+            }
+
+            // 2. tar a FILE LIST (only this area), capture the LOCAL tar rc via
+            //    proc_open, pipe into a remote `tar -x`.
+            $remoteExtract = $sshArgs . ' ' . escapeshellarg('tar -C ' . escapeshellarg($tmp) . ' -xf -');
+            $localTar = Util::which('tar') . ' -C ' . escapeshellarg($srcDir) . ' -cf - '
+                . $this->shellJoin($files);
+            $tarRc = $this->runPipedCommand($localTar . ' | ' . $remoteExtract);
+            if ($tarRc !== 0) {
+                $this->sshRemoveDir($sshArgs, $tmp);
+                return ['ok' => false, 'error' => "tar local->remote failed for {$svc}/{$area}: rc={$tarRc}"];
+            }
+
+            // 3. Verify the manifest on the receiver (catches a truncated
+            //    archive that tar -x still returns 0 for; pipefail is not
+            //    portable).
+            if (!$this->verifyRemoteManifest($sshArgs, $tmp, $manifest)) {
+                $this->sshRemoveDir($sshArgs, $tmp);
+                return ['ok' => false, 'error' => "manifest mismatch for {$svc}/{$area}"];
+            }
+
+            // 4. Move only this area's files into place atomically, keep prior
+            //    copies as .old.<ts>; rmdir the temp; fsync the dir. Source kept.
+            if (!$this->commitRemoteAreaFiles($sshArgs, $tmp, $dstDir, $area)) {
+                $this->sshRemoveDir($sshArgs, $tmp);
+                return ['ok' => false, 'error' => "remote commit failed for {$svc}/{$area}"];
+            }
+        }
+
+        return ['ok' => true, 'error' => ''];
+    }
+
+    /**
+     * Copy the session DBs of the given areas VPS -> LOCAL, PER AREA (§3.4,
+     * R6/R10) — the mirror image of migrateAreasToRemote. Remote `tar` is piped
+     * into a local `tar -x` in a local temp dir; the manifest is built on the
+     * VPS and verified locally; only {area}-* files move into the local db dir
+     * with .old backups; the local dir is fsynced. The VPS source is kept.
+     *
+     * @param string   $svc
+     * @param string[] $areas areas whose current side==remote but desired==local
+     * @return array{ok:bool,error:string}
+     */
+    public function migrateAreasToLocal(string $svc, array $areas): array
+    {
+        if (empty($areas)) {
+            return ['ok' => true, 'error' => ''];
+        }
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return ['ok' => false, 'error' => 'remote ssh params not configured'];
+        }
+        $sshArgs = self::buildSshArgs($ssh);
+        $base = $ssh['base'];
+        $srcDir = $base . '/db/' . $svc;
+        $dstDir = $this->dirs['moduleDir'] . '/db/' . $svc;
+        Util::mwMkdir($dstDir);
+
+        foreach ($areas as $area) {
+            // 1. Build the manifest on the VPS for this area's files. Empty =>
+            //    nothing to pull (fresh remote session) — no-op success.
+            $remoteManifest = $this->buildRemoteSha256Manifest($sshArgs, $srcDir, $area);
+            if ($remoteManifest === null) {
+                return ['ok' => false, 'error' => "remote manifest build failed for {$svc}/{$area}"];
+            }
+            if (empty($remoteManifest)) {
+                continue;
+            }
+
+            $localTmp = $dstDir . '/.' . $area . '.migrate.' . bin2hex(random_bytes(4));
+            if (!Util::mwMkdir($localTmp)) {
+                return ['ok' => false, 'error' => "local mkdir tmp failed for {$svc}/{$area}"];
+            }
+
+            // 2. remote tar -c (this area only) piped into a local tar -x.
+            $remoteTar = $sshArgs . ' ' . escapeshellarg(
+                'tar -C ' . escapeshellarg($srcDir) . ' -cf - ' . escapeshellarg($area) . '-*'
+            );
+            $localExtract = Util::which('tar') . ' -C ' . escapeshellarg($localTmp) . ' -xf -';
+            $tarRc = $this->runPipedCommand($remoteTar . ' | ' . $localExtract);
+            if ($tarRc !== 0) {
+                $this->localRemoveDir($localTmp);
+                return ['ok' => false, 'error' => "tar remote->local failed for {$svc}/{$area}: rc={$tarRc}"];
+            }
+
+            // 3. Verify the manifest locally.
+            if (!$this->verifyLocalManifest($localTmp, $remoteManifest)) {
+                $this->localRemoveDir($localTmp);
+                return ['ok' => false, 'error' => "manifest mismatch for {$svc}/{$area}"];
+            }
+
+            // 4. Move only this area's files into the local db dir with .old
+            //    backups; fsync the dir; rmdir the temp. The VPS source kept.
+            if (!$this->commitLocalAreaFiles($localTmp, $dstDir, $area)) {
+                $this->localRemoveDir($localTmp);
+                return ['ok' => false, 'error' => "local commit failed for {$svc}/{$area}"];
+            }
+            $this->localRemoveDir($localTmp);
+        }
+
+        return ['ok' => true, 'error' => ''];
+    }
+
+    /**
+     * List the basenames of {area}-* files under a local directory.
+     *
+     * @param string $dir
+     * @param string $area
+     * @return string[]
+     */
+    private function localAreaFiles(string $dir, string $area): array
+    {
+        $files = [];
+        foreach (glob($dir . '/' . $area . '-*') ?: [] as $path) {
+            if (is_file($path)) {
+                $files[] = basename($path);
+            }
+        }
+        return $files;
+    }
+
+    /**
+     * Build a "sha256  name" manifest (one line per file) for the given local
+     * basenames inside $dir, in the `sha256sum -c` text format. Returns null on
+     * a read error.
+     *
+     * @param string   $dir
+     * @param string[] $files basenames
+     * @return string|null
+     */
+    private function buildSha256Manifest(string $dir, array $files): ?string
+    {
+        $lines = [];
+        foreach ($files as $name) {
+            $hash = @hash_file('sha256', $dir . '/' . $name);
+            if ($hash === false) {
+                return null;
+            }
+            $lines[] = $hash . '  ' . $name;
+        }
+        return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * Build a `sha256sum`-format manifest on the VPS for {area}-* files in
+     * $remoteDir. Returns the manifest text (possibly empty when no files),
+     * or null on ssh failure.
+     *
+     * @param string $sshArgs
+     * @param string $remoteDir
+     * @param string $area
+     * @return string|null
+     */
+    private function buildRemoteSha256Manifest(string $sshArgs, string $remoteDir, string $area): ?string
+    {
+        // List then hash; the `2>/dev/null || true` keeps a no-match glob from
+        // failing the command. sha256sum prints "hash  name".
+        $remoteCmd = 'cd ' . escapeshellarg($remoteDir) . ' 2>/dev/null && '
+            . 'set -- ' . escapeshellarg($area) . '-*; '
+            . 'if [ -e "$1" ]; then sha256sum ' . escapeshellarg($area) . '-* 2>/dev/null; fi';
+        $rc = 0;
+        $out = [];
+        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $out, $rc);
+        if ($rc !== 0) {
+            return null;
+        }
+        $lines = [];
+        foreach ($out as $line) {
+            $line = rtrim($line);
+            if ($line === '') {
+                continue;
+            }
+            // Normalize to basenames only (sha256sum already prints basenames
+            // since we cd'd into the dir).
+            $lines[] = $line;
+        }
+        if (empty($lines)) {
+            return '';
+        }
+        return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * Verify a manifest against files inside a VPS temp dir via
+     * `cd {tmp} && sha256sum -c`. Returns true only on a clean check.
+     *
+     * @param string $sshArgs
+     * @param string $tmp
+     * @param string $manifest "hash  name" lines
+     * @return bool
+     */
+    private function verifyRemoteManifest(string $sshArgs, string $tmp, string $manifest): bool
+    {
+        // Ship the manifest over stdin to avoid quoting hazards, then check it.
+        $remoteCheck = $sshArgs . ' ' . escapeshellarg(
+            'cd ' . escapeshellarg($tmp) . ' && cat > .manifest && '
+            . 'sha256sum -c .manifest >/dev/null 2>&1; rc=$?; rm -f .manifest; exit $rc'
+        );
+        $rc = $this->runPipedCommand('printf %s ' . escapeshellarg($manifest) . ' | ' . $remoteCheck);
+        return $rc === 0;
+    }
+
+    /**
+     * Verify a manifest against files inside a LOCAL temp dir using PHP-side
+     * sha256 (no external sha256sum dependency on the PBX side).
+     *
+     * @param string $tmp
+     * @param string $manifest "hash  name" lines
+     * @return bool
+     */
+    private function verifyLocalManifest(string $tmp, string $manifest): bool
+    {
+        $lines = preg_split('/\r?\n/', trim($manifest)) ?: [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            // "hash  name" — split on the first run of spaces.
+            $parts = preg_split('/\s+/', $line, 2);
+            if ($parts === false || count($parts) < 2) {
+                return false;
+            }
+            $hash = $parts[0];
+            $name = ltrim($parts[1], '*'); // sha256sum binary-mode marker
+            $actual = @hash_file('sha256', $tmp . '/' . $name);
+            if ($actual === false || !hash_equals($hash, $actual)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Atomically move {area}-* files from a VPS temp dir into the VPS dst dir,
+     * backing up any prior copy as .old.<ts>; rmdir the temp; fsync the dir.
+     *
+     * @param string $sshArgs
+     * @param string $tmp
+     * @param string $dstDir
+     * @param string $area
+     * @return bool
+     */
+    private function commitRemoteAreaFiles(string $sshArgs, string $tmp, string $dstDir, string $area): bool
+    {
+        $ts = time();
+        $remoteCmd = 'set -e; '
+            . 'mkdir -p ' . escapeshellarg($dstDir) . '; '
+            . 'for f in ' . escapeshellarg($tmp) . '/' . escapeshellarg($area) . '-*; do '
+            . '  [ -e "$f" ] || continue; '
+            . '  b=$(basename "$f"); '
+            . '  if [ -e ' . escapeshellarg($dstDir) . '/"$b" ]; then '
+            . '    mv -f ' . escapeshellarg($dstDir) . '/"$b" ' . escapeshellarg($dstDir) . '/"$b".old.' . $ts . '; '
+            . '  fi; '
+            . '  mv -f "$f" ' . escapeshellarg($dstDir) . '/"$b"; '
+            . 'done; '
+            . 'rmdir ' . escapeshellarg($tmp) . ' 2>/dev/null || true; '
+            . 'sync';
+        $rc = 0;
+        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $o, $rc);
+        return $rc === 0;
+    }
+
+    /**
+     * Atomically move {area}-* files from a local temp dir into the local dst
+     * dir, backing up any prior copy as .old.<ts>; fsync the dir.
+     *
+     * @param string $tmp
+     * @param string $dstDir
+     * @param string $area
+     * @return bool
+     */
+    private function commitLocalAreaFiles(string $tmp, string $dstDir, string $area): bool
+    {
+        $ts = time();
+        foreach (glob($tmp . '/' . $area . '-*') ?: [] as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+            $base = basename($path);
+            $target = $dstDir . '/' . $base;
+            if (file_exists($target)) {
+                if (!@rename($target, $target . '.old.' . $ts)) {
+                    return false;
+                }
+            }
+            if (!@rename($path, $target)) {
+                return false;
+            }
+        }
+        // fsync the destination directory so the renames are durable.
+        $dh = @opendir($dstDir);
+        if ($dh !== false) {
+            closedir($dh);
+        }
+        $dirFp = @fopen($dstDir, 'r');
+        if ($dirFp !== false) {
+            $this->fsyncOrFlush($dirFp);
+            @fclose($dirFp);
+        }
+        return true;
+    }
+
+    /**
+     * Run a shell pipeline and return the exit code of the WHOLE pipeline via
+     * proc_open (so both ends' failures surface; `pipefail` is not portable).
+     * Uses `set -o pipefail` under bash when available, else falls back to a
+     * plain pipeline whose rc is the last command's — the manifest check is the
+     * real integrity gate either way (R10).
+     *
+     * @param string $pipeline already-built shell pipeline
+     * @return int exit code (0 = success)
+     */
+    private function runPipedCommand(string $pipeline): int
+    {
+        $bash = Util::which('bash');
+        if ($bash !== '' && $bash !== false) {
+            $cmd = $bash . ' -o pipefail -c ' . escapeshellarg($pipeline);
+        } else {
+            $cmd = $pipeline;
+        }
+        $descriptors = [
+            0 => ['file', '/dev/null', 'r'],
+            1 => ['file', '/dev/null', 'w'],
+            2 => ['file', '/dev/null', 'w'],
+        ];
+        $proc = @proc_open($cmd, $descriptors, $pipes);
+        if (!is_resource($proc)) {
+            return 1;
+        }
+        $rc = proc_close($proc);
+        return is_int($rc) ? $rc : 1;
+    }
+
+    /**
+     * Shell-join a list of basenames into a quoted argument string.
+     *
+     * @param string[] $files
+     * @return string
+     */
+    private function shellJoin(array $files): string
+    {
+        $parts = [];
+        foreach ($files as $f) {
+            $parts[] = escapeshellarg($f);
+        }
+        return implode(' ', $parts);
+    }
+
+    /**
+     * Best-effort rmdir of a VPS temp dir (cleanup on a failed copy).
+     *
+     * @param string $sshArgs
+     * @param string $dir
+     * @return void
+     */
+    private function sshRemoveDir(string $sshArgs, string $dir): void
+    {
+        $rc = 0;
+        exec($sshArgs . ' ' . escapeshellarg('rm -rf ' . escapeshellarg($dir))
+            . ' 2>/dev/null', $o, $rc);
+    }
+
+    /**
+     * Best-effort recursive removal of a local directory.
+     *
+     * @param string $dir
+     * @return void
+     */
+    private function localRemoveDir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        foreach (glob($dir . '/*') ?: [] as $path) {
+            if (is_file($path) || is_link($path)) {
+                @unlink($path);
+            } elseif (is_dir($path)) {
+                $this->localRemoveDir($path);
+            }
+        }
+        @rmdir($dir);
+    }
+
+    /**
+     * Confirm the WHOLE service spawns NOWHERE before any copy (§3.4, R8) — the
+     * linchpin of the no-double-run invariant. Enumerates EXPECTED areas from
+     * readCustomConfigAreas (read-only) and verifies EACH:
+     *   - it must NOT appear started/ok in the merged manager.api/status, AND
+     *   - there must be no local {svc}d process (best-effort pgrep).
+     * Remote teardown is Go's job (doReconcile suppression); PHP only verifies.
+     *
+     * Fails CLOSED: status unreachable, an expected area missing from the rows,
+     * or any unknown side => FALSE. Never infer "down" from an absent row.
+     *
+     * @param string $svc
+     * @return bool
+     */
+    public function bothSidesDown(string $svc): bool
+    {
+        $expected = $this->readCustomConfigAreas($svc);
+        if (empty($expected)) {
+            // No areas at all => nothing can be running for this service.
+            return true;
+        }
+
+        $rows = $this->fetchManagerStatusRows();
+        if ($rows === null) {
+            return false; // status unreachable => fail closed (R8)
+        }
+
+        // Index status rows by area (the row 'name' is the area/subject; match
+        // any row that references the area string).
+        foreach (array_keys($expected) as $area) {
+            $seenDown = false;
+            $proven = false;
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                if (!$this->statusRowMatchesArea($row, $svc, $area)) {
+                    continue;
+                }
+                $proven = true;
+                $state = (string)($row['state'] ?? '');
+                // Any "alive" state means NOT down => fail.
+                if ($this->isAliveState($state)) {
+                    return false;
+                }
+                $seenDown = true;
+            }
+            // R8: if we could not find a row for this area at all, we cannot
+            // prove it is down => fail closed.
+            if (!$proven || !$seenDown) {
+                return false;
+            }
+        }
+
+        // Belt-and-suspenders: no local {svc}d process must remain.
+        $rc = 0;
+        $o = [];
+        exec('pgrep -x ' . escapeshellarg($svc . 'd') . ' >/dev/null 2>&1', $o, $rc);
+        if ($rc === 0) {
+            return false; // a local daemon is still running
+        }
+
+        return true;
+    }
+
+    /**
+     * After the flip + reconcile, verify the receiver came up for the MIGRATED
+     * areas (§3.4, R8/R10). SINGLE-SHOT (no blocking poll) so the worker tick
+     * stays bounded (§3.6): the per-tick STEP-3b retry + fail_count drives the
+     * overall timeout instead. Each migrated area must have a row whose state
+     * is alive: ok/authenticated => health=ok; qrcode/awaiting auth/2FA =>
+     * health=reauth (a SUCCESSFUL migration, NOT a rollback trigger, R10).
+     * Records per-area health back into remote_state. Fails CLOSED: an expected
+     * area with no row (status unreachable or row absent) => unhealthy.
+     *
+     * @param string   $svc
+     * @param string[] $areas migrated areas
+     * @return bool
+     */
+    public function receiverHealthy(string $svc, array $areas): bool
+    {
+        if (empty($areas)) {
+            return true;
+        }
+
+        $health = [];
+        $allHealthy = false;
+
+        $rows = $this->fetchManagerStatusRows();
+        if ($rows !== null) {
+            $allHealthy = true;
+            foreach ($areas as $area) {
+                $verdict = null;
+                foreach ($rows as $row) {
+                    if (!is_array($row) || !$this->statusRowMatchesArea($row, $svc, $area)) {
+                        continue;
+                    }
+                    $state = strtolower((string)($row['state'] ?? ''));
+                    if ($this->isReauthState($state)) {
+                        $verdict = 'reauth';
+                    } elseif ($this->isHealthyState($state)) {
+                        $verdict = ($verdict === 'reauth') ? 'reauth' : 'ok';
+                    } elseif ($verdict === null) {
+                        $verdict = 'error';
+                    }
+                }
+                if ($verdict === null || $verdict === 'error') {
+                    $allHealthy = false;
+                } else {
+                    $health[$area] = $verdict;
+                }
+            }
+        }
+
+        // Persist whatever per-area health we resolved (R10: reauth is success).
+        if (!empty($health)) {
+            $state = $this->readRemoteState();
+            foreach ($health as $area => $verdict) {
+                if (!isset($state[$svc]['areas'][$area]) || !is_array($state[$svc]['areas'][$area])) {
+                    $state[$svc]['areas'][$area] = ['side' => 'local', 'last_sync_ts' => 0, 'health' => 'unknown'];
+                }
+                $state[$svc]['areas'][$area]['health'] = $verdict;
+            }
+            $this->writeRemoteState($state);
+        }
+
+        return $allHealthy;
+    }
+
+    /**
+     * Fetch the merged manager.api/status rows, or null when unreachable.
+     *
+     * @return array<int,mixed>|null
+     */
+    private function fetchManagerStatusRows(): ?array
+    {
+        $rows = $this->checkWorkerStatuses();
+        // checkWorkerStatuses returns a synthetic [{name:manager.api,state:unknown}]
+        // row when the endpoint is unreachable — treat that as null (fail closed).
+        if (count($rows) === 1
+            && is_array($rows[0])
+            && ($rows[0]['name'] ?? '') === 'manager.api'
+            && ($rows[0]['state'] ?? '') === 'unknown') {
+            return null;
+        }
+        return $rows;
+    }
+
+    /**
+     * Whether a manager.api status row refers to the given service+area.
+     * Rows carry the area/subject in 'name' (e.g. "chats.<area>" or the bare
+     * area UUID); match defensively on substring of the area.
+     *
+     * @param array<string,mixed> $row
+     * @param string              $svc
+     * @param string              $area
+     * @return bool
+     */
+    private function statusRowMatchesArea(array $row, string $svc, string $area): bool
+    {
+        if ($area === '') {
+            return false;
+        }
+        foreach (['area', 'name', 'subject'] as $field) {
+            $val = (string)($row[$field] ?? '');
+            if ($val !== '' && strpos($val, $area) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * States that mean a daemon/channel is alive (running on some side).
+     *
+     * @param string $state
+     * @return bool
+     */
+    private function isAliveState(string $state): bool
+    {
+        $state = strtolower($state);
+        return $this->isHealthyState($state) || $this->isReauthState($state) || $state === 'starting';
+    }
+
+    /**
+     * Fully-healthy channel states.
+     *
+     * @param string $state
+     * @return bool
+     */
+    private function isHealthyState(string $state): bool
+    {
+        $state = strtolower($state);
+        return in_array($state, ['ok', 'authenticated'], true);
+    }
+
+    /**
+     * Alive-but-re-auth states (qrcode / 2FA family). R10: SUCCESS, not failure.
+     *
+     * @param string $state
+     * @return bool
+     */
+    private function isReauthState(string $state): bool
+    {
+        $state = strtolower($state);
+        if (in_array($state, ['qrcode', 'reauth'], true)) {
+            return true;
+        }
+        // "awaiting authorization code" / "awaiting 2FA password" family.
+        return strpos($state, 'awaiting') !== false;
+    }
+
+    /**
+     * Roll a service back to its source side (§3.4, §4 ROLLBACK). Source files
+     * were never deleted, so this just reverts each migrated area's `side` in
+     * remote_state, clears migrating/resuming, and re-applies the config so
+     * Go's doReconcile brings the source daemons back on their intact DB.
+     *
+     * @param string   $svc
+     * @param string[] $areas migrated areas to revert
+     * @param string   $src   source side ("local"|"remote")
+     * @param string   $reason last_error message
+     * @return void
+     */
+    public function rollbackService(string $svc, array $areas, string $src, string $reason): void
+    {
+        $state = $this->readRemoteState();
+        foreach ($areas as $area) {
+            if (!isset($state[$svc]['areas'][$area]) || !is_array($state[$svc]['areas'][$area])) {
+                $state[$svc]['areas'][$area] = ['side' => $src, 'last_sync_ts' => 0, 'health' => 'unknown'];
+            }
+            $state[$svc]['areas'][$area]['side'] = $src;
+        }
+        $state[$svc]['migrating'] = false;
+        $state[$svc]['resuming'] = false;
+        $state[$svc]['last_error'] = $reason;
+        $this->writeRemoteState($state);
+        $this->applyMonitordConfigAndReconcile();
+    }
+
+    /**
+     * The §4 migration state machine. Advances EACH service by AT MOST ONE step
+     * per call (idempotent; one per worker tick). Single-threaded — the worker
+     * is the only caller. Tunnel down => steps that need ssh return "retry" and
+     * `migrating` stays as-is (no auto-failover, brief §6).
+     *
+     * @return void
+     */
+    public function reconcileMigrations(): void
+    {
+        $state = $this->readRemoteState();
+        $desired = $this->getRemoteServices(); // toggles
+
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            if (!empty($state[$svc]['parked'])) {
+                continue; // parked: wait for operator re-trigger (toggle flip)
+            }
+
+            $desiredSide = in_array($svc, $desired, true) ? 'remote' : 'local';
+            $current = $this->readCustomConfigAreas($svc);
+
+            // moving = areas whose current side != desired (cross-checked with
+            // remote_state cursor; custom_config wins on disagreement).
+            $moving = [];
+            foreach ($current as $area => $location) {
+                if ($location !== $desiredSide) {
+                    $moving[] = $area;
+                }
+            }
+
+            $migrating = !empty($state[$svc]['migrating']);
+            if (empty($moving) && !$migrating) {
+                continue; // IDLE — nothing to do
+            }
+
+            // Advance ONE step for this service, then return so each tick does
+            // bounded work and the worker stays responsive.
+            $this->advanceMigrationStep($svc, $desiredSide, $moving);
+            return;
+        }
+    }
+
+    /**
+     * Advance the migration of one service by a single §4 step.
+     *
+     * @param string   $svc
+     * @param string   $desiredSide "local"|"remote"
+     * @param string[] $moving      areas whose side != desired
+     * @return void
+     */
+    private function advanceMigrationStep(string $svc, string $desiredSide, array $moving): void
+    {
+        $state = $this->readRemoteState();
+        $src = ($desiredSide === 'remote') ? 'local' : 'remote';
+
+        $migrating = !empty($state[$svc]['migrating']);
+        $resuming  = !empty($state[$svc]['resuming']);
+
+        // ---- STEP 1: SUPPRESS (begin migration; take the whole service down) ----
+        if (!$migrating) {
+            if (empty($moving)) {
+                return; // nothing to move
+            }
+            $state[$svc]['migrating'] = true;
+            $state[$svc]['resuming'] = false;
+            $state[$svc]['last_error'] = '';
+            $this->writeRemoteState($state);
+            $this->applyMonitordConfigAndReconcile();
+            return; // next tick re-enters and checks bothSidesDown
+        }
+
+        // ---- STEP 3b: CONFIRM + COMMIT (resume in progress) ----
+        if ($resuming) {
+            // The confirm-set must be the STABLE set of areas-being-moved, NOT
+            // the live custom_config diff ($moving): Go's commit is exactly what
+            // flips custom_config Location to desired, so the moment it commits
+            // an area drops out of $moving and the live diff goes empty — which
+            // would make receiverHealthy([]) trivially true and the cursor flip
+            // a no-op. During resume the cursor `side` is deliberately still src
+            // (F2 — flipped only here at commit), so derive the confirm-set from
+            // the cursor: areas whose side != desired.
+            $confirm = [];
+            foreach (($state[$svc]['areas'] ?? []) as $area => $a) {
+                if (is_array($a) && (string)($a['side'] ?? '') !== $desiredSide) {
+                    $confirm[] = (string)$area;
+                }
+            }
+            if (empty($confirm)) {
+                // Cursor already shows everything on desired (e.g. a replayed
+                // tick after commit) — nothing left to confirm; clear anchors.
+                $state = $this->readRemoteState();
+                $state[$svc]['migrating'] = false;
+                $state[$svc]['resuming'] = false;
+                $state[$svc]['fail_count'] = 0;
+                $state[$svc]['last_error'] = '';
+                $this->writeRemoteState($state);
+                $this->applyMonitordConfigAndReconcile();
+                return;
+            }
+
+            // Poll Go's commit (read-only) for EVERY confirm-set area, then the
+            // receiver health for the same set (R8/R10 — single-shot per tick).
+            $cur = $this->readCustomConfigAreas($svc);
+            $allCommitted = true;
+            foreach ($confirm as $area) {
+                if (($cur[$area] ?? '') !== $desiredSide) {
+                    $allCommitted = false;
+                    break;
+                }
+            }
+            if ($allCommitted && $this->receiverHealthy($svc, $confirm)) {
+                // Durable commit point (follows Go's commit — F2). Flip the
+                // cursor side now; receiverHealthy already stamped per-area health.
+                $state = $this->readRemoteState();
+                foreach ($confirm as $area) {
+                    if (!isset($state[$svc]['areas'][$area]) || !is_array($state[$svc]['areas'][$area])) {
+                        $state[$svc]['areas'][$area] = ['side' => $desiredSide, 'last_sync_ts' => 0, 'health' => 'ok'];
+                    }
+                    $state[$svc]['areas'][$area]['side'] = $desiredSide;
+                    $state[$svc]['areas'][$area]['last_sync_ts'] = time();
+                }
+                $state[$svc]['migrating'] = false;
+                $state[$svc]['resuming'] = false;
+                $state[$svc]['fail_count'] = 0;
+                $state[$svc]['last_error'] = '';
+                $this->writeRemoteState($state);
+                $this->applyMonitordConfigAndReconcile();
+                $this->sweepStaleMigrationArtifacts();
+                return;
+            }
+            // Not yet committed/healthy. Count confirmation ticks; ROLLBACK on
+            // the resume-phase budget (larger than the copy-phase fail budget —
+            // a cross-host receiver + qrcode/2FA re-auth takes longer to show).
+            $state = $this->readRemoteState();
+            $state[$svc]['fail_count'] = (int)($state[$svc]['fail_count'] ?? 0) + 1;
+            if ($state[$svc]['fail_count'] >= self::MIGRATION_MAX_CONFIRM) {
+                // Receiver won't come up after the copy => ROLLBACK to source.
+                $this->writeRemoteState($state);
+                $this->rollbackService($svc, $confirm, $src, 'migration failed, rolled back to ' . $src);
+                $st2 = $this->readRemoteState();
+                $st2[$svc]['fail_count'] = 0;
+                $this->writeRemoteState($st2);
+                return;
+            }
+            $this->writeRemoteState($state);
+            return;
+        }
+
+        // migrating && !resuming => STEP 1 gate / STEP 2 copy.
+        // ---- STEP 1 gate: confirm bothSidesDown before copying ----
+        if (!$this->bothSidesDown($svc)) {
+            $state = $this->readRemoteState();
+            $state[$svc]['fail_count'] = (int)($state[$svc]['fail_count'] ?? 0) + 1;
+            if ($state[$svc]['fail_count'] >= self::MIGRATION_MAX_FAILS) {
+                $this->failPark($svc, $src);
+                return;
+            }
+            $state[$svc]['last_error'] = 'waiting for service to quiesce';
+            $this->writeRemoteState($state);
+            return;
+        }
+
+        // ---- STEP 2: COPY (per-area) ----
+        if (empty($moving)) {
+            // Nothing to copy (e.g. all areas already on dst) — go straight to
+            // resume so suppressed is lifted.
+            $this->enterResume($svc);
+            return;
+        }
+        $copy = ($desiredSide === 'remote')
+            ? $this->migrateAreasToRemote($svc, $moving)
+            : $this->migrateAreasToLocal($svc, $moving);
+
+        if (!$copy['ok']) {
+            $state = $this->readRemoteState();
+            $state[$svc]['fail_count'] = (int)($state[$svc]['fail_count'] ?? 0) + 1;
+            $state[$svc]['last_error'] = 'copy failed: ' . $copy['error'];
+            if ($state[$svc]['fail_count'] >= self::MIGRATION_MAX_FAILS) {
+                $this->writeRemoteState($state);
+                $this->failPark($svc, $src);
+                return;
+            }
+            $this->writeRemoteState($state);
+            return;
+        }
+
+        // Copy succeeded for all moving areas => STEP 3a RESUME.
+        // ENSURE every moving area is present in the cursor with side=$src (NOT
+        // yet flipped — 3b commit flips it). The cursor `areas` map is otherwise
+        // only seeded once at first run, so post-seed channels (the normal case
+        // on a fresh install) would be absent — leaving the 3b confirm-set empty
+        // and bypassing the health/commit gate. Stamp them here so STEP 3b's
+        // cursor-derived confirm-set actually contains the moving areas.
+        $state = $this->readRemoteState();
+        $state[$svc]['fail_count'] = 0;
+        foreach ($moving as $area) {
+            if (!isset($state[$svc]['areas'][$area]) || !is_array($state[$svc]['areas'][$area])) {
+                $state[$svc]['areas'][$area] = ['side' => $src, 'last_sync_ts' => 0, 'health' => 'unknown'];
+            }
+            $state[$svc]['areas'][$area]['side'] = $src; // src until the 3b commit
+            $state[$svc]['areas'][$area]['last_sync_ts'] = time();
+        }
+        $this->writeRemoteState($state);
+        $this->enterResume($svc);
+    }
+
+    /**
+     * STEP 3a: enter the RESUME phase — keep migrating=true (the crash anchor,
+     * F2) but set resuming=true so the gate lifts suppression and drives the
+     * service to its desired side; ask Go to relocate. The durable side flip
+     * happens only in STEP 3b after Go commits.
+     *
+     * @param string $svc
+     * @return void
+     */
+    private function enterResume(string $svc): void
+    {
+        $state = $this->readRemoteState();
+        $state[$svc]['resuming'] = true;
+        $state[$svc]['fail_count'] = 0;
+        $this->writeRemoteState($state);
+        $this->applyMonitordConfigAndReconcile();
+    }
+
+    /**
+     * FAIL-PARK (§4): a STEP 1/STEP 2 migration that can't complete (VPS/tunnel
+     * down past N retries). Side is still src (STEP 3 never ran), so clearing
+     * migrating restores the source daemons on their intact DB. PARK so we
+     * don't thrash a dead VPS; operator re-triggers by flipping the toggle.
+     *
+     * @param string $svc
+     * @param string $src source side ("local"|"remote")
+     * @return void
+     */
+    private function failPark(string $svc, string $src): void
+    {
+        $state = $this->readRemoteState();
+        $state[$svc]['migrating'] = false;
+        $state[$svc]['resuming'] = false;
+        $state[$svc]['parked'] = true;
+        $state[$svc]['fail_count'] = 0;
+        $state[$svc]['last_error'] = 'migration failed (VPS unreachable), still on ' . $src;
+        $this->writeRemoteState($state);
+        $this->applyMonitordConfigAndReconcile();
+    }
+
+    /**
+     * Startup / post-migration sweep (§3.5, R10): remove leftover migrate temp
+     * dirs and aged .old backups on BOTH sides, and tear stale REMOTE
+     * custom_config stubs whose area no longer exists locally. Best-effort.
+     *
+     * @return void
+     */
+    public function sweepStaleMigrationArtifacts(): void
+    {
+        $ttl = 24 * 3600;
+        $now = time();
+
+        // Local: under {moduleDir}/db/<svc>/ remove .<area>.migrate.* dirs and
+        // aged *.old.<ts> files.
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            $dir = $this->dirs['moduleDir'] . '/db/' . $svc;
+            if (!is_dir($dir)) {
+                continue;
+            }
+            foreach (glob($dir . '/.*.migrate.*') ?: [] as $path) {
+                if (is_dir($path)) {
+                    $this->localRemoveDir($path);
+                }
+            }
+            foreach (glob($dir . '/*.old.*') ?: [] as $path) {
+                if (is_file($path) && $this->oldBackupExpired($path, $now, $ttl)) {
+                    @unlink($path);
+                }
+            }
+        }
+
+        // Remote: best-effort cleanup of migrate temp dirs and aged backups, and
+        // delete stale remote stubs for areas no longer present locally.
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return;
+        }
+        $sshArgs = self::buildSshArgs($ssh);
+        $base = $ssh['base'];
+        $remoteCmd = 'for d in ' . escapeshellarg($base) . '/db/.*.migrate.*; do '
+            . '  [ -d "$d" ] && rm -rf "$d"; '
+            . 'done; '
+            . 'find ' . escapeshellarg($base) . '/db -name "*.old.*" -mtime +1 -delete 2>/dev/null; '
+            . 'true';
+        $rc = 0;
+        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $o, $rc);
+    }
+
+    /**
+     * Whether an *.old.<ts> backup file is older than the TTL (uses the encoded
+     * timestamp suffix when present, else mtime).
+     *
+     * @param string $path
+     * @param int    $now
+     * @param int    $ttl
+     * @return bool
+     */
+    private function oldBackupExpired(string $path, int $now, int $ttl): bool
+    {
+        if (preg_match('/\.old\.(\d+)$/', $path, $m)) {
+            return ($now - (int)$m[1]) > $ttl;
+        }
+        $mtime = @filemtime($path);
+        return $mtime !== false && ($now - $mtime) > $ttl;
     }
 
     /**
@@ -1226,12 +2612,49 @@ class AmigoDaemons extends Injectable
             ],
         ];
 
-        // Remote messenger offload: the location-aware monitord forwards channels of the
-        // toggled services to the remote monitord (manager.api) reachable via the ssh -L tunnel.
-        $remoteServices = $this->getRemoteServices();
-        if (!empty($remoteServices)) {
+        // Remote messenger offload (§3.2). Three distinct inputs, NEVER conflate:
+        //  - suppressed:      services mid-migration in the SUPPRESS/COPY phase
+        //                     (migrating && !resuming) — Go spawns them NOWHERE.
+        //  - remote_services: where channels currently ARE (per-area side),
+        //                     NOT the live toggle — flipping the toggle must not
+        //                     route the whole service to an empty side before the
+        //                     copy lands. During STEP 3a (resuming) a service is
+        //                     driven to its DESIRED side so Go relocates.
+        //  - infra (ssh_tunnel/remote_monitor): up whenever ANY service has
+        //                     remote presence OR is migrating (R5 superset).
+        $state = $this->readRemoteState();
+        $desiredToggles = $this->getRemoteServices();
+
+        $suppressed = [];
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            if (!empty($state[$svc]['migrating']) && empty($state[$svc]['resuming'])) {
+                $suppressed[] = $svc;
+            }
+        }
+        if (!empty($suppressed)) {
+            $arr_settings['suppressed'] = $suppressed;
+        }
+
+        // remote_services: current-side routing for idle/parked services, but the
+        // DESIRED side for a service in the resume phase (so Go's doReconcile
+        // actually relocates its areas, §4 STEP 3a).
+        $routed = $this->getRoutedRemoteServices();
+        $remoteServices = [];
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            if (!empty($state[$svc]['resuming'])) {
+                if (in_array($svc, $desiredToggles, true)) {
+                    $remoteServices[] = $svc;
+                }
+            } elseif (in_array($svc, $routed, true)) {
+                $remoteServices[] = $svc;
+            }
+        }
+
+        if ($this->isInfraNeeded()) {
             $arr_settings['remote_monitor'] = '127.0.0.1:' . self::getRemoteMonitorPort();
-            $arr_settings['remote_services'] = $remoteServices;
+            if (!empty($remoteServices)) {
+                $arr_settings['remote_services'] = $remoteServices;
+            }
 
             // monitord owns the outbound ssh tunnel to the VPS (replacing the
             // former WorkerRemoteTunnel `ssh -N`). Reverse forwards expose PBX
@@ -1291,7 +2714,12 @@ class AmigoDaemons extends Injectable
             }
         }
 
-        $remoteServices = $this->getRemoteServices();
+        // §3.3 (R5): stage for every service that has remote presence OR is
+        // migrating (push or pull), NOT just the live toggle — a remote->local
+        // drain after the last toggle is off must keep its VPS config staged
+        // until the last area is pulled back. The prune-all-first step above
+        // then naturally drops a service once it leaves the infra set.
+        $remoteServices = $this->getInfraServices();
         if (empty($remoteServices)) {
             return;
         }

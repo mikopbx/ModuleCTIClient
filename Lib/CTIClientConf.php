@@ -55,8 +55,46 @@ class CTIClientConf extends ConfigClass
             $needRestartServices = true;
         }
         if ($data['model'] === ModuleCTIClient::class) {
-            $needRestartServices = true;
             PBX::dialplanReload();
+
+            // §3.7 (R7/F1): don't bounce the whole stack (gnatsd/amid/crmd) on
+            // a migration-toggle flip — that defeats the in-place reconcile.
+            // changedFields is Phalcon's getUpdatedFields(): a NUMERIC list of
+            // field-NAME strings, so the names are the VALUES (array_values,
+            // NOT array_keys — F1).
+            $changed = array_values((array)($data['changedFields'] ?? []));
+            $migrationToggles = ['remote_whatsapp', 'remote_telegram', 'remote_max'];
+            $migrationOnly = $changed !== [] && empty(array_diff($changed, $migrationToggles));
+
+            if ($migrationOnly) {
+                // A toggle flip is also the operator re-trigger after a
+                // FAIL-PARK: clear `parked` for the changed services (mapped to
+                // their manager.api names) so the worker resumes the migration.
+                $toggleToService = [
+                    'remote_whatsapp' => 'chats',
+                    'remote_telegram' => 'tg',
+                    'remote_max'      => 'max',
+                ];
+                $svcs = [];
+                foreach (array_intersect($changed, $migrationToggles) as $field) {
+                    if (isset($toggleToService[$field])) {
+                        $svcs[] = $toggleToService[$field];
+                    }
+                }
+                $amigoDaemons = new AmigoDaemons();
+                $amigoDaemons->clearParkedForServices($svcs);
+                // In-place: regenerate monitord.json + fire /reconcile. The
+                // worker (re-reads settings every tick) drives the migration.
+                // NO stack bounce.
+                $amigoDaemons->applyMonitordConfigAndReconcile();
+            } else {
+                // Tunnel params (host/port/login/key/bin_dir) and every other
+                // module field need a real restart: the Go ssh tunnel is started
+                // once in main.Manage() and is NOT re-read by doReconcile.
+                // If changedFields is absent/empty, fall back to a restart too
+                // (correct but heavier, never wrong).
+                $needRestartServices = true;
+            }
         }
 
         if ($needRestartServices) {

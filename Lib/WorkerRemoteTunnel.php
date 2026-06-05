@@ -99,16 +99,27 @@ class WorkerRemoteTunnel extends WorkerBase
         // client once per worker lifetime before doing anything else.
         $cleanedStaleSsh = false;
 
+        // One-time Phase-6 discovery: seed remote_state.json from custom_config
+        // (READ-ONLY) so per-area `side` is known before the machine runs (R6).
+        // Idempotent — never clobbers an existing in-flight cursor.
+        (new AmigoDaemons())->seedRemoteState();
+
         while (time() < $deadline && !$this->needRestart) {
             // Re-read settings every iteration so the operator can toggle
             // services and have us pick it up without a full daemon restart.
             $cti = new AmigoDaemons();
-            $services = $cti->getRemoteServices();
+            // R4: gate on (desired toggles) OR (remote presence / migration in
+            // flight) — NOT on empty toggles. Toggling the LAST service OFF must
+            // keep the worker alive so its DB can be pulled back from the VPS.
+            $desired  = $cti->getRemoteServices();        // toggles
+            $infraSvc = $cti->getInfraServices();         // >=1 remote area OR migrating
+            $active   = !empty($desired) || !empty($infraSvc);
             $ssh = $cti->getRemoteSshParams();
 
-            if (empty($services) || $ssh === null) {
-                // Offload off / not configured. Don't exit (the supervisor would
-                // respawn us immediately for nothing) — just idle.
+            if (!$active || $ssh === null) {
+                // Truly nothing remote remains (no toggle, no remote area, no
+                // migration). Don't exit (the supervisor would respawn us for
+                // nothing) — just idle.
                 $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
                 continue;
             }
@@ -151,9 +162,14 @@ class WorkerRemoteTunnel extends WorkerBase
                 $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
 
                 $ctiCheck = new AmigoDaemons();
-                if (empty($ctiCheck->getRemoteServices()) || $ctiCheck->getRemoteSshParams() === null) {
-                    // Operator disabled offload — stop the remote stack and
-                    // fall back to the idle outer loop.
+                $desiredInner = $ctiCheck->getRemoteServices();
+                $infraInner   = $ctiCheck->getInfraServices();
+                $activeInner  = !empty($desiredInner) || !empty($infraInner);
+                if (!$activeInner || $ctiCheck->getRemoteSshParams() === null) {
+                    // R4: only tear the remote stack down when nothing remote
+                    // remains (no toggle AND no remote area AND not migrating) —
+                    // de-toggling the last service while a pull is still in
+                    // flight must NOT stop the drain.
                     $ctiCheck->stopRemoteServices();
                     break;
                 }
@@ -163,6 +179,10 @@ class WorkerRemoteTunnel extends WorkerBase
                     // for it to come back before relaunching.
                     break;
                 }
+
+                // Tunnel up — advance the migration state machine by one step
+                // (idempotent; one step per tick). Tunnel-up gated per §3.6.
+                $ctiCheck->reconcileMigrations();
 
                 // Periodically re-provision (idempotent): re-pushes the staged
                 // configs so a VPS monitord that came up on a stale/default
