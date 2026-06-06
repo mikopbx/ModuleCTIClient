@@ -1163,8 +1163,15 @@ class AmigoDaemons extends Injectable
             }
 
             // 2. remote tar -c (this area only) piped into a local tar -x.
+            //    The {area}-* glob MUST expand on the receiver inside $srcDir, so
+            //    we `cd` first: `tar -C $srcDir ... area-*` would expand the glob
+            //    in the remote login shell's CWD (the SSH home dir, not $srcDir),
+            //    leaving a literal `area-*` that tar cannot stat — every
+            //    migrate-back would then fail. `cd && tar` expands it correctly.
+            //    Safe against an empty match: the empty-manifest guard above
+            //    already `continue`s before we reach this line when no files exist.
             $remoteTar = $sshArgs . ' ' . escapeshellarg(
-                'tar -C ' . escapeshellarg($srcDir) . ' -cf - ' . escapeshellarg($area) . '-*'
+                'cd ' . escapeshellarg($srcDir) . ' && tar -cf - ' . escapeshellarg($area) . '-*'
             );
             $localExtract = Util::which('tar') . ' -C ' . escapeshellarg($localTmp) . ' -xf -';
             $tarRc = $this->runPipedCommand($remoteTar . ' | ' . $localExtract);
