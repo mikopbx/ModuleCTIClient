@@ -237,7 +237,6 @@
 
     {# services status tab #}
     <div class="ui bottom attached tab segment active" data-tab="status">
-        <h4 class="ui dividing header">{{ t._('mod_cti_StatusHeader') }}</h4>
         <div id="cti-services-status" class="cti-services-status">
             <div id="cti-services-status-rows"></div>
             <div class="ui basic segment" id="cti-services-status-placeholder">
@@ -259,38 +258,76 @@
                 background: rgba(255,255,255,.85);
                 z-index: 2;
             }
-            .cti-services-status .cti-svc-row {
-                display: flex;
-                align-items: center;
-                padding: 6px 10px;
-                border-bottom: 1px solid rgba(34,36,38,.08);
-                gap: 10px;
-                flex-wrap: wrap;
+            /* status table */
+            .cti-status-table { margin-top: 0 !important; }
+            .cti-status-table thead th {
+                background: #f9fafb;
+                font-size: 0.85em;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                color: #767676;
+                white-space: nowrap;
             }
-            .cti-services-status .cti-svc-row:last-child { border-bottom: none; }
-            .cti-services-status .cti-svc-led {
+            .cti-status-table td { vertical-align: middle; }
+            .cti-status-table .cti-col-status   { width: 1%; white-space: nowrap; }
+            .cti-status-table .cti-col-loc      { width: 1%; white-space: nowrap; text-align: center; }
+            .cti-status-table .cti-col-uptime,
+            .cti-status-table .cti-col-version  { width: 1%; white-space: nowrap; color: #555; }
+            /* LED indicator + state text */
+            .cti-status-table .cti-svc-led {
                 display: inline-block;
-                width: 12px;
-                height: 12px;
+                width: 10px;
+                height: 10px;
                 border-radius: 50%;
+                margin-right: 8px;
                 background-color: #767676;
                 box-shadow: 0 0 0 2px rgba(0,0,0,.06) inset;
-                flex-shrink: 0;
+                vertical-align: middle;
             }
-            .cti-services-status .cti-svc-led.ok      { background-color: #21ba45; }
-            .cti-services-status .cti-svc-led.warn    { background-color: #fbbd08; }
-            .cti-services-status .cti-svc-led.error   { background-color: #db2828; }
-            .cti-services-status .cti-svc-led.unknown { background-color: #767676; }
-            .cti-services-status .cti-svc-name   { font-weight: 600; min-width: 160px; }
-            .cti-services-status .cti-svc-area   { font-family: monospace; color: #888; font-size: 0.9em; }
-            .cti-services-status .cti-svc-meta   { color: #555; font-size: 0.9em; }
-            .cti-services-status .cti-svc-error  { color: #db2828; font-size: 0.9em; }
-            .cti-services-status .cti-svc-group-header {
-                margin-top: 10px;
+            .cti-status-table .cti-svc-led.ok      { background-color: #21ba45; box-shadow: 0 0 6px rgba(33,186,69,.55); }
+            .cti-status-table .cti-svc-led.warn    { background-color: #fbbd08; box-shadow: 0 0 6px rgba(251,189,8,.55); }
+            .cti-status-table .cti-svc-led.error   { background-color: #db2828; box-shadow: 0 0 6px rgba(219,40,40,.55); }
+            .cti-status-table .cti-svc-led.unknown { background-color: #aaaaaa; }
+            .cti-status-table .cti-svc-state { vertical-align: middle; }
+            .cti-status-table .cti-svc-name  { font-weight: 600; }
+            .cti-status-table .cti-svc-name .icon { color: #aaa; margin-right: 4px; }
+            /* channel (area) sub-rows under a messenger group */
+            .cti-status-table .cti-svc-channel {
+                font-weight: 500;
+                font-family: monospace;
+                color: #555;
+            }
+            .cti-status-table .cti-svc-subrow td.cti-col-name { padding-left: 2.2em; }
+            /* group header row for multi-instance messenger services */
+            .cti-status-table tr.cti-svc-group td {
+                background: #f3f4f5;
                 font-weight: 700;
-                padding: 4px 0;
                 color: #333;
             }
+            .cti-status-table tr.cti-svc-group .icon { color: #2185d0; margin-right: 6px; }
+            .cti-status-table tr.cti-svc-group .cti-svc-count {
+                display: inline-block;
+                margin-left: 8px;
+                padding: 0 7px;
+                border-radius: 9px;
+                background: #d4d8db;
+                color: #444;
+                font-size: 0.8em;
+                font-weight: 700;
+            }
+            /* location badges */
+            .cti-status-table .cti-loc-badge { font-size: 0.78em !important; }
+            .cti-status-table .cti-loc-local { color: #999; font-size: 0.85em; white-space: nowrap; }
+            .cti-status-table .cti-loc-local .icon { margin-right: 2px; }
+            .cti-status-table .cti-dim { color: #ccc; }
+            /* inline error sub-row */
+            .cti-status-table tr.cti-svc-error-row td {
+                padding-top: 2px;
+                border-top: none !important;
+                color: #db2828;
+                font-size: 0.85em;
+            }
+            .cti-status-table tr.cti-svc-error-row .icon { color: #db2828; }
         </style>
     </div>
 

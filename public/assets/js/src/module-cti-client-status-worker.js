@@ -33,6 +33,7 @@ const moduleCTIClientConnectionCheckWorker = {
 	timeOut: 3000,
 	timeOutHandle: '',
 	errorCounts: 0,
+	lastRenderHash: '',
 
 	/**
 	 * Маппинг state -> CSS-класс лампочки.
@@ -40,6 +41,7 @@ const moduleCTIClientConnectionCheckWorker = {
 	 */
 	stateLedClass: {
 		ok: 'ok',
+		authenticated: 'ok',
 		error: 'error',
 		fail: 'error',
 		failed: 'error',
@@ -49,6 +51,7 @@ const moduleCTIClientConnectionCheckWorker = {
 		pending: 'warn',
 		starting: 'warn',
 		qrcode: 'warn',
+		reauth: 'warn',
 		auth: 'warn',
 		auth_required: 'warn',
 		warn: 'warn',
@@ -184,24 +187,30 @@ const moduleCTIClientConnectionCheckWorker = {
 	},
 
 	/**
-	 * Рендер панели «лампочка + сервис + area + uptime + версия».
+	 * Рендер таблицы статусов: «индикатор + сервис/канал + расположение +
+	 * аптайм + версия». Колонка «Расположение» появляется только если хотя бы
+	 * один сервис вынесен на VPS — на обычной локальной установке таблица
+	 * остаётся компактной.
 	 *
 	 * @param {Object} data Ответ API (response.data).
 	 */
 	renderServicesStatus(data) {
-		const $panel = moduleCTIClientConnectionCheckWorker.$servicesStatus;
+		const self = moduleCTIClientConnectionCheckWorker;
+		const $panel = self.$servicesStatus;
 		if (!$panel || $panel.length === 0) {
 			return;
 		}
 
+		const esc = self.escapeHtml;
 		const $rows = $('#cti-services-status-rows');
 		const $placeholder = $('#cti-services-status-placeholder');
 		const showPlaceholder = (text) => {
+			self.lastRenderHash = '';
 			$rows.empty();
 			if ($placeholder.length > 0) {
-				$placeholder.html(`<span>&nbsp;${moduleCTIClientConnectionCheckWorker.escapeHtml(text)}</span>`).show();
+				$placeholder.html(`<span>&nbsp;${esc(text)}</span>`).show();
 			} else {
-				$panel.html(`<div class="ui basic segment">${moduleCTIClientConnectionCheckWorker.escapeHtml(text)}</div>`);
+				$panel.html(`<div class="ui basic segment">${esc(text)}</div>`);
 			}
 		};
 
@@ -211,14 +220,22 @@ const moduleCTIClientConnectionCheckWorker = {
 		if (!Array.isArray(statuses)) {
 			const text = (typeof statuses === 'string')
 				? statuses
-				: ((typeof globalTranslate !== 'undefined' && globalTranslate.mod_cti_StatusUnavailable)
-					? globalTranslate.mod_cti_StatusUnavailable
-					: 'Status unavailable');
+				: self.tr('mod_cti_StatusUnavailable', 'Status unavailable');
 			showPlaceholder(text);
 			return;
 		}
 
-		// Сгруппируем по имени сервиса. Внутри группы — строки по area.
+		// Пропускаем перерисовку DOM, если данные не изменились — убирает
+		// мерцание таблицы при опросе раз в 3 секунды.
+		const hash = JSON.stringify(statuses);
+		if (hash === self.lastRenderHash && $rows.children().length > 0) {
+			if ($placeholder.length > 0) {
+				$placeholder.hide();
+			}
+			return;
+		}
+
+		// Группируем по имени сервиса. Внутри группы — строки по area (каналы).
 		const groups = {};
 		const order = [];
 		statuses.forEach((svc) => {
@@ -233,89 +250,159 @@ const moduleCTIClientConnectionCheckWorker = {
 			groups[name].push(svc);
 		});
 
-		const parts = [];
-		order.forEach((name) => {
-			const rows = groups[name];
-			const isMulti = moduleCTIClientConnectionCheckWorker.multiInstanceServices[name] === true
-				|| rows.length > 1;
-			if (isMulti) {
-				parts.push(`<div class="cti-svc-group-header">${moduleCTIClientConnectionCheckWorker.escapeHtml(
-					moduleCTIClientConnectionCheckWorker.serviceLabel(name),
-				)}</div>`);
-				rows.forEach((svc) => {
-					parts.push(moduleCTIClientConnectionCheckWorker.renderServiceRow(svc, true));
-				});
-			} else {
-				parts.push(moduleCTIClientConnectionCheckWorker.renderServiceRow(rows[0], false));
-			}
-		});
-
-		if (parts.length === 0) {
-			const empty = (typeof globalTranslate !== 'undefined' && globalTranslate.mod_cti_StatusEmpty)
-				? globalTranslate.mod_cti_StatusEmpty
-				: 'No services reported';
-			showPlaceholder(empty);
+		if (order.length === 0) {
+			showPlaceholder(self.tr('mod_cti_StatusEmpty', 'No services reported'));
 			return;
 		}
 
-		$rows.html(parts.join(''));
+		// Колонка «Расположение» — только когда есть хоть один удалённый сервис.
+		const hasRemote = statuses.some((s) => s && s.location === 'remote');
+		const colCount = hasRemote ? 5 : 4;
+
+		const head = '<thead><tr>'
+			+ `<th class="cti-col-status">${esc(self.tr('mod_cti_colStatus', 'Status'))}</th>`
+			+ `<th class="cti-col-name">${esc(self.tr('mod_cti_colService', 'Service'))}</th>`
+			+ (hasRemote ? `<th class="cti-col-loc">${esc(self.tr('mod_cti_colLocation', 'Location'))}</th>` : '')
+			+ `<th class="cti-col-uptime">${esc(self.tr('mod_cti_colUptime', 'Uptime'))}</th>`
+			+ `<th class="cti-col-version">${esc(self.tr('mod_cti_colVersion', 'Version'))}</th>`
+			+ '</tr></thead>';
+
+		const body = [];
+		order.forEach((name) => {
+			const rows = groups[name];
+			const isMulti = self.multiInstanceServices[name] === true || rows.length > 1;
+			if (isMulti) {
+				body.push(`<tr class="cti-svc-group"><td colspan="${colCount}">`
+					+ `<i class="comments icon"></i>${esc(self.serviceLabel(name))}`
+					+ `<span class="cti-svc-count">${rows.length}</span></td></tr>`);
+				rows.forEach((svc) => {
+					body.push(self.renderServiceRow(svc, true, hasRemote));
+				});
+			} else {
+				body.push(self.renderServiceRow(rows[0], false, hasRemote));
+			}
+		});
+
+		$rows.html('<table class="ui celled striped compact unstackable table cti-status-table">'
+			+ head + '<tbody>' + body.join('') + '</tbody></table>');
+		self.lastRenderHash = hash;
 		if ($placeholder.length > 0) {
 			$placeholder.hide();
 		}
 	},
 
 	/**
-	 * Рендер одной строки сервиса.
+	 * Рендер одной строки таблицы (сервис или канал).
 	 *
 	 * @param {Object} svc запись из statuses[]
-	 * @param {boolean} grouped true если строка идёт под групповым заголовком (multi-instance)
-	 * @returns {string} HTML
+	 * @param {boolean} grouped строка под групповым заголовком (канал мессенджера)
+	 * @param {boolean} hasRemote показывать ли колонку «Расположение»
+	 * @returns {string} HTML (одна <tr>, плюс <tr> с ошибкой при наличии)
 	 */
-	renderServiceRow(svc, grouped) {
+	renderServiceRow(svc, grouped, hasRemote) {
+		const self = moduleCTIClientConnectionCheckWorker;
+		const esc = self.escapeHtml;
+		const colCount = hasRemote ? 5 : 4;
+
 		const stateRaw = (typeof svc.state === 'string' && svc.state.length > 0) ? svc.state : 'unknown';
-		const ledClass = moduleCTIClientConnectionCheckWorker.stateLedClass[stateRaw] || 'warn';
+		const canon = self.canonState(stateRaw);
+		const ledClass = self.stateLedClass[canon] || 'warn';
+		const stateText = self.stateText(stateRaw);
+
 		const displayName = grouped
-			? moduleCTIClientConnectionCheckWorker.shortArea(svc.area)
-			: moduleCTIClientConnectionCheckWorker.serviceLabel(svc.name);
+			? self.shortArea(svc.area)
+			: self.serviceLabel(svc.name);
+		const nameIcon = grouped ? '<i class="hashtag icon"></i>' : '';
+
 		const uptime = (typeof svc.uptime === 'string' && svc.uptime.length > 0) ? svc.uptime : '';
 		const version = (typeof svc.version === 'string' && svc.version.length > 0) ? svc.version : '';
 		const lastError = (typeof svc.last_error === 'string' && svc.last_error.length > 0) ? svc.last_error : '';
+		const dash = '<span class="cti-dim">—</span>';
 
-		const uptimeLabel = (typeof globalTranslate !== 'undefined' && globalTranslate.mod_cti_Uptime)
-			? globalTranslate.mod_cti_Uptime
-			: 'Uptime';
-		const versionLabel = (typeof globalTranslate !== 'undefined' && globalTranslate.mod_cti_Version)
-			? globalTranslate.mod_cti_Version
-			: 'Version';
+		const statusCell = `<span class="cti-svc-led ${esc(ledClass)}" title="${esc(stateRaw)}"></span>`
+			+ `<span class="cti-svc-state">${esc(stateText)}</span>`;
 
-		const esc = moduleCTIClientConnectionCheckWorker.escapeHtml;
+		const nameCell = `<span class="cti-svc-name${grouped ? ' cti-svc-channel' : ''}">${nameIcon}${esc(displayName)}</span>`;
 
-		const metaParts = [];
-		if (uptime !== '') {
-			metaParts.push(`<span class="cti-svc-meta">${esc(uptimeLabel)}: ${esc(uptime)}</span>`);
+		const locCell = hasRemote ? `<td class="cti-col-loc">${self.locationBadge(svc.location)}</td>` : '';
+
+		const cells = `<td class="cti-col-status">${statusCell}</td>`
+			+ `<td class="cti-col-name">${nameCell}</td>`
+			+ locCell
+			+ `<td class="cti-col-uptime">${uptime !== '' ? esc(uptime) : dash}</td>`
+			+ `<td class="cti-col-version">${version !== '' ? esc(version) : dash}</td>`;
+
+		let html = `<tr class="cti-svc-row${grouped ? ' cti-svc-subrow' : ''}"`
+			+ ` data-svc="${esc(svc.name || '')}" data-area="${esc(svc.area || '')}">${cells}</tr>`;
+
+		if (lastError !== '') {
+			html += `<tr class="cti-svc-error-row"><td colspan="${colCount}">`
+				+ `<i class="exclamation triangle icon"></i>`
+				+ `<span title="${esc(lastError)}">${esc(self.truncate(lastError, 200))}</span>`
+				+ '</td></tr>';
 		}
-		if (version !== '') {
-			metaParts.push(`<span class="cti-svc-meta">${esc(versionLabel)}: ${esc(version)}</span>`);
+
+		return html;
+	},
+
+	/**
+	 * Бейдж расположения сервиса: яркий «VPS» для вынесенных каналов и
+	 * приглушённый «Локально» для всего остального.
+	 *
+	 * @param {string} location 'remote' | 'local' | undefined
+	 * @returns {string} HTML
+	 */
+	locationBadge(location) {
+		const self = moduleCTIClientConnectionCheckWorker;
+		const esc = self.escapeHtml;
+		if (location === 'remote') {
+			return `<span class="ui teal label cti-loc-badge"><i class="cloud icon"></i>`
+				+ `${esc(self.tr('mod_cti_LocationRemote', 'VPS'))}</span>`;
 		}
-
-		let extra = '';
-		if (grouped && svc.area) {
-			// area уже в displayName; ничего дополнительно не печатаем.
-		} else if (!grouped && typeof svc.area === 'string' && svc.area.length > 0) {
-			extra = `<span class="cti-svc-area">${esc(moduleCTIClientConnectionCheckWorker.shortArea(svc.area))}</span>`;
+		if (location === 'local') {
+			return `<span class="cti-loc-local"><i class="home icon"></i>`
+				+ `${esc(self.tr('mod_cti_LocationLocal', 'Local'))}</span>`;
 		}
+		return '<span class="cti-dim">—</span>';
+	},
 
-		const errBlock = lastError !== ''
-			? `<span class="cti-svc-error" title="${esc(lastError)}">${esc(moduleCTIClientConnectionCheckWorker.truncate(lastError, 120))}</span>`
-			: '';
+	/**
+	 * Канонизация свободной строки состояния в известный ключ для лампочки и
+	 * перевода. monitord может присылать «awaiting authorization code» и пр.
+	 *
+	 * @param {string} state
+	 * @returns {string}
+	 */
+	canonState(state) {
+		const s = String(state || '').toLowerCase();
+		if (s === '') {
+			return 'unknown';
+		}
+		if (s.indexOf('qr') !== -1) {
+			return 'qrcode';
+		}
+		if (s.indexOf('awaiting') !== -1 || s.indexOf('reauth') !== -1
+			|| s.indexOf('auth_required') !== -1 || s.indexOf('2fa') !== -1) {
+			return 'reauth';
+		}
+		if (s === 'authenticated') {
+			return 'authenticated';
+		}
+		return s;
+	},
 
-		return `<div class="cti-svc-row" data-svc="${esc(svc.name || '')}" data-area="${esc(svc.area || '')}">`
-			+ `<span class="cti-svc-led ${esc(ledClass)}" title="${esc(stateRaw)}"></span>`
-			+ `<span class="cti-svc-name">${esc(displayName)}</span>`
-			+ extra
-			+ metaParts.join(' &middot; ')
-			+ errBlock
-			+ '</div>';
+	/**
+	 * Хелпер перевода с фолбэком.
+	 *
+	 * @param {string} key ключ globalTranslate
+	 * @param {string} fallback значение по умолчанию
+	 * @returns {string}
+	 */
+	tr(key, fallback) {
+		if (typeof globalTranslate !== 'undefined' && globalTranslate[key]) {
+			return globalTranslate[key];
+		}
+		return fallback;
 	},
 
 	/**
@@ -346,17 +433,37 @@ const moduleCTIClientConnectionCheckWorker = {
 	},
 
 	/**
-	 * Человекочитаемое представление state.
+	 * Человекочитаемое представление state канала/сервиса (например «Подключён»,
+	 * «Требует авторизации»). Сначала ищем точный ключ, затем по каноническому
+	 * состоянию, затем — английский фолбэк, и в крайнем случае исходную строку.
 	 *
 	 * @param {string} state
 	 * @returns {string}
 	 */
 	stateText(state) {
-		const key = `mod_cti_state_${state}`;
-		if (typeof globalTranslate !== 'undefined' && globalTranslate[key]) {
-			return globalTranslate[key];
+		const self = moduleCTIClientConnectionCheckWorker;
+		const raw = String(state || '');
+		// Точный ключ под исходное состояние (на случай специфичных переводов).
+		const exactKey = `mod_cti_state_${raw}`;
+		if (typeof globalTranslate !== 'undefined' && globalTranslate[exactKey]) {
+			return globalTranslate[exactKey];
 		}
-		return state;
+		const canon = self.canonState(raw);
+		const canonKey = `mod_cti_state_${canon}`;
+		if (typeof globalTranslate !== 'undefined' && globalTranslate[canonKey]) {
+			return globalTranslate[canonKey];
+		}
+		const fallback = {
+			ok: 'OK',
+			authenticated: 'Authenticated',
+			error: 'Error',
+			unknown: 'Unknown',
+			pending: 'Pending',
+			starting: 'Starting',
+			qrcode: 'Awaiting QR-code authorization',
+			reauth: 'Authorization required',
+		};
+		return fallback[canon] || raw;
 	},
 
 	/**

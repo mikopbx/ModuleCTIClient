@@ -87,13 +87,24 @@ return [
     'mod_cti_Uptime'                 => 'Uptime',
     'mod_cti_Version'                => 'Version',
 
+    // Status table columns
+    'mod_cti_colStatus'              => 'Status',
+    'mod_cti_colService'             => 'Service',
+    'mod_cti_colLocation'            => 'Location',
+    'mod_cti_colUptime'              => 'Uptime',
+    'mod_cti_colVersion'             => 'Version',
+
+    // Service location badges
+    'mod_cti_LocationLocal'          => 'Local',
+    'mod_cti_LocationRemote'         => 'VPS',
+
     // Service names
     'mod_cti_svc_monitord'           => 'Service supervisor',
     'mod_cti_svc_nats'               => 'NATS message bus',
-    'mod_cti_svc_crm'                => '1C CRM connector',
+    'mod_cti_svc_crm'                => '1C:Enterprise link service',
     'mod_cti_svc_auth'               => 'Auth service',
-    'mod_cti_svc_proxy'              => 'Proxy service',
-    'mod_cti_svc_ami'                => 'AMI listener',
+    'mod_cti_svc_proxy'              => 'Proxy server for the external telephony panel',
+    'mod_cti_svc_ami'                => 'Telephony link service',
     'mod_cti_svc_chats'              => 'WhatsApp channels',
     'mod_cti_svc_tg'                 => 'Telegram channels',
     'mod_cti_svc_max'                => 'MAX channels',
@@ -102,9 +113,11 @@ return [
 
     // Service states
     'mod_cti_state_ok'               => 'OK',
+    'mod_cti_state_authenticated'    => 'Authenticated',
     'mod_cti_state_error'            => 'Error',
     'mod_cti_state_unknown'          => 'Unknown',
     'mod_cti_state_pending'          => 'Pending',
     'mod_cti_state_starting'         => 'Starting',
     'mod_cti_state_qrcode'           => 'Awaiting QR-code authorization',
+    'mod_cti_state_reauth'           => 'Authorization required',
 ];

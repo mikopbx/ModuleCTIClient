@@ -102,13 +102,24 @@ return [
     'mod_cti_Uptime'                   => 'Аптайм',
     'mod_cti_Version'                  => 'Версия',
 
+    // Колонки таблицы статусов
+    'mod_cti_colStatus'                => 'Статус',
+    'mod_cti_colService'               => 'Сервис',
+    'mod_cti_colLocation'              => 'Расположение',
+    'mod_cti_colUptime'                => 'Аптайм',
+    'mod_cti_colVersion'               => 'Версия',
+
+    // Бейджи расположения сервиса
+    'mod_cti_LocationLocal'            => 'Локально',
+    'mod_cti_LocationRemote'           => 'VPS',
+
     // Имена сервисов
     'mod_cti_svc_monitord'             => 'Супервизор сервисов',
     'mod_cti_svc_nats'                 => 'Шина сообщений NATS',
-    'mod_cti_svc_crm'                  => 'Коннектор 1С',
+    'mod_cti_svc_crm'                  => 'Служба связи с 1С:Предприятием',
     'mod_cti_svc_auth'                 => 'Сервис авторизации',
-    'mod_cti_svc_proxy'                => 'Прокси-сервис',
-    'mod_cti_svc_ami'                  => 'AMI-приёмник',
+    'mod_cti_svc_proxy'                => 'Прокси-сервер для внешней панели телефонии',
+    'mod_cti_svc_ami'                  => 'Служба связи с телефонией',
     'mod_cti_svc_chats'                => 'Каналы WhatsApp',
     'mod_cti_svc_tg'                   => 'Каналы Telegram',
     'mod_cti_svc_max'                  => 'Каналы MAX',
@@ -117,9 +128,11 @@ return [
 
     // Состояния сервиса
     'mod_cti_state_ok'                 => 'Работает',
+    'mod_cti_state_authenticated'      => 'Авторизован',
     'mod_cti_state_error'              => 'Ошибка',
     'mod_cti_state_unknown'            => 'Неизвестно',
     'mod_cti_state_pending'            => 'Ожидание',
     'mod_cti_state_starting'           => 'Запускается',
     'mod_cti_state_qrcode'             => 'Ожидает авторизации по QR-коду',
+    'mod_cti_state_reauth'             => 'Требуется авторизация',
 ];

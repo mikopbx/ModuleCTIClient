@@ -2972,6 +2972,12 @@ class AmigoDaemons extends Injectable
             }
         }
 
+        // Tag every row with where it runs (local box vs offloaded VPS) so the
+        // UI can render a "VPS" badge against the messenger channels that the
+        // operator moved to the remote server. Additive field only — the
+        // success classification below still keys purely on 'state'.
+        $statuses = $this->annotateLocations($statuses);
+
         $res->success = true;
         foreach ($statuses as $workerStatus) {
             if (!$res->success) {
@@ -2982,6 +2988,139 @@ class AmigoDaemons extends Injectable
 
         $res->data['statuses'] = $statuses;
         return $res;
+    }
+
+    /**
+     * Annotate each status row with a 'location' field ("local"|"remote") so the
+     * status panel can flag which messenger channels were offloaded to the VPS.
+     *
+     * Source of truth is Go's custom_config.json (CC2: READ-ONLY here), the same
+     * file getRoutedRemoteServices trusts. We deliberately do NOT use the
+     * remote_state cursor — during a resume it lags behind Go's actual routing.
+     *
+     * The join is per-area: a migratable service (chats|tg|max) can be MIXED
+     * (some channels local, some on the VPS), so each channel row is tagged
+     * individually by its area UUID. The SSH tunnel row is the uplink itself, so
+     * it is always "remote". Plain infra rows (monitord, nats, …) are "local".
+     *
+     * @param array<int,mixed> $statuses
+     * @return array<int,mixed>
+     */
+    private function annotateLocations(array $statuses): array
+    {
+        $locationMap = $this->readAllCustomConfigLocations();
+
+        foreach ($statuses as $idx => $row) {
+            if (!is_array($row) || !isset($row['name'])) {
+                continue;
+            }
+            $name = (string)$row['name'];
+
+            // The SSH tunnel IS the link to the VPS.
+            if ($name === self::SERVICE_REMOTE_TUNNEL) {
+                $statuses[$idx]['location'] = 'remote';
+                continue;
+            }
+
+            // Derive the base service, tolerating a "chats.<area>" name form.
+            $svc = $name;
+            $dotPos = strpos($name, '.');
+            if ($dotPos !== false) {
+                $svc = substr($name, 0, $dotPos);
+            }
+            if (!in_array($svc, self::MIGRATABLE_SERVICES, true)) {
+                // Infrastructure daemon — always on the local box.
+                $statuses[$idx]['location'] = 'local';
+                continue;
+            }
+
+            $area = (string)($row['area'] ?? '');
+            if ($area === '' && $dotPos !== false) {
+                $area = substr($name, $dotPos + 1);
+            }
+
+            $location = $this->lookupAreaLocation($locationMap[$svc] ?? [], $area);
+            if ($location !== null) {
+                $statuses[$idx]['location'] = $location;
+            }
+            // Unknown area (join miss) -> leave 'location' unset so the UI shows a
+            // neutral cell rather than falsely asserting "local".
+        }
+
+        return $statuses;
+    }
+
+    /**
+     * READ-ONLY (CC2): parse Go's custom_config.json ONCE and return the
+     * per-service area->location map for all migratable services. Cheaper than
+     * calling readCustomConfigAreas() per service on every 3s status poll.
+     *
+     * @return array<string,array<string,string>> svc => (area => "local"|"remote")
+     */
+    private function readAllCustomConfigLocations(): array
+    {
+        $map = [];
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            $map[$svc] = [];
+        }
+
+        $path = $this->getCustomConfigPath();
+        if (!file_exists($path)) {
+            return $map;
+        }
+        $raw = @file_get_contents($path);
+        if (!is_string($raw) || $raw === '') {
+            return $map;
+        }
+        $data = json_decode($raw, true);
+        if (!is_array($data) || !isset($data['custom_daemons']) || !is_array($data['custom_daemons'])) {
+            return $map;
+        }
+
+        foreach ($data['custom_daemons'] as $d) {
+            if (!is_array($d)) {
+                continue;
+            }
+            $area = (string)($d['area'] ?? '');
+            if ($area === '') {
+                continue;
+            }
+            $svc = $this->serviceOfDaemon($d);
+            if (!isset($map[$svc])) {
+                continue;
+            }
+            $location = (string)($d['location'] ?? '');
+            $map[$svc][$area] = ($location === 'remote') ? 'remote' : 'local';
+        }
+
+        return $map;
+    }
+
+    /**
+     * Resolve a status row's area to its location using the custom_config map.
+     * Tries an exact key first, then a defensive substring match in either
+     * direction to survive dotted/prefixed area forms (mirrors the tolerance in
+     * statusRowMatchesArea). Returns null when the area is unknown.
+     *
+     * @param array<string,string> $areaMap area => "local"|"remote"
+     * @param string               $area
+     * @return string|null
+     */
+    private function lookupAreaLocation(array $areaMap, string $area): ?string
+    {
+        if ($area === '' || empty($areaMap)) {
+            return null;
+        }
+        if (isset($areaMap[$area])) {
+            return $areaMap[$area];
+        }
+        foreach ($areaMap as $cfgArea => $loc) {
+            $cfgArea = (string)$cfgArea;
+            if ($cfgArea !== '' && (strpos($area, $cfgArea) !== false || strpos($cfgArea, $area) !== false)) {
+                return $loc;
+            }
+        }
+        return null;
     }
 
     /**
