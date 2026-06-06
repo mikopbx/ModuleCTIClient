@@ -1012,12 +1012,50 @@ class AmigoDaemons extends Injectable
      * startAllServices(true). Used at every migration step that changes
      * suppressed or area side.
      *
-     * @return bool true if the /reconcile POST was accepted (2xx).
+     * EXCEPTION — first-activation tunnel bootstrap (BUG 2): the Go ssh tunnel is
+     * loaded ONCE at monitord boot from the ssh_tunnel block; doReconcile does
+     * NOT re-read it. So when offload infra first becomes needed but the RUNNING
+     * monitord came up without a tunnel, an in-place /reconcile can never bring
+     * the tunnel up — only a monitord restart re-reads the freshly-rendered
+     * ssh_tunnel block. We detect that by asking the running monitord for its
+     * tunnel status (NOT an on-disk diff: generateMonitordConf already wrote the
+     * block to disk here, so disk-vs-disk would always say "unchanged" and stay
+     * stuck) and restart in that one case. The gate is idempotent and self-
+     * healing: once the tunnel is configured:true it never restarts again, so it
+     * also recovers from a crash between set-migrating and the restart, and from
+     * a host-change that left infra needed without a tunnel.
+     *
+     * @return bool true if the /reconcile POST was accepted (2xx) or a
+     *              tunnel-bootstrap restart was triggered.
      */
     public function applyMonitordConfigAndReconcile(): bool
     {
         $this->generateMonitordConf();
         $this->generateRemoteConfFiles();
+
+        // BUG 2 tunnel bootstrap: infra needed, but is the tunnel actually up in
+        // the running monitord? configured:false => it booted without a tunnel
+        // block and /reconcile can't fix that — restart so Go loads the now-
+        // rendered ssh_tunnel (generateConfFiles re-renders it before respawn).
+        // A null status means monitord is unreachable/restarting; leave that to
+        // WorkerSafeScript, which regenerates config and respawns a dead monitord
+        // (rendering the tunnel) — restarting from here would race that respawn.
+        //
+        // The gate predicate MUST match generateMonitordConf's tunnel-render
+        // predicate (isInfraNeeded && ssh params present): if host were set but
+        // the key missing/unreadable, isInfraNeeded could be true while no
+        // ssh_tunnel is rendered → configured:false forever → an infinite
+        // full-stack bounce. With the ssh-params check, a missing key instead
+        // falls through to the STEP 2 copy, which fails into FAIL-PARK and
+        // restores the local service.
+        if ($this->isInfraNeeded() && $this->getRemoteSshParams() !== null) {
+            $tunnel = $this->getMonitordTunnelStatus();
+            if ($tunnel !== null && empty($tunnel['configured'])) {
+                $this->startAllServices(true);
+                return true;
+            }
+        }
+
         // Best-effort push; needs the tunnel up. A failure here just means the
         // VPS receiver lags — the worker re-drives idempotently next tick.
         $this->provisionRemote();
@@ -2053,16 +2091,50 @@ class AmigoDaemons extends Injectable
         // the monitord string.  Absolute path in `-c` is required: a relative
         // path makes monitord fall back to defaults and explode with
         // "fatal Missing work_dir".
-        $remoteCmd = 'pgrep -x ' . escapeshellarg(self::SERVICE_MONITOR) . ' >/dev/null 2>&1 || '
-            . '(cd ' . escapeshellarg($base) . ' && '
-            . 'nohup ' . escapeshellarg("{$base}/bin/" . self::SERVICE_MONITOR)
+        //
+        // DETACH (BUG 2 — the cold-launch hang): launching a daemon over ssh and
+        // returning at once requires that NO surviving process still holds the
+        // ssh channel's stdout/stderr pipe — ssh only returns once the server
+        // sees EOF on that pipe. The earlier `(cd … && nohup monitord … </dev/null &)`
+        // form was NOT enough: the subshell `( … )` wrapper bash kept fd 1/2
+        // pointing at the channel pipe even after backgrounding monitord, so ssh
+        // hung for ~20 min while the wrapper lingered (proven live: the wrapper
+        // bash held pipe:[…] on fd1/2 while monitord itself was already clean).
+        // `</dev/null` only fixed monitord's *stdin* — the wrapper's stdout/stderr
+        // were the real holders.
+        //
+        // The robust form: `setsid sh -c 'cd … && exec monitord … >>log 2>&1
+        // </dev/null' >/dev/null 2>&1 </dev/null &`
+        //   • the OUTER `>/dev/null 2>&1 </dev/null` strips the channel pipe from
+        //     the setsid wrapper (this is the load-bearing change),
+        //   • `exec` replaces sh with monitord so no extra shell lingers,
+        //   • `setsid` detaches into a new session (no controlling tty / SIGHUP),
+        //   • the INNER `>>log 2>&1 </dev/null` points monitord's own fds at the
+        //     log / /dev/null.
+        // Verified live: ssh returns in <3 s and the daemon reparents to init with
+        // fd 0→/dev/null, 1,2→log and no pipe held by any wrapper.
+        // (-n can't go in buildSshArgs — the migrate path pipes tar over stdin.)
+        //
+        // `timeout` is defense in depth: even with a perfect detach, a TCP stall
+        // mid-session would block exec() forever (ServerAlive only catches a dead
+        // link, not a live one waiting on EOF). This is a best-effort keepalive
+        // call, so a bounded local timeout must never let it freeze the worker.
+        // 30s margin: the cold launch (ssh connect + monitord start) was seen
+        // taking ~10s live, so the bound sits ~3× above the observed worst case;
+        // if it ever fires, the next keepalive tick re-drives idempotently.
+        $innerCmd = 'cd ' . escapeshellarg($base) . ' && '
+            . 'exec ' . escapeshellarg("{$base}/bin/" . self::SERVICE_MONITOR)
             . ' -c ' . escapeshellarg("{$base}/conf/monitord.json")
-            . ' >> ' . escapeshellarg("{$base}/logs/monitord.out") . ' 2>&1 &)';
+            . ' >> ' . escapeshellarg("{$base}/logs/monitord.out") . ' 2>&1 </dev/null';
+        $remoteCmd = 'pgrep -x ' . escapeshellarg(self::SERVICE_MONITOR) . ' >/dev/null 2>&1 || '
+            . 'setsid sh -c ' . escapeshellarg($innerCmd) . ' >/dev/null 2>&1 </dev/null &';
 
         $rc = 0;
-        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $tmpOut, $rc);
+        exec('timeout 30 ' . $sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $tmpOut, $rc);
         if ($rc !== 0) {
-            return ['ok' => false, 'error' => 'ssh monitord launch failed: rc=' . $rc];
+            // rc 124 = local timeout fired (ssh stalled); anything else = ssh error.
+            $reason = ($rc === 124) ? 'ssh monitord launch timed out' : 'ssh monitord launch failed';
+            return ['ok' => false, 'error' => $reason . ': rc=' . $rc];
         }
         return ['ok' => true, 'error' => ''];
     }

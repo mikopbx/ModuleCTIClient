@@ -129,6 +129,21 @@ class WorkerRemoteTunnel extends WorkerBase
                 $cleanedStaleSsh = true;
             }
 
+            // 0. First-activation bootstrap (BUG 2): advance the migration state
+            //    machine BEFORE the tunnel wait below. STEP 1 SUPPRESS is what
+            //    sets migrating=true → renders the ssh_tunnel block → restarts
+            //    monitord to bring the Go tunnel up (via the tunnel-aware
+            //    applyMonitordConfigAndReconcile). Gating this behind
+            //    waitTunnelConnected would deadlock: the tunnel needs the
+            //    migration to start, and the migration would be waiting for the
+            //    tunnel. Safe to run pre-tunnel — STEP 1 (bothSidesDown polls the
+            //    LOCAL monitord) and STEP 2 (copy over direct ssh) don't use the
+            //    Go tunnel, and a bad host fails the STEP 2 copy into FAIL-PARK
+            //    (which restores the local service). STEP 3 (receiver on the VPS)
+            //    runs in the tunnel-gated keepalive loop and self-rolls-back if
+            //    the receiver never comes up. Idempotent / one-step-per-tick.
+            $cti->reconcileMigrations();
+
             // 1. Provisioning — idempotent. Failure usually means the VPS is
             //    unreachable; back off and retry.
             $prov = $cti->provisionRemote();
