@@ -264,15 +264,23 @@ class ModuleCTIClientController extends BaseController
 
         $params = [];
         parse_str($query, $params);
-        $server = trim($params['server'] ?? '');
-        $port = trim($params['port'] ?? '');
+        // parse_str() yields arrays for repeated keys (e.g. server[]=a&server[]=b);
+        // guard against non-string values so trim() does not throw a TypeError.
+        $server = $params['server'] ?? '';
+        $port = $params['port'] ?? '';
+        $secret = $params['secret'] ?? '';
+        if (!is_string($server) || !is_string($port) || !is_string($secret)) {
+            return null;
+        }
+        $server = trim($server);
+        $port = trim($port);
         if ($server === '' || !ctype_digit($port)) {
             return null;
         }
 
         return [
             'address' => $server . ':' . $port,
-            'secret' => trim($params['secret'] ?? ''),
+            'secret' => trim($secret),
         ];
     }
 
