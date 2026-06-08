@@ -51,7 +51,7 @@ return [
     'mod_cti_TelegramProxyHeader' => 'Telegram',
     'mod_cti_MaxProxyHeader' => 'MAX',
     'mod_cti_MtProxyHeader' => 'MT Proxy for Telegram',
-    'mod_cti_MtProxyHint' => 'MTProto proxy is independent from the HTTP/SOCKS proxy above — Telegram can use either or both.',
+    'mod_cti_MtProxyHint' => 'When set, the MTProto proxy is used for Telegram instead of the HTTP/SOCKS proxy above (they are mutually exclusive). You may paste a full tg://proxy or https://t.me/proxy link into either field — the address and secret are extracted automatically; or enter the address as host:port and the secret in HEX or base64 form.',
     'mod_cti_tab_Remote' => 'Remote messengers',
     'mod_cti_RemoteHeader' => 'Remote messenger server',
     'mod_cti_RemoteIntro' => 'Optional. Offload WhatsApp / Telegram / MAX channels to a remote x86_64 VPS reachable over SSH. Each toggled service runs on the VPS and is reached transparently through the SSH tunnel — 1C continues to talk to MikoPBX as before. Leave this tab untouched if you do not need to offload messengers.',

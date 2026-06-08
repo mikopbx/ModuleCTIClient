@@ -185,6 +185,130 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
+     * Normalizes MTProxy form input before it is persisted.
+     *
+     * The Go telegram daemon expects mt_proxy_address as "host:port" and
+     * mt_proxy_secret as a HEX string (it runs hex.DecodeString on it).
+     * Operators, however, usually copy a ready-made proxy link
+     * (tg://proxy?server=..&port=..&secret=.. or https://t.me/proxy?...) and
+     * the secret is frequently distributed in base64url form. Without this
+     * step those inputs decode to garbage and the daemon silently falls back
+     * to a direct (blocked) connection. Here we extract host/port/secret from
+     * a pasted link and re-encode the secret to HEX so the proxy is actually
+     * used.
+     *
+     * The masked placeholder is left untouched so an unchanged secret is not
+     * overwritten with the mask.
+     *
+     * @param array $data POST data.
+     *
+     * @return array Normalized POST data.
+     */
+    private function normalizeMtProxySettings(array $data): array
+    {
+        $hasAddress = array_key_exists('mt_proxy_address', $data);
+        $hasSecret = array_key_exists('mt_proxy_secret', $data);
+        if (!$hasAddress && !$hasSecret) {
+            return $data;
+        }
+
+        $address = trim($data['mt_proxy_address'] ?? '');
+        $secret = trim($data['mt_proxy_secret'] ?? '');
+
+        // A full proxy link may be pasted into either field. Use the first
+        // field that holds one to fill in server/port/secret.
+        foreach ([$address, $secret] as $candidate) {
+            $parsed = $this->parseMtProxyLink($candidate);
+            if ($parsed === null) {
+                continue;
+            }
+            $address = $parsed['address'];
+            if ($parsed['secret'] !== '') {
+                $secret = $parsed['secret'];
+            }
+            break;
+        }
+
+        // Re-encode the secret to lower-case HEX unless it is the mask.
+        if ($secret !== '' && strpos($secret, self::SECRET_MASK) === false) {
+            $secret = $this->normalizeMtProxySecret($secret);
+        }
+
+        if ($hasAddress) {
+            $data['mt_proxy_address'] = $address;
+        }
+        if ($hasSecret) {
+            $data['mt_proxy_secret'] = $secret;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Parses a tg://proxy or https://t.me/proxy link into address + secret.
+     *
+     * @param string $value Candidate value (any form field may hold the link).
+     *
+     * @return array|null ['address' => 'host:port', 'secret' => '<raw secret>'] or null when not a proxy link.
+     */
+    private function parseMtProxyLink(string $value): ?array
+    {
+        if ($value === '' || stripos($value, 'proxy') === false || strpos($value, '?') === false) {
+            return null;
+        }
+
+        $query = parse_url($value, PHP_URL_QUERY);
+        if (!is_string($query) || $query === '') {
+            return null;
+        }
+
+        $params = [];
+        parse_str($query, $params);
+        $server = trim($params['server'] ?? '');
+        $port = trim($params['port'] ?? '');
+        if ($server === '' || !ctype_digit($port)) {
+            return null;
+        }
+
+        return [
+            'address' => $server . ':' . $port,
+            'secret' => trim($params['secret'] ?? ''),
+        ];
+    }
+
+    /**
+     * Converts an MTProxy secret to the lower-case HEX form the Go daemon decodes.
+     *
+     * Accepts a HEX secret (passed through, lower-cased) or a base64/base64url
+     * secret (decoded and re-encoded as HEX). Anything else is returned as-is
+     * so the operator's input is never silently destroyed.
+     *
+     * @param string $secret Raw secret from the form or a proxy link.
+     *
+     * @return string Normalized secret.
+     */
+    private function normalizeMtProxySecret(string $secret): string
+    {
+        // Already valid HEX: keep it (lower-cased for stable storage).
+        if (strlen($secret) % 2 === 0 && ctype_xdigit($secret)) {
+            return strtolower($secret);
+        }
+
+        // Telegram often distributes fake-TLS secrets in base64url form.
+        $b64 = strtr($secret, '-_', '+/');
+        $remainder = strlen($b64) % 4;
+        if ($remainder > 0) {
+            $b64 .= str_repeat('=', 4 - $remainder);
+        }
+        $decoded = base64_decode($b64, true);
+        if (is_string($decoded) && $decoded !== '') {
+            return bin2hex($decoded);
+        }
+
+        return $secret;
+    }
+
+    /**
      * Saves the module settings based on the submitted form data.
      * If the request method is not POST, the function returns early.
      * Retrieves the form data, finds or creates a ModuleCTIClient record,
@@ -199,6 +323,10 @@ class ModuleCTIClientController extends BaseController
         }
         // Retrieve the form data
         $data = $this->request->getPost();
+
+        // Normalize MTProxy input (proxy links / base64 secret) into the
+        // "host:port" + HEX shape the Go telegram daemon expects.
+        $data = $this->normalizeMtProxySettings($data);
 
         // Find or create a ModuleCTIClient record
         $record = ModuleCTIClient::findFirst();

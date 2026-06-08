@@ -65,7 +65,7 @@ return [
     'mod_cti_TelegramProxyHeader'      => 'Telegram',
     'mod_cti_MaxProxyHeader'           => 'MAX',
     'mod_cti_MtProxyHeader'            => 'MT Proxy для Telegram',
-    'mod_cti_MtProxyHint'              => 'MTProto-прокси не зависит от HTTP/SOCKS-прокси выше — Telegram может использовать любой из них или оба.',
+    'mod_cti_MtProxyHint'              => 'Если задан, MTProto-прокси используется для Telegram вместо HTTP/SOCKS-прокси выше (они взаимоисключающие). Можно вставить в любое поле полную ссылку tg://proxy или https://t.me/proxy — адрес и секрет извлекутся автоматически; либо указать адрес как host:port, а секрет в формате HEX или base64.',
 
     'mod_cti_tab_Remote'               => 'Удалённые мессенджеры',
     'mod_cti_RemoteHeader'             => 'Удалённый сервер мессенджеров',
