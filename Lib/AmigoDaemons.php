@@ -753,6 +753,23 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Current installed version of this module, or '' when it cannot be
+     * determined. Used as the VPS binary deployment stamp ({base}/bin/.version)
+     * so an in-place module upgrade can force the remote daemons onto the new
+     * code instead of leaving the old, still-running process untouched.
+     *
+     * @return string
+     */
+    private function getModuleVersion(): string
+    {
+        $info = PbxExtensionModules::findFirstByUniqid($this->moduleUniqueID);
+        if ($info && !empty($info->version)) {
+            return (string)$info->version;
+        }
+        return '';
+    }
+
+    /**
      * Returns the SSH connection parameters for the remote VPS, or null when
      * offload is not fully configured (host or key missing).
      * The private key is written to a chmod-600 file under spool/.
@@ -847,7 +864,9 @@ class AmigoDaemons extends Injectable
      *   4. Push the staged conf/ files from {spool}/remote/conf/.
      *   5. Prune stale conf/*.json on the VPS (de-toggled service).
      *
-     * @return array{ok:bool,error:string} ok=true means VPS is fully provisioned.
+     * @return array{ok:bool,error:string,changed?:array<int,string>} ok=true means
+     *         VPS is fully provisioned; 'changed' lists the binary basenames that
+     *         were (re)pushed this call (feed to restartChangedRemoteBinaries()).
      */
     public function provisionRemote(): array
     {
@@ -911,6 +930,22 @@ class AmigoDaemons extends Injectable
             }
         }
 
+        // Version stamp. An in-place module upgrade replaces the LOCAL binaries
+        // but leaves the running VPS daemons on the old code. We record the
+        // deployed module version in {base}/bin/.version and, when it no longer
+        // matches the local module version, force a re-push of every binary —
+        // this covers the rare same-byte-size rebuild that the size check below
+        // would otherwise skip. The pushed-binary list is returned in 'changed'
+        // so the worker (WorkerRemoteTunnel) can bounce the affected remote
+        // processes; the stamp itself only tracks ON-DISK state.
+        $localVersion = $this->getModuleVersion();
+        $stampPath    = "{$base}/bin/.version";
+        $catStamp     = 'cat ' . escapeshellarg($stampPath) . ' 2>/dev/null';
+        $verOut = [];
+        exec($sshArgs . ' ' . escapeshellarg($catStamp) . ' 2>/dev/null', $verOut, $rc);
+        $remoteStamp    = trim(implode("\n", $verOut));
+        $versionChanged = ($localVersion !== '' && $remoteStamp !== $localVersion);
+
         // Get remote file sizes so we only push what changed. Missing files => size 0.
         $statCmd = '';
         foreach ($binsToPush as $bin) {
@@ -923,21 +958,38 @@ class AmigoDaemons extends Injectable
             $remoteSizes[$bin] = isset($statOut[$i]) ? (int)trim($statOut[$i]) : 0;
         }
 
+        $pushed = [];
         foreach ($binsToPush as $bin) {
             $localPath = $this->dirs['binDir'] . '/' . $bin;
             if (!file_exists($localPath)) {
-                return ['ok' => false, 'error' => 'local binary missing: ' . $bin];
+                return ['ok' => false, 'error' => 'local binary missing: ' . $bin, 'changed' => $pushed];
             }
             $localSize = (int)filesize($localPath);
-            if ($localSize > 0 && $remoteSizes[$bin] === $localSize) {
-                continue; // same size — assume unchanged
+            if (!$versionChanged && $localSize > 0 && $remoteSizes[$bin] === $localSize) {
+                continue; // same size and same version — assume unchanged
             }
-            if (!$this->scpPush($ssh, $localPath, "{$base}/bin/{$bin}")) {
-                return ['ok' => false, 'error' => 'scp push failed: ' . $bin];
+            // Push to a temp name, then atomically rename over the target. A
+            // direct scp overwrite of a binary that is CURRENTLY EXECUTING on
+            // the VPS (the normal case for an upgrade force-push) fails with
+            // ETXTBSY; rename() swaps the directory entry without opening the
+            // busy file, so the running daemon keeps its old inode and the
+            // supervisor's respawn execs the new one.
+            $remoteFinal = "{$base}/bin/{$bin}";
+            $remoteTmp   = $remoteFinal . '.new';
+            if (!$this->scpPush($ssh, $localPath, $remoteTmp)) {
+                return ['ok' => false, 'error' => 'scp push failed: ' . $bin, 'changed' => $pushed];
             }
+            $mvCmd = 'chmod +x ' . escapeshellarg($remoteTmp) . ' && '
+                . 'mv -f ' . escapeshellarg($remoteTmp) . ' ' . escapeshellarg($remoteFinal);
+            exec($sshArgs . ' ' . escapeshellarg($mvCmd) . ' 2>/dev/null', $tmpOut, $rc);
+            if ($rc !== 0) {
+                return ['ok' => false, 'error' => 'remote mv failed: ' . $bin, 'changed' => $pushed];
+            }
+            $pushed[] = $bin;
         }
 
-        // chmod +x on every binary, idempotent.
+        // chmod +x on every binary, idempotent (covers any pre-existing file;
+        // freshly pushed ones were already chmod'd before the rename above).
         $chmodCmd = 'chmod +x ' . escapeshellarg("{$base}/bin") . '/*';
         exec($sshArgs . ' ' . escapeshellarg($chmodCmd) . ' 2>/dev/null', $tmpOut, $rc);
 
@@ -977,7 +1029,23 @@ class AmigoDaemons extends Injectable
             . 'done';
         exec($sshArgs . ' ' . escapeshellarg($pruneCmd) . ' 2>/dev/null', $tmpOut, $rc);
 
-        return ['ok' => true, 'error' => ''];
+        // Refresh the on-disk deployment stamp LAST — only once binaries AND
+        // configs are fully in place. Writing it earlier (right after the binary
+        // push) would mark the VPS "current" even if a later step here failed
+        // (config push) or the caller never bounced: the next retry would then
+        // see versionChanged=false and return changed=[], stranding the stale
+        // daemon on the old code. Stamping after every step succeeded means a
+        // failure anywhere above leaves the stamp stale, so the retry re-detects
+        // the upgrade, re-pushes (mv is idempotent) and re-emits 'changed'.
+        // Only written when we actually (re)pushed, to skip a useless ssh
+        // round-trip on a steady-state no-op tick.
+        if ($localVersion !== '' && !empty($pushed)) {
+            $writeStamp = 'printf %s ' . escapeshellarg($localVersion)
+                . ' > ' . escapeshellarg($stampPath);
+            exec($sshArgs . ' ' . escapeshellarg($writeStamp) . ' 2>/dev/null', $tmpOut, $rc);
+        }
+
+        return ['ok' => true, 'error' => '', 'changed' => $pushed];
     }
 
     /**
@@ -1058,7 +1126,16 @@ class AmigoDaemons extends Injectable
 
         // Best-effort push; needs the tunnel up. A failure here just means the
         // VPS receiver lags — the worker re-drives idempotently next tick.
-        $this->provisionRemote();
+        // We must consume 'changed' here too: this caller can win the push race
+        // against the worker (a model-change concurrent with a module upgrade),
+        // and provisionRemote writes the on-disk stamp eagerly — so if we didn't
+        // bounce here, the worker's next tick would see versionChanged=false /
+        // changed=[] and the stale remote process would never pick up the new
+        // code. For the monitord-changed case this stops the remote stack; it is
+        // relaunched by WorkerRemoteTunnel's next keepalive tick (this path does
+        // not call launchRemoteMonitord itself) — pgrep-gated, so idempotent.
+        $prov = $this->provisionRemote();
+        $this->restartChangedRemoteBinaries($prov['changed'] ?? []);
 
         $curl = curl_init();
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
@@ -2159,6 +2236,54 @@ class AmigoDaemons extends Injectable
             . 'pkill -x ' . escapeshellarg(self::SERVICE_TELEGRAM) . '; '
             . 'pkill -x ' . escapeshellarg(self::SERVICE_MAX) . '; '
             . 'true';
+        $rc = 0;
+        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $tmpOut, $rc);
+    }
+
+    /**
+     * Relaunch the VPS daemons whose binary provisionRemote() just (re)pushed,
+     * so an in-place module upgrade actually RUNS the new code. Without this,
+     * launchRemoteMonitord() is pgrep-gated and no-ops over the stale, still-
+     * running process — the new binary sits on disk unused until the next
+     * unrelated restart.
+     *
+     * - monitord changed  -> full stop (monitord + its supervised children).
+     *   monitord is then relaunched by launchRemoteMonitord() — either the
+     *   worker calls it on the same/next pass, or its next keepalive tick does
+     *   (it is pgrep-gated, so a relaunch is safe and idempotent). The fresh
+     *   monitord re-spawns the children from custom_config on the new binaries.
+     *   Killing the whole stack avoids orphaning a child under a new monitord.
+     * - only children changed -> pkill the changed child(ren); the still-running
+     *   remote monitord's supervision loop respawns each from its new binary.
+     *
+     * Pass provisionRemote()['changed'] verbatim. Best-effort over direct ssh
+     * (not the Go tunnel), so it works pre-tunnel during an upgrade when the old
+     * remote stack is still up on the (separate, untouched) VPS host.
+     *
+     * @param array<int,string> $changedBins binary basenames that were repushed
+     * @return void
+     */
+    public function restartChangedRemoteBinaries(array $changedBins): void
+    {
+        if (empty($changedBins)) {
+            return;
+        }
+        // monitord itself changed — bounce the whole remote stack. The caller's
+        // launchRemoteMonitord() brings it (and its children) back on new code.
+        if (in_array(self::SERVICE_MONITOR, $changedBins, true)) {
+            $this->stopRemoteServices();
+            return;
+        }
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return;
+        }
+        $sshArgs = self::buildSshArgs($ssh);
+        $kills = [];
+        foreach ($changedBins as $bin) {
+            $kills[] = 'pkill -x ' . escapeshellarg($bin);
+        }
+        $remoteCmd = implode('; ', $kills) . '; true';
         $rc = 0;
         exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $tmpOut, $rc);
     }

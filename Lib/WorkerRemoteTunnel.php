@@ -156,6 +156,14 @@ class WorkerRemoteTunnel extends WorkerBase
                 continue;
             }
 
+            // 1a. Module upgrade: if a binary was just repushed, kill the stale
+            //     remote process so it relaunches on the new code. On an upgrade
+            //     the old remote stack is still up on the (separate, untouched)
+            //     VPS, so this runs over direct ssh BEFORE the tunnel wait below;
+            //     launchRemoteMonitord() at step 3 respawns monitord, which
+            //     re-supervises its children from the new binaries.
+            $cti->restartChangedRemoteBinaries($prov['changed'] ?? []);
+
             // 2. Wait for the monitord-owned tunnel to come up before launching
             //    the remote monitord (its chatsd needs NATS over the -R forward).
             if (!$this->waitTunnelConnected($cti)) {
@@ -206,7 +214,17 @@ class WorkerRemoteTunnel extends WorkerBase
                 // bare launchRemoteMonitord() below is pgrep-gated and would
                 // otherwise keep relaunching the same broken config.
                 if (time() - $lastProvision >= self::REPROVISION_INTERVAL_SECONDS) {
-                    $ctiCheck->provisionRemote();
+                    $reProv = $ctiCheck->provisionRemote();
+                    // Steady-state upgrade pickup: a binary changed under a live
+                    // stack — kill the stale process(es) so the launch below (or
+                    // monitord's own supervision, for children) brings up the new
+                    // code instead of pgrep-no-oping over the old one.
+                    // NB monitord case: pkill returns before the process is gone,
+                    // so the launchRemoteMonitord() right below may still pgrep-
+                    // match the dying monitord and no-op; the next keepalive tick
+                    // then finds it gone and relaunches. One POLL_INTERVAL of
+                    // remote-down, self-healing — acceptable for a rare upgrade.
+                    $ctiCheck->restartChangedRemoteBinaries($reProv['changed'] ?? []);
                     $lastProvision = time();
                 }
 
