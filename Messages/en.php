@@ -120,4 +120,5 @@ return [
     'mod_cti_state_starting'         => 'Starting',
     'mod_cti_state_qrcode'           => 'Awaiting QR-code authorization',
     'mod_cti_state_reauth'           => 'Authorization required',
+    'mod_cti_state_suppressed'       => 'Migrating',
 ];

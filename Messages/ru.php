@@ -135,4 +135,5 @@ return [
     'mod_cti_state_starting'           => 'Запускается',
     'mod_cti_state_qrcode'             => 'Ожидает авторизации по QR-коду',
     'mod_cti_state_reauth'             => 'Требуется авторизация',
+    'mod_cti_state_suppressed'         => 'Переносится',
 ];

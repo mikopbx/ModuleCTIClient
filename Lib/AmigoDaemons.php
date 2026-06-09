@@ -3327,6 +3327,19 @@ class AmigoDaemons extends Injectable
                 'state' => 'unknown',
             ];
         }
+
+        // Normalize daemon binary names to manager.api service names. monitord's
+        // /status reports a suppressed/killed messenger daemon by its binary
+        // name (chatsd|tgd|maxd) instead of the service name (chats|tg|max);
+        // left as-is the UI shows the raw binary ("chatsd") and annotateLocations
+        // fails to recognize it as a messenger so it mis-tags the location.
+        $binaryToService = array_flip($this->getServiceBinaryMap()); // chatsd=>chats, tgd=>tg, maxd=>max
+        foreach ($result as $i => $row) {
+            if (is_array($row) && isset($row['name']) && isset($binaryToService[$row['name']])) {
+                $result[$i]['name'] = $binaryToService[$row['name']];
+            }
+        }
+
         return $result;
     }
 
