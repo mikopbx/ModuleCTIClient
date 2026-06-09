@@ -2346,11 +2346,15 @@ class AmigoDaemons extends Injectable
     }
 
     /**
-     * Per-messenger HTTP proxy address. Each messenger now has its own field
+     * Per-messenger HTTP proxy address. Each messenger has its own field
      * (`whatsapp_proxy_address`, `telegram_proxy_address`, `max_proxy_address`)
      * because the values land in separate daemon configs and may need to
-     * differ. Empty per-messenger field falls back to the legacy single
-     * `chats_proxy_address` so existing installs keep working unchanged.
+     * differ. An empty field means "no proxy" — the daemon connects directly.
+     *
+     * NOTE: the legacy single `chats_proxy_address` fallback was removed: the UI
+     * only edits the per-messenger fields, so a stale legacy value (e.g. left
+     * over from an earlier setup) would silently override an intentionally
+     * cleared per-messenger field and inject a dead proxy into the daemon config.
      *
      * @param string $messenger One of 'whatsapp', 'telegram', 'max'.
      */
@@ -2362,17 +2366,14 @@ class AmigoDaemons extends Injectable
             'max'      => 'max_proxy_address',
         ];
         $field = $fieldByMessenger[$messenger] ?? null;
-        if ($field !== null) {
-            $own = trim((string)($this->module_settings[$field] ?? ''));
-            if ($own !== '') {
-                return escapeshellcmd($own);
-            }
-        }
-        $legacy = trim((string)($this->module_settings['chats_proxy_address'] ?? ''));
-        if ($legacy === '') {
+        if ($field === null) {
             return '';
         }
-        return escapeshellcmd($legacy);
+        $own = trim((string)($this->module_settings[$field] ?? ''));
+        if ($own === '') {
+            return '';
+        }
+        return escapeshellcmd($own);
     }
 
     /**
