@@ -335,7 +335,12 @@ const moduleCTIClientConnectionCheckWorker = {
 		let html = `<tr class="cti-svc-row${grouped ? ' cti-svc-subrow' : ''}"`
 			+ ` data-svc="${esc(svc.name || '')}" data-area="${esc(svc.area || '')}">${cells}</tr>`;
 
-		if (lastError !== '') {
+		// last_error from monitord is sticky ("last error ever seen") and is NOT
+		// cleared on recovery — it stays in the API payload on purpose (handy for
+		// debugging). But surface it to the operator ONLY while the service is
+		// actually unhealthy, so a recovered glitch (state=ok) doesn't keep
+		// reading as a current failure on the panel.
+		if (lastError !== '' && ledClass !== 'ok') {
 			html += `<tr class="cti-svc-error-row"><td colspan="${colCount}">`
 				+ `<i class="exclamation triangle icon"></i>`
 				+ `<span title="${esc(lastError)}">${esc(self.truncate(lastError, 200))}</span>`
