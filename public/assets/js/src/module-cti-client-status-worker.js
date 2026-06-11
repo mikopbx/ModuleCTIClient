@@ -175,7 +175,8 @@ const moduleCTIClientConnectionCheckWorker = {
 	 * Сообщение в панели статусов, когда модуль выключен.
 	 */
 	renderDisabledPanel() {
-		const $panel = moduleCTIClientConnectionCheckWorker.$servicesStatus;
+		const self = moduleCTIClientConnectionCheckWorker;
+		const $panel = self.$servicesStatus;
 		if (!$panel || $panel.length === 0) {
 			return;
 		}
@@ -183,7 +184,23 @@ const moduleCTIClientConnectionCheckWorker = {
 			&& globalTranslate.mod_cti_StatusModuleDisabled)
 			? globalTranslate.mod_cti_StatusModuleDisabled
 			: 'Module is disabled';
-		$panel.html(`<div class="ui basic segment">${moduleCTIClientConnectionCheckWorker.escapeHtml(label)}</div>`);
+		// Don't replace the panel's innerHTML: that destroys #cti-services-status-rows
+		// and #cti-services-status-placeholder, so a later re-enable WITHOUT a page
+		// reload would leave renderServicesStatus() writing into an empty selection
+		// and the table would never come back. Reuse the placeholder instead,
+		// mirroring renderServicesStatus()'s showPlaceholder, so the structure
+		// survives. Fall back to replacing the panel only if the skeleton is absent.
+		const $rows = $('#cti-services-status-rows');
+		const $placeholder = $('#cti-services-status-placeholder');
+		self.lastRenderHash = '';
+		if ($rows.length > 0) {
+			$rows.empty();
+		}
+		if ($placeholder.length > 0) {
+			$placeholder.html(`<span>&nbsp;${self.escapeHtml(label)}</span>`).show();
+		} else {
+			$panel.html(`<div class="ui basic segment">${self.escapeHtml(label)}</div>`);
+		}
 	},
 
 	/**
