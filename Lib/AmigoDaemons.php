@@ -1169,6 +1169,21 @@ class AmigoDaemons extends Injectable
                 $this->startAllServices(true);
                 return true;
             }
+        } elseif (!$this->isInfraNeeded()) {
+            // Symmetric teardown (Codex P2): offload is OFF (no toggle, no remote
+            // presence, no migration). generateMonitordConf above no longer
+            // renders the ssh_tunnel block, but the RUNNING monitord read the
+            // tunnel once at boot and /reconcile does NOT re-read it — so a
+            // still-configured tunnel keeps its reverse forwards open until an
+            // unrelated restart. Bounce it tunnel-less so stopAllServices closes
+            // the tunnel cleanly (the VPS reaps the forward on connection close)
+            // and the fresh monitord comes up without one. Self-gating: after the
+            // bounce configured:false, so it never loops.
+            $tunnel = $this->getMonitordTunnelStatus();
+            if ($tunnel !== null && !empty($tunnel['configured'])) {
+                $this->startAllServices(true);
+                return true;
+            }
         }
 
         // Best-effort push; needs the tunnel up. A failure here just means the
@@ -2041,6 +2056,17 @@ class AmigoDaemons extends Injectable
             $state[$svc]['last_error'] = 'waiting for service to quiesce';
             $this->writeRemoteState($state);
             return;
+        }
+
+        // Quiesce gate passed: reset the shared retry counter so the ticks spent
+        // waiting for the service to go down do not eat into the copy phase's own
+        // MIGRATION_MAX_FAILS budget — otherwise a slow quiesce followed by a
+        // single transient copy failure could immediately hit the cap and park
+        // the migration even though the copy itself never failed repeatedly.
+        $state = $this->readRemoteState();
+        if ((int)($state[$svc]['fail_count'] ?? 0) !== 0) {
+            $state[$svc]['fail_count'] = 0;
+            $this->writeRemoteState($state);
         }
 
         // ---- STEP 2: COPY (per-area) ----

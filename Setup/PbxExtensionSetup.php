@@ -124,10 +124,45 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
         }
 
         if ($result) {
+            $this->migrateLegacyProxy();
+        }
+
+        if ($result) {
             $result = $this->addToSidebar();
         }
 
         return $result;
+    }
+
+    /**
+     * One-time migration of the legacy single proxy setting. Older installs
+     * configured one `chats_proxy_address`; it was replaced by per-messenger
+     * fields and the runtime fallback was deliberately removed (a stale legacy
+     * value could otherwise override an intentionally cleared per-service field,
+     * see AmigoDaemons::getMessengerProxyAddress). To avoid silently dropping a
+     * working proxy on upgrade, seed each EMPTY per-service field from the legacy
+     * value, then CLEAR the legacy field so this runs exactly once and never
+     * re-seeds a field the operator later clears on purpose.
+     */
+    protected function migrateLegacyProxy(): void
+    {
+        $settings = ModuleCTIClient::findFirst();
+        if ($settings === null) {
+            return;
+        }
+        $legacy = trim((string)($settings->chats_proxy_address ?? ''));
+        if ($legacy === '') {
+            return;
+        }
+        foreach (['whatsapp_proxy_address', 'telegram_proxy_address', 'max_proxy_address'] as $field) {
+            if (trim((string)($settings->$field ?? '')) === '') {
+                $settings->$field = $legacy;
+            }
+        }
+        $settings->chats_proxy_address = '';
+        if (!$settings->save()) {
+            $this->messages[] = 'ModuleCTIClient: failed to migrate legacy proxy setting';
+        }
     }
 
     /**
