@@ -155,6 +155,16 @@ class WorkerRemoteTunnel extends WorkerBase
             //     during bring-up; once up, the worker stays in the keepalive
             //     loop below. Idempotent — the restart self-gates (configured).
             if ($cti->isInfraNeeded() && !$cti->isRemoteTunnelConnected()) {
+                // An orphaned reverse-forward from a previously-killed monitord can
+                // still hold the VPS loopback nats ports (the VPS sshd does not reap
+                // the half-open session), so the fresh tunnel fails forever with
+                // "tcpip-forward request denied by peer". When monitord reports that
+                // exact block, clear the stale holder on the VPS so the tunnel binds
+                // on the next reconnect. Gated on the denied signature, so it never
+                // touches our own live tunnel.
+                if ($cti->isRemoteTunnelPortBlocked()) {
+                    $cti->clearStaleRemoteReverseForwards();
+                }
                 $cti->applyMonitordConfigAndReconcile();
             }
 

@@ -2381,6 +2381,62 @@ class AmigoDaemons extends Injectable
         return $data !== null && !empty($data['connected']);
     }
 
+    /**
+     * Whether the monitord tunnel is configured but cannot establish its reverse
+     * forwards because the VPS-side ports are already held — the signature of an
+     * orphaned forward left by a previously-killed monitord that the VPS sshd has
+     * not reaped ("tcpip-forward request denied by peer"). Distinct from a plain
+     * not-connected (VPS unreachable) so the caller only clears stale holders
+     * when the port is genuinely blocked, never racing our own live tunnel.
+     *
+     * @return bool
+     */
+    public function isRemoteTunnelPortBlocked(): bool
+    {
+        $data = $this->getMonitordTunnelStatus();
+        if ($data === null || empty($data['configured']) || !empty($data['connected'])) {
+            return false;
+        }
+        return strpos((string)($data['last_error'] ?? ''), 'tcpip-forward') !== false;
+    }
+
+    /**
+     * Kill whatever currently holds the reverse-forward ports (nats + nats-http)
+     * on the VPS loopback. Called ONLY when isRemoteTunnelPortBlocked() is true,
+     * so the holder is necessarily an orphaned ssh session (a half-open forward
+     * from a previously-killed monitord) and never our own live tunnel — clearing
+     * it lets monitord bind on its next reconnect. The remote monitord
+     * (manager.api on its own port) never listens on these ports, so it is left
+     * untouched. Best-effort over direct ssh; a failure just retries next tick.
+     *
+     * @return void
+     */
+    public function clearStaleRemoteReverseForwards(): void
+    {
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return;
+        }
+        $natsPort     = (int)$this->getNatsPort();
+        $natsHttpPort = (int)$this->getNatsHttpPort();
+        if ($natsPort <= 0 || $natsHttpPort <= 0) {
+            return;
+        }
+        // ss first (modern), netstat as a fallback; extract ONLY the owning pid
+        // (pid=N for ss, N/name for netstat) so the port number is never mistaken
+        // for a pid. $P/$PIDS/$pid are remote-shell vars (literal here).
+        $remote =
+            'for P in ' . $natsPort . ' ' . $natsHttpPort . '; do '
+            . 'PIDS=$(ss -tlnp 2>/dev/null | grep -E ":$P[[:space:]]" | grep -oE "pid=[0-9]+" | cut -d= -f2 | sort -u); '
+            . '[ -z "$PIDS" ] && PIDS=$(netstat -tlnp 2>/dev/null | grep -E ":$P[[:space:]]" | grep -oE "[0-9]+/" | cut -d/ -f1 | sort -u); '
+            . 'for pid in $PIDS; do kill "$pid" 2>/dev/null; done; '
+            . 'done';
+        $cmd = self::buildSshArgs($ssh) . ' ' . escapeshellarg($remote) . ' 2>/dev/null';
+        $out = [];
+        $rc = 0;
+        exec($cmd, $out, $rc);
+    }
+
 
     /**
      * Get the proxy server connection string.
