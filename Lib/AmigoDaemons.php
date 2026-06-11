@@ -993,15 +993,51 @@ class AmigoDaemons extends Injectable
         $chmodCmd = 'chmod +x ' . escapeshellarg("{$base}/bin") . '/*';
         exec($sshArgs . ' ' . escapeshellarg($chmodCmd) . ' 2>/dev/null', $tmpOut, $rc);
 
-        // 4. Configs — push the staged remote/conf/ directory.
+        // 4. Configs — push the staged remote/conf/ files, skipping any whose
+        //    remote content already matches (md5) so a steady-state worker tick
+        //    does no needless writes (same diff-then-push idea as the binaries).
+        //    Changed/missing ones go to a .new temp and are atomically renamed
+        //    into place: a direct scp overwrite truncates the live conf/*.json
+        //    mid-write (scp opens the target O_CREAT|O_TRUNC), and if monitord
+        //    respawns the daemon in that window it reads a 0-byte/absent config
+        //    and panics ("cannot read config file ... tg.json: no such file or
+        //    directory"). rename() on the same filesystem is atomic, so the
+        //    daemon always sees either the whole old or the whole new config.
+        //    The step-5 prune globs *.json and so never matches a *.json.new.
         $stageDir = $this->dirs['spoolDir'] . '/remote/conf';
         $stagedFiles = [];
-        if (is_dir($stageDir)) {
-            foreach (glob($stageDir . '/*.json') ?: [] as $stagedPath) {
+        $stagedPaths = is_dir($stageDir) ? (glob($stageDir . '/*.json') ?: []) : [];
+        if (!empty($stagedPaths)) {
+            // One ssh round-trip for all remote md5s. Each subcommand prints
+            // exactly one non-empty token (hash or MISSING) so the output lines
+            // map positionally onto $stagedPaths — same trick as the binary
+            // size probe above. A VPS without md5sum degrades to always-push.
+            $hashCmd = '';
+            foreach ($stagedPaths as $stagedPath) {
+                $remotePath = "{$base}/conf/" . basename($stagedPath);
+                $hashCmd .= '( md5sum ' . escapeshellarg($remotePath)
+                    . ' 2>/dev/null || echo MISSING ) | head -n1 | cut -d" " -f1; ';
+            }
+            $hashOut = [];
+            exec($sshArgs . ' ' . escapeshellarg($hashCmd) . ' 2>/dev/null', $hashOut, $rc);
+
+            foreach ($stagedPaths as $i => $stagedPath) {
                 $name = basename($stagedPath);
                 $stagedFiles[] = $name;
-                if (!$this->scpPush($ssh, $stagedPath, "{$base}/conf/{$name}")) {
+                $remoteHash = isset($hashOut[$i]) ? trim($hashOut[$i]) : 'MISSING';
+                $localHash  = md5_file($stagedPath);
+                if ($localHash !== false && $remoteHash === $localHash) {
+                    continue; // remote already holds this exact config
+                }
+                $remoteFinal = "{$base}/conf/{$name}";
+                $remoteTmp   = $remoteFinal . '.new';
+                if (!$this->scpPush($ssh, $stagedPath, $remoteTmp)) {
                     return ['ok' => false, 'error' => 'scp push failed: conf/' . $name];
+                }
+                $mvCmd = 'mv -f ' . escapeshellarg($remoteTmp) . ' ' . escapeshellarg($remoteFinal);
+                exec($sshArgs . ' ' . escapeshellarg($mvCmd) . ' 2>/dev/null', $tmpOut, $rc);
+                if ($rc !== 0) {
+                    return ['ok' => false, 'error' => 'remote mv failed: conf/' . $name];
                 }
             }
         }
