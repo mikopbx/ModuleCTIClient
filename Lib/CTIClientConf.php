@@ -57,32 +57,53 @@ class CTIClientConf extends ConfigClass
         if ($data['model'] === ModuleCTIClient::class) {
             PBX::dialplanReload();
 
-            // §3.7 (R7/F1): don't bounce the whole stack (gnatsd/amid/crmd) on
-            // a migration-toggle flip — that defeats the in-place reconcile.
             // changedFields is Phalcon's getUpdatedFields(): a NUMERIC list of
             // field-NAME strings, so the names are the VALUES (array_values,
             // NOT array_keys — F1).
             $changed = array_values((array)($data['changedFields'] ?? []));
             $migrationToggles = ['remote_whatsapp', 'remote_telegram', 'remote_max'];
+            $changedMigrationToggles = array_values(array_intersect($changed, $migrationToggles));
             $migrationOnly = $changed !== [] && empty(array_diff($changed, $migrationToggles));
 
-            if ($migrationOnly) {
+            $amigoDaemons = null;
+            $toggleToService = [
+                'remote_whatsapp' => 'chats',
+                'remote_telegram' => 'tg',
+                'remote_max'      => 'max',
+            ];
+            if ($changedMigrationToggles === [] && $changed === []) {
+                $amigoDaemons = new AmigoDaemons();
+                $desiredRemote = $amigoDaemons->getRemoteServices();
+                foreach ($toggleToService as $toggle => $service) {
+                    $desiredSide = in_array($service, $desiredRemote, true) ? 'remote' : 'local';
+                    foreach ($amigoDaemons->readCustomConfigAreas($service) as $location) {
+                        if ($location !== $desiredSide) {
+                            $changedMigrationToggles[] = $toggle;
+                            break;
+                        }
+                    }
+                }
+            }
+            if ($changedMigrationToggles !== []) {
                 // A toggle flip is also the operator re-trigger after a
-                // FAIL-PARK: clear `parked` for the changed services (mapped to
-                // their manager.api names) so the worker resumes the migration.
-                $toggleToService = [
-                    'remote_whatsapp' => 'chats',
-                    'remote_telegram' => 'tg',
-                    'remote_max'      => 'max',
-                ];
+                // FAIL-PARK: clear `parked` for the changed services even when
+                // the same save also changes tunnel params and forces a restart.
                 $svcs = [];
-                foreach (array_intersect($changed, $migrationToggles) as $field) {
+                foreach ($changedMigrationToggles as $field) {
                     if (isset($toggleToService[$field])) {
                         $svcs[] = $toggleToService[$field];
                     }
                 }
                 $amigoDaemons = new AmigoDaemons();
                 $amigoDaemons->clearParkedForServices($svcs);
+            }
+
+            if ($migrationOnly) {
+                if ($amigoDaemons === null) {
+                    $amigoDaemons = new AmigoDaemons();
+                }
+                // §3.7 (R7/F1): don't bounce the whole stack (gnatsd/amid/crmd)
+                // on a migration-toggle flip — that defeats the in-place reconcile.
                 // In-place: regenerate monitord.json + fire /reconcile. The
                 // worker (re-reads settings every tick) drives the migration.
                 // NO stack bounce.
