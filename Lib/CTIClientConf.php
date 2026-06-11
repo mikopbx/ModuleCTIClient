@@ -200,6 +200,20 @@ class CTIClientConf extends ConfigClass
                 // $request['data']; we never touch the DB here.
                 $amigoDaemons = new AmigoDaemons();
                 $data         = is_array($request['data'] ?? null) ? $request['data'] : [];
+                // Older PBX cores (<= 2024.x) do NOT parse a JSON request body
+                // into $request['data'] — they put $_REQUEST there and park the
+                // raw php://input under $request['input']. Since the form POSTs
+                // application/json, PHP leaves $_POST/$_REQUEST empty, so the
+                // host/login/key never reach us via 'data'. Decode 'input' and
+                // merge it over 'data' so the probe works on both old and new
+                // cores (on new cores 'input' equals what 'data' already holds).
+                $rawInput = (string)($request['input'] ?? '');
+                if ($rawInput !== '') {
+                    $decodedInput = json_decode($rawInput, true);
+                    if (is_array($decodedInput)) {
+                        $data = array_merge($data, $decodedInput);
+                    }
+                }
                 // The form masks the saved SSH key as '******' — if the value
                 // coming back contains the mask sentinel (or is empty) the
                 // operator did not paste a new key, so we fall back to what
