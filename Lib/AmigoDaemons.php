@@ -688,9 +688,16 @@ class AmigoDaemons extends Injectable
 
     /**
      * Services for which the remote infrastructure (ssh_tunnel, remote_monitor,
-     * staged VPS configs, worker liveness) must stay alive: ANY service with
-     * remote presence (>=1 remote area) OR mid-migration (push OR pull) (§3.3,
-     * R5/F5). SUPERSET of getRoutedRemoteServices.
+     * staged VPS configs, worker liveness) must stay alive: ANY service that is
+     * toggled remote (live toggle) OR has remote presence (>=1 remote area) OR
+     * is mid-migration (push OR pull) (§3.3, R5/F5). SUPERSET of
+     * getRoutedRemoteServices AND getRemoteServices.
+     *
+     * The toggle term brings the tunnel + remote monitord up INDEPENDENTLY of
+     * whether a channel exists yet: a freshly-added messenger account must
+     * authorize (QR/2FA) directly on the VPS — it cannot be raised/authorized
+     * locally and only then moved. The remote/migrating terms keep infra up
+     * during a remote->local drain after the toggle is switched OFF (F5).
      *
      * @return string[]
      */
@@ -698,9 +705,13 @@ class AmigoDaemons extends Injectable
     {
         $state = $this->readRemoteState();
         $routed = $this->getRoutedRemoteServices();
+        $toggled = $this->getRemoteServices();
         $infra = [];
         foreach (self::MIGRATABLE_SERVICES as $svc) {
-            $needed = in_array($svc, $routed, true);
+            $needed = in_array($svc, $toggled, true);
+            if (!$needed && in_array($svc, $routed, true)) {
+                $needed = true; // has remote presence (>=1 remote area)
+            }
             if (!$needed && !empty($state[$svc]['migrating'])) {
                 $needed = true; // mid-migration (push or pull) keeps infra up
             }

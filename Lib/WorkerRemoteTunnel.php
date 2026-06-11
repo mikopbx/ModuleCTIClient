@@ -144,6 +144,20 @@ class WorkerRemoteTunnel extends WorkerBase
             //    the receiver never comes up. Idempotent / one-step-per-tick.
             $cti->reconcileMigrations();
 
+            // 0a. Tunnel up INDEPENDENT of channels (operator request): when a
+            //     service is toggled remote but has no channels yet, STEP 1 above
+            //     is a no-op (nothing to migrate) and would never render/boot the
+            //     ssh_tunnel — so the operator could never add+authorize an
+            //     account on the VPS (auth can't be done locally then moved).
+            //     applyMonitordConfigAndReconcile renders the tunnel block (now
+            //     that getInfraServices keys off the toggle) and BUG-2-restarts
+            //     monitord so Go loads it. Gated on !connected so it only runs
+            //     during bring-up; once up, the worker stays in the keepalive
+            //     loop below. Idempotent — the restart self-gates (configured).
+            if ($cti->isInfraNeeded() && !$cti->isRemoteTunnelConnected()) {
+                $cti->applyMonitordConfigAndReconcile();
+            }
+
             // 1. Provisioning — idempotent. Failure usually means the VPS is
             //    unreachable; back off and retry.
             $prov = $cti->provisionRemote();
