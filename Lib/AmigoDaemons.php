@@ -58,6 +58,17 @@ class AmigoDaemons extends Injectable
     private const WARMUP_SECONDS = 60;
 
     /**
+     * Module-wide startup grace window. While the whole stack is still coming up
+     * (estimated module age below this many seconds) a service that reports a
+     * hard error/down is shown as "starting" instead of red, so we don't alarm
+     * the operator about a daemon that simply hasn't finished booting (1C bridge
+     * and the SSH tunnel are the long poles and routinely need >60s). After the
+     * window real errors surface normally. Tunable — measure steady-state bring-
+     * up time on the stand before lowering.
+     */
+    private const STARTUP_GRACE_SECONDS = 120;
+
+    /**
      * Manager.api service names of the messenger daemons that can be offloaded
      * to the VPS. The toggle map (getRemoteServiceMap) keys to these names.
      */
@@ -659,6 +670,92 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Messenger services that are currently in an active migration phase.
+     * Parked/failed migrations are intentionally not active: the operator must
+     * be able to change the toggles to re-trigger them.
+     *
+     * @return string[] manager.api service names (chats|tg|max)
+     */
+    public function getActiveRemoteMigrationServices(): array
+    {
+        $state = $this->readRemoteState();
+        $active = [];
+
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            $record = $state[$svc] ?? [];
+            if (is_array($record) && $this->isActiveRemoteMigrationRecord($record)) {
+                $active[] = $svc;
+            }
+        }
+
+        return $active;
+    }
+
+    /**
+     * Whether a single remote_state service record means "migration in-flight".
+     *
+     * @param array<string,mixed> $record
+     * @return bool
+     */
+    private function isActiveRemoteMigrationRecord(array $record): bool
+    {
+        if ($this->remoteStateValueIsTruthy($record['parked'] ?? false)) {
+            return false;
+        }
+
+        foreach (['migrating', 'resuming'] as $flag) {
+            if ($this->remoteStateValueIsTruthy($record[$flag] ?? false)) {
+                return true;
+            }
+        }
+
+        $activeStates = [
+            'migrating'    => true,
+            'resuming'     => true,
+            'suppressing'  => true,
+            'copying'      => true,
+            'confirming'   => true,
+            'committing'   => true,
+            'reconciling'  => true,
+            'rolling_back' => true,
+        ];
+        foreach (['state', 'status', 'phase'] as $key) {
+            $value = strtolower(str_replace('-', '_', trim((string)($record[$key] ?? ''))));
+            if (isset($activeStates[$value])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Boolean-ish decoder for remote_state.json values.
+     *
+     * @param mixed $value
+     * @return bool
+     */
+    private function remoteStateValueIsTruthy($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return $value !== 0;
+        }
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            return $normalized !== ''
+                && $normalized !== '0'
+                && $normalized !== 'false'
+                && $normalized !== 'no'
+                && $normalized !== 'off';
+        }
+
+        return !empty($value);
+    }
+
+    /**
      * Services that currently have >=1 area whose session DB is on the VPS
      * RIGHT NOW (per-area side==remote, cross-checked against custom_config).
      * This is what `remote_services` renders to for the idle/parked case (§3.2,
@@ -746,6 +843,56 @@ class AmigoDaemons extends Injectable
         $dir = trim($this->module_settings['remote_bin_dir'] ?? '');
 
         return $dir !== '' ? rtrim($dir, '/') : '/opt/mikopbx-cti';
+    }
+
+    /**
+     * Stable non-secret owner id for the VPS reverse-forward lock.
+     * nats_password is generated once during module install and is already
+     * unique enough to distinguish two PBX installations using the same VPS.
+     *
+     * @return string
+     */
+    private function getRemoteTunnelOwnerId(): string
+    {
+        $seed = trim((string)($this->module_settings['nats_password'] ?? ''));
+        if ($seed === '') {
+            $seed = $this->moduleUniqueID . '|' . $this->getRemoteBaseDir();
+        }
+
+        return substr(hash('sha256', 'cti-tunnel-owner-v1|' . $seed), 0, 32);
+    }
+
+    /**
+     * Human-readable owner label shown in lock-conflict diagnostics.
+     *
+     * @return string
+     */
+    private function getRemoteTunnelOwnerLabel(): string
+    {
+        $host = trim((string)@php_uname('n'));
+        if ($host === '') {
+            $host = 'MikoPBX';
+        }
+
+        return $this->moduleUniqueID . '@' . $host;
+    }
+
+    /**
+     * Shared lock path for the reverse-forward ports on the VPS. It is based
+     * on ports, not on remote_bin_dir, so two installations fighting for the
+     * same VPS loopback ports hit the same mutex.
+     *
+     * @return string
+     */
+    private function getRemoteTunnelOwnerLockPath(): string
+    {
+        $listenAddrs = [
+            '127.0.0.1:' . $this->getNatsPort(),
+            '127.0.0.1:' . $this->getNatsHttpPort(),
+        ];
+        $key = substr(hash('sha256', implode('|', $listenAddrs)), 0, 16);
+
+        return '/run/lock/mikopbx-cti/tunnel-' . $key . '.lock';
     }
 
     /**
@@ -3007,6 +3154,10 @@ class AmigoDaemons extends Injectable
                     'key_path'         => $ssh['keyFile'],
                     'known_hosts_path' => $ssh['knownHosts'],
                     'keepalive_sec'    => 15,
+                    'owner_id'         => $this->getRemoteTunnelOwnerId(),
+                    'owner_label'      => $this->getRemoteTunnelOwnerLabel(),
+                    'owner_lock_path'    => $this->getRemoteTunnelOwnerLockPath(),
+                    'owner_lock_ttl_sec' => 120,
                     'forwards'         => [
                         ['listen_addr' => '127.0.0.1:' . $natsPort, 'target_addr' => '127.0.0.1:' . $natsPort],
                         ['listen_addr' => '127.0.0.1:' . $natsHttpPort, 'target_addr' => '127.0.0.1:' . $natsHttpPort],
@@ -3181,9 +3332,12 @@ class AmigoDaemons extends Injectable
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueID);
         if (!$moduleEnabled) {
             $res->data['statuses'] = 'Module disabled';
+            $res->data['remote_migration_active'] = false;
+            $res->data['remote_migration_services'] = [];
 
             return $res;
         }
+        $activeMigrationServices = $this->getActiveRemoteMigrationServices();
         $statuses = [];
         $statuses[] = $this->checkMonitorStatus();
         $statuses[] = $this->checkNatsStatus();
@@ -3212,6 +3366,56 @@ class AmigoDaemons extends Injectable
             }
         }
 
+        // Module-wide startup grace. Estimate how long the stack has been up from
+        // the largest known service uptime (monotonic per boot, resets when
+        // monitord restarts everything — no persistence or /proc needed). While
+        // that age is below the grace window, downgrade any hard-error row to
+        // "starting" so we never report a service failure in the first ~2 minutes
+        // while daemons (esp. the 1C bridge / SSH tunnel) finish coming up.
+        //
+        // The first few seconds of a cold boot are also in-grace: before nats /
+        // the workers report any uptime the age is null, yet a configured SSH
+        // tunnel that is still dialing already returns state=error — so null age
+        // MUST count as "still starting", otherwise that tunnel row would flash
+        // red in the first seconds (exactly the false alarm we suppress). This is
+        // safe: a permanently-dead module has monitord down, so the tunnel check
+        // returns "pending" (not error) and the other rows are unknown/starting —
+        // there is no hard error to hide, and the ever-present crm-1c row keeps
+        // the overall badge yellow regardless.
+        $moduleAge = null;
+        foreach ($statuses as $row) {
+            if (!is_array($row) || !isset($row['uptime']) || !is_string($row['uptime'])) {
+                continue;
+            }
+            $sec = $this->parseUptimeSeconds($row['uptime']);
+            if ($sec !== null && ($moduleAge === null || $sec > $moduleAge)) {
+                $moduleAge = $sec;
+            }
+        }
+        $startupGrace = ($moduleAge === null || $moduleAge < self::STARTUP_GRACE_SECONDS);
+        if ($startupGrace) {
+            $redStates = ['error', 'fail', 'failed', 'down', 'stopped'];
+            foreach ($statuses as $idx => $row) {
+                if (is_array($row)
+                    && isset($row['state'])
+                    && in_array((string)$row['state'], $redStates, true)
+                ) {
+                    $statuses[$idx]['state'] = 'starting';
+                }
+            }
+        }
+
+        // Refine the 1C bridge (crm-1c) into mode-aware semantic states so the UI
+        // can clearly distinguish "connected to 1C" / "connecting to 1C" /
+        // "waiting for 1C" — and so a normal idle gap (esp. in longpool, where 1C
+        // polls us intermittently) reads as a calm yellow, not a red failure.
+        // Runs after warmup/grace so a 'starting' placeholder is left untouched.
+        foreach ($statuses as $idx => $row) {
+            if (is_array($row) && (($row['name'] ?? '') === 'crm-1c')) {
+                $statuses[$idx] = $this->refineCrmStatus($row);
+            }
+        }
+
         // Fill in expected-but-missing system services as "starting" so the
         // operator sees a yellow placeholder row instead of nothing while
         // monitord is still bringing them up after enable.
@@ -3233,16 +3437,134 @@ class AmigoDaemons extends Injectable
         // success classification below still keys purely on 'state'.
         $statuses = $this->annotateLocations($statuses);
 
+        // Impose a stable, deterministic order. monitord returns its workers in
+        // Go-map order (effectively random per request), so the rows reshuffle
+        // between polls; the JS also diffs on JSON.stringify(statuses), so every
+        // reorder forces a full table re-render (visible flicker). Sorting here
+        // once — last, so the synthetic "starting" rows are ordered too — fixes
+        // both the jumping and the flicker.
+        $statuses = $this->sortStatuses($statuses);
+
         $res->success = true;
         foreach ($statuses as $workerStatus) {
             if (!$res->success) {
                 break;
             }
-            $res->success = array_key_exists('state', $workerStatus) && $workerStatus['state'] === 'ok';
+            // 'connected' is the 1C bridge's healthy state (see refineCrmStatus) —
+            // treat it as ok-equivalent so a fully-connected stack still reports
+            // overall success.
+            $state = array_key_exists('state', $workerStatus) ? (string)$workerStatus['state'] : '';
+            $res->success = ($state === 'ok' || $state === 'connected');
         }
 
         $res->data['statuses'] = $statuses;
+        // Tell the UI we're inside the startup grace window so it doesn't escalate
+        // a legitimately-"starting" stack to a red "failure" badge while booting.
+        $res->data['startup_grace'] = $startupGrace;
+        $res->data['remote_migration_active'] = !empty($activeMigrationServices);
+        $res->data['remote_migration_services'] = $activeMigrationServices;
         return $res;
+    }
+
+    /**
+     * Refine the crm-1c (1C bridge) row into mode-aware semantic states so the
+     * UI can clearly say whether we are connected to 1C, connecting to it, or
+     * waiting for it — and so a normal idle gap does not read as a red failure.
+     *
+     * Direction comes from the module's web_service_mode setting:
+     *   - webservice (on):  WE call 1C  -> "connecting_1c" while not yet connected
+     *   - longpool   (off): 1C calls US -> "waiting_1c"    while no live session
+     *
+     * crmd self-reports state ok|pending|error (error = "1C didn't answer in
+     * time"); all three mean the bridge daemon itself is alive, so per product
+     * decision they map to connected / calm-yellow, never red. A genuine daemon
+     * failure surfaces as a monitord-level error with NO crmd self-report (no
+     * uptime/version) and is left as a red 'error'. There is no live-session flag
+     * or last-session timestamp from crmd today (unlike the SSH tunnel's
+     * last_ok_ts), so 'connected' means "the last 1C exchange succeeded" — the
+     * best proxy available without a crm-connector change.
+     *
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private function refineCrmStatus(array $row): array
+    {
+        $state = (string)($row['state'] ?? '');
+
+        // Only crmd's own self-reported states carry 1C-connection meaning. Leave
+        // a warmup/grace 'starting' placeholder, or a daemon-down error (monitord
+        // couldn't reach crmd, hence no uptime/version), untouched.
+        $crmdReported = isset($row['uptime']) || isset($row['version']);
+        if (!$crmdReported || !in_array($state, ['ok', 'pending', 'error'], true)) {
+            return $row;
+        }
+
+        $webservice = intval($this->module_settings['web_service_mode'] ?? 0) === 1;
+        $row['mode'] = $webservice ? 'webservice' : 'longpool';
+
+        if ($state === 'ok') {
+            $row['state'] = 'connected';
+        } else {
+            // pending (no exchange yet) or error (1C didn't answer): the bridge is
+            // up but there is no live 1C session — calm yellow, mode-flavoured.
+            $row['state'] = $webservice ? 'connecting_1c' : 'waiting_1c';
+        }
+
+        return $row;
+    }
+
+    /**
+     * Stable, deterministic ordering of the status rows.
+     *
+     * Infrastructure first, in a fixed logical order, then the messenger
+     * services; channels inside a multi-instance messenger service (chats|tg|max)
+     * are ordered by their area UUID. The comparator is total — rank, then area,
+     * then the original index — so the result is identical on every poll and on
+     * both PHP 7.4 (where usort is not stable) and 8.x.
+     *
+     * @param array<int,mixed> $statuses
+     * @return array<int,mixed>
+     */
+    private function sortStatuses(array $statuses): array
+    {
+        $rank = [
+            self::SERVICE_MONITOR       => 10,   // 'monitord'
+            'nats'                      => 20,
+            self::SERVICE_REMOTE_TUNNEL => 30,   // 'remote-tunnel'
+            'ami-listener'              => 40,
+            'crm-1c'                    => 50,
+            'auth'                      => 60,
+            'proxy'                     => 70,
+            'speech'                    => 80,
+            'chats'                     => 90,
+            'tg'                        => 100,
+            'max'                       => 110,
+            'manager.api'               => 900,
+        ];
+
+        $decorated = [];
+        foreach (array_values($statuses) as $idx => $row) {
+            $name = (is_array($row) && isset($row['name'])) ? (string)$row['name'] : '';
+            // Tolerate a "chats.<area>" name form: rank by the base service.
+            $base = $name;
+            $dot = strpos($name, '.');
+            if ($dot !== false) {
+                $base = substr($name, 0, $dot);
+            }
+            $r = $rank[$base] ?? 500; // unknown services sit between infra and manager.api
+            $area = (is_array($row) && isset($row['area'])) ? (string)$row['area'] : '';
+            $decorated[] = [$r, $area, $idx, $row];
+        }
+
+        usort($decorated, static function (array $a, array $b): int {
+            return [$a[0], $a[1], $a[2]] <=> [$b[0], $b[1], $b[2]];
+        });
+
+        $sorted = [];
+        foreach ($decorated as $d) {
+            $sorted[] = $d[3];
+        }
+        return $sorted;
     }
 
     /**

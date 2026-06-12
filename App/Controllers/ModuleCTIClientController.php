@@ -41,6 +41,14 @@ use function MikoPBX\Common\Config\appPath;
 class ModuleCTIClientController extends BaseController
 {
     private const SECRET_MASK = '******';
+    private const REMOTE_TOGGLE_FIELDS = ['remote_whatsapp', 'remote_telegram', 'remote_max'];
+    private const REMOTE_CONNECTION_FIELDS = [
+        'remote_host',
+        'remote_ssh_port',
+        'remote_ssh_login',
+        'remote_ssh_key',
+        'remote_bin_dir',
+    ];
 
     private $moduleUniqueID = 'ModuleCTIClient';
     private $moduleDir;
@@ -342,6 +350,17 @@ class ModuleCTIClientController extends BaseController
             $record = new ModuleCTIClient();
         }
 
+        $amigoDaemons = new AmigoDaemons();
+        if (!empty($amigoDaemons->getActiveRemoteMigrationServices())
+            && $this->hasProtectedRemoteChanges($data, $record)
+        ) {
+            $message = $this->translation->_('mod_cti_RemoteMigrationLockedSaveError');
+            $this->flash->error($message);
+            $this->view->success = false;
+
+            return;
+        }
+
         // Update the record with the form data
         foreach ($record as $key => $value) {
             switch ($key) {
@@ -384,6 +403,39 @@ class ModuleCTIClientController extends BaseController
         // Handle success if saving is successful
         $this->flash->success($this->translation->_('ms_SuccessfulSaved'));
         $this->view->success = true;
+    }
+
+    /**
+     * Check whether submitted data changes remote/offload settings protected
+     * while a messenger migration is active.
+     *
+     * @param array<string,mixed> $data
+     * @param ModuleCTIClient $record
+     * @return bool
+     */
+    private function hasProtectedRemoteChanges(array $data, ModuleCTIClient $record): bool
+    {
+        foreach (self::REMOTE_TOGGLE_FIELDS as $field) {
+            $newValue = (isset($data[$field]) && $data[$field] === 'on') ? '1' : '0';
+            if ((string)($record->$field ?? '0') !== $newValue) {
+                return true;
+            }
+        }
+
+        foreach (self::REMOTE_CONNECTION_FIELDS as $field) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+            $newValue = (string)$data[$field];
+            if ($field === 'remote_ssh_key' && strpos($newValue, self::SECRET_MASK) !== false) {
+                continue;
+            }
+            if ((string)($record->$field ?? '') !== $newValue) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -1,7 +1,5 @@
 <form class="ui large grey segment form disability" id="module-cti-client-form">
     <input type="hidden" name="dirrty" id="dirrty"/>
-    <div class="ui grey top right attached label" id="status"><i
-                class="spinner loading icon"></i>{{ t._("mod_cti_UpdateStatus") }}</div>
     {# top menu #}
     <div class="ui top attached tabular menu" id="module-cti-client-tabs">
         <a class="item active" data-tab="status">{{ t._('mod_cti_tab_Status') }}</a>
@@ -173,6 +171,13 @@
                 <p>{{ t._('mod_cti_RemoteIntro') }}</p>
             </div>
         </div>
+        <div class="ui warning icon message" id="cti-remote-migration-lock-message" style="display:none;">
+            <i class="lock icon"></i>
+            <div class="content">
+                <div class="header">{{ t._('mod_cti_RemoteMigrationLockedHeader') }}</div>
+                <p>{{ t._('mod_cti_RemoteMigrationLocked') }}</p>
+            </div>
+        </div>
 
         <h4 class="ui dividing header">{{ t._('mod_cti_RemoteConnectionHeader') }}</h4>
         <div class="two fields">
@@ -237,6 +242,13 @@
 
     {# services status tab #}
     <div class="ui bottom attached tab segment active" data-tab="status">
+        {# Overall module status — single calm summary line; replaces the old
+           top-right corner badge that rolled everything into one misleading dot.
+           Driven by changeStatus() in module-cti-client-status-worker.js. #}
+        <div id="cti-status-summary" class="cti-status-summary cti-summary-grey">
+            <span class="cti-summary-led unknown"></span>
+            <span class="cti-summary-text"><i class="spinner loading icon"></i>{{ t._("mod_cti_UpdateStatus") }}</span>
+        </div>
         <div id="cti-services-status" class="cti-services-status">
             <div id="cti-services-status-rows"></div>
             <div class="ui basic segment" id="cti-services-status-placeholder">
@@ -245,6 +257,42 @@
             </div>
         </div>
         <style>
+            /* overall module status summary line */
+            .cti-status-summary {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 12px;
+                padding: 10px 14px;
+                border-radius: 6px;
+                font-weight: 600;
+                border: 1px solid transparent;
+            }
+            .cti-status-summary .cti-summary-led {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                flex: 0 0 auto;
+                background-color: #aaaaaa;
+            }
+            .cti-status-summary .cti-summary-text .icon { margin-right: 4px; }
+            .cti-summary-grey   { background: #f3f4f5; color: #767676; border-color: #e0e1e2; }
+            .cti-summary-grey   .cti-summary-led { background: #aaaaaa; }
+            .cti-summary-green  { background: #e6f7ec; color: #1a7e3a; border-color: #b7e1c3; }
+            .cti-summary-green  .cti-summary-led { background: #21ba45; box-shadow: 0 0 6px rgba(33,186,69,.55); }
+            .cti-summary-yellow { background: #fff8e1; color: #8d6f12; border-color: #f3e2b3; }
+            .cti-summary-yellow .cti-summary-led { background: #fbbd08; box-shadow: 0 0 6px rgba(251,189,8,.55); }
+            .cti-summary-red    { background: #fdeaea; color: #c0392b; border-color: #f0c0bd; }
+            .cti-summary-red    .cti-summary-led { background: #db2828; box-shadow: 0 0 6px rgba(219,40,40,.55); }
+            .cti-remote-field-locked {
+                opacity: .65;
+            }
+            .cti-remote-field-locked input,
+            .cti-remote-field-locked textarea,
+            .cti-remote-field-locked .ui.checkbox {
+                pointer-events: none;
+            }
             #cti-services-status {
                 position: relative;
                 min-height: 280px;

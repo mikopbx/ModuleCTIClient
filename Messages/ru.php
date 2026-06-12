@@ -91,6 +91,9 @@ return [
     'mod_cti_RemoteTestOk'             => 'Подключение успешно',
     'mod_cti_RemoteTestFail'           => 'Подключение не удалось',
     'mod_cti_RemoteTestRwOk'           => 'запись в каталог разрешена',
+    'mod_cti_RemoteMigrationLockedHeader'    => 'Идёт миграция',
+    'mod_cti_RemoteMigrationLocked'          => 'Идёт перенос мессенджеров. Удалённые настройки заблокированы до завершения миграции.',
+    'mod_cti_RemoteMigrationLockedSaveError' => 'Нельзя менять удалённые настройки мессенджеров, пока идёт миграция. Дождитесь завершения и повторите сохранение.',
 
     // Панель статуса сервисов
     'mod_cti_tab_Status'               => 'Статус сервисов',
@@ -99,6 +102,7 @@ return [
     'mod_cti_StatusUnavailable'        => 'Статус сервисов недоступен',
     'mod_cti_StatusModuleDisabled'     => 'Модуль выключен — сервисы не запущены',
     'mod_cti_StatusEmpty'              => 'Сервисы не сообщают о статусе',
+    'mod_cti_StatusProblem'            => 'Проблема',
     'mod_cti_Uptime'                   => 'Аптайм',
     'mod_cti_Version'                  => 'Версия',
 
@@ -129,6 +133,9 @@ return [
     // Состояния сервиса
     'mod_cti_state_ok'                 => 'Работает',
     'mod_cti_state_authenticated'      => 'Авторизован',
+    'mod_cti_state_connected'          => 'Подключено к 1С',
+    'mod_cti_state_waiting_1c'         => 'Ожидаем подключения со стороны 1С',
+    'mod_cti_state_connecting_1c'      => 'Подключение к 1С…',
     'mod_cti_state_error'              => 'Ошибка',
     'mod_cti_state_unknown'            => 'Неизвестно',
     'mod_cti_state_pending'            => 'Ожидание',

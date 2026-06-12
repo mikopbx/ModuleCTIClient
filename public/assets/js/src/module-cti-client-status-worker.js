@@ -26,7 +26,7 @@ const moduleCTIClientConnectionCheckWorker = {
 	$statusToggle: $('#module-status-toggle'),
 	$webServiceToggle: $('#web-service-mode-toggle'),
 	$debugToggle: $('#debug-mode-toggle'),
-	$moduleStatus: $('#status'),
+	$moduleStatus: $('#cti-status-summary'),
 	$submitButton: $('#submitbutton'),
 	$debugInfo: $('#module-cti-client-form span#debug-info'),
 	$servicesStatus: $('#cti-services-status'),
@@ -42,6 +42,9 @@ const moduleCTIClientConnectionCheckWorker = {
 	stateLedClass: {
 		ok: 'ok',
 		authenticated: 'ok',
+		connected: 'ok',
+		waiting_1c: 'warn',
+		connecting_1c: 'warn',
 		error: 'error',
 		fail: 'error',
 		failed: 'error',
@@ -93,11 +96,13 @@ const moduleCTIClientConnectionCheckWorker = {
 				onResponse(response) {
 					$('.message.ajax').remove();
 					if (typeof (response.data) === 'undefined') {
+						moduleCTIClientConnectionCheckWorker.notifyRemoteMigrationLock(null);
 						return;
 					}
 
 					// Render services status panel for both success and partial responses.
 					moduleCTIClientConnectionCheckWorker.renderServicesStatus(response.data);
+					moduleCTIClientConnectionCheckWorker.notifyRemoteMigrationLock(response.data);
 
 					// Debug JSON pane (legacy debug tab).
 					let visualErrorString = JSON.stringify(response.data, null, 2);
@@ -124,51 +129,97 @@ const moduleCTIClientConnectionCheckWorker = {
 				},
 				onFailure(response) {
 					moduleCTIClientConnectionCheckWorker.errorCounts += 1;
-					const statuses = (response && response.data && Array.isArray(response.data.statuses))
-						? response.data.statuses : null;
+					const data = (response && response.data) ? response.data : null;
+					const statuses = (data && Array.isArray(data.statuses))
+						? data.statuses : null;
 					if (!statuses) {
 						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
 						return;
 					}
+					// Module startup grace: the backend has already downgraded any
+					// hard error to "starting" while the stack boots, so show one
+					// calm progress badge and never escalate to a failure here —
+					// this is what keeps the first ~2 minutes free of false reds.
+					if (data.startup_grace === true) {
+						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
+						return;
+					}
 					// Classify the response by the worst non-system state.
 					// crm-1c is special: it's the 1C bridge — its own error label.
+					// Alongside the booleans, collect deduped human service names
+					// (by label) for each bucket so the summary line can NAME the
+					// services that are failing or stuck instead of a bare colour.
+					const self = moduleCTIClientConnectionCheckWorker;
 					let crm1c = null;
 					let hasError = false;
 					let hasStarting = false;
+					const errNames = {};
+					const startNames = {};
 					statuses.forEach((s) => {
 						if (!s || typeof s.name === 'undefined') return;
 						if (s.name === 'crm-1c') crm1c = s.state;
 						if (s.state === 'error' || s.state === 'fail' || s.state === 'failed'
-							|| s.state === 'down' || s.state === 'stopped') hasError = true;
-						if (s.state === 'starting' || s.state === 'pending'
-							|| s.state === 'unknown') hasStarting = true;
-					});
-					if (crm1c && crm1c !== 'ok') {
-						if (moduleCTIClientConnectionCheckWorker.$webServiceToggle.checkbox('is checked')) {
-							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CError');
-						} else {
-							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionTo1CWait');
+							|| s.state === 'down' || s.state === 'stopped') {
+							hasError = true;
+							errNames[self.serviceLabel(s.name)] = true;
 						}
+						if (s.state === 'starting' || s.state === 'pending'
+							|| s.state === 'unknown') {
+							hasStarting = true;
+							startNames[self.serviceLabel(s.name)] = true;
+						}
+					});
+					const errorList = Object.keys(errNames);
+					const startList = Object.keys(startNames);
+					// Severity order: a genuine red failure (incl. a crm-1c bridge
+					// daemon that is actually down — it stays 'error') wins the
+					// headline so it is never masked by a calmer message. Then the
+					// 1C bridge's mode-aware "no live session yet" states (from
+					// refineCrmStatus: connecting_1c / waiting_1c) — always a calm
+					// yellow, never red. Then generic startup progress.
+					if (hasError) {
+						self.changeStatus('ConnectionError', { names: errorList });
+					} else if (crm1c === 'waiting_1c') {
+						self.changeStatus('ConnectionTo1CWaiting');
+					} else if (crm1c === 'connecting_1c') {
+						self.changeStatus('ConnectionTo1CConnecting');
 					} else if (hasStarting) {
 						// Still starting: show progress until we give up after 10
 						// failed polls, then treat the stuck daemon as an error
 						// instead of falsely reporting it as Connected.
-						if (moduleCTIClientConnectionCheckWorker.errorCounts < 10) {
-							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionProgress');
+						if (self.errorCounts < 10) {
+							self.changeStatus('ConnectionProgress', { count: startList.length });
 						} else {
-							moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
+							self.changeStatus('ConnectionError', { names: startList });
 						}
-					} else if (hasError) {
-						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
 					} else {
-						moduleCTIClientConnectionCheckWorker.changeStatus('Connected');
+						self.changeStatus('Connected');
 					}
 				},
 			});
 		} else {
 			moduleCTIClientConnectionCheckWorker.errorCounts = 0;
+			moduleCTIClientConnectionCheckWorker.notifyRemoteMigrationLock(null);
+			moduleCTIClientConnectionCheckWorker.changeStatus('Disabled');
 			moduleCTIClientConnectionCheckWorker.renderDisabledPanel();
 		}
+	},
+
+	/**
+	 * Сообщить форме настроек, что remote/VPS поля нужно заблокировать или разблокировать.
+	 *
+	 * @param {Object|null} data Ответ API check.
+	 */
+	notifyRemoteMigrationLock(data) {
+		const active = data && data.remote_migration_active === true;
+		const services = (data && Array.isArray(data.remote_migration_services))
+			? data.remote_migration_services : [];
+		window.dispatchEvent(new CustomEvent('RemoteMigrationLockChanged', {
+			detail: {
+				active,
+				services,
+			},
+		}));
 	},
 
 	/**
@@ -354,10 +405,12 @@ const moduleCTIClientConnectionCheckWorker = {
 
 		// last_error from monitord is sticky ("last error ever seen") and is NOT
 		// cleared on recovery — it stays in the API payload on purpose (handy for
-		// debugging). But surface it to the operator ONLY while the service is
-		// actually unhealthy, so a recovered glitch (state=ok) doesn't keep
-		// reading as a current failure on the panel.
-		if (lastError !== '' && ledClass !== 'ok') {
+		// debugging). Surface it to the operator ONLY when the service is actually
+		// in a red error state. A recovered glitch (state=ok) or a service still
+		// starting/warming up (state=starting -> warn LED, incl. the startup grace
+		// window) must NOT print stale error text — otherwise we'd be reporting a
+		// service failure in the first minute, which is exactly what we suppress.
+		if (lastError !== '' && ledClass === 'error') {
 			html += `<tr class="cti-svc-error-row"><td colspan="${colCount}">`
 				+ `<i class="exclamation triangle icon"></i>`
 				+ `<span title="${esc(lastError)}">${esc(self.truncate(lastError, 200))}</span>`
@@ -478,6 +531,9 @@ const moduleCTIClientConnectionCheckWorker = {
 		const fallback = {
 			ok: 'OK',
 			authenticated: 'Authenticated',
+			connected: 'Connected to 1C',
+			waiting_1c: 'Waiting for 1C to connect',
+			connecting_1c: 'Connecting to 1C…',
 			error: 'Error',
 			unknown: 'Unknown',
 			pending: 'Pending',
@@ -540,58 +596,99 @@ const moduleCTIClientConnectionCheckWorker = {
 	},
 
 	/**
-	 * Обновление статуса модуля (бейдж в правом верхнем углу).
+	 * Обновление общего статуса модуля — строка-сводка вверху вкладки «Статус»
+	 * (заменила прежний угловой бейдж #status). Рисует цветную лампочку + текст;
+	 * для красного состояния может НАЗВАТЬ конкретные проблемные сервисы, а для
+	 * прогресса — показать их количество.
 	 *
-	 * @param status
+	 * @param {string} status ключ состояния
+	 * @param {{names?: string[], count?: number}} [info] доп. данные для текста
 	 */
-	changeStatus(status) {
-		moduleCTIClientConnectionCheckWorker.$moduleStatus
-			.removeClass('grey')
-			.removeClass('yellow')
-			.removeClass('green')
-			.removeClass('red');
+	changeStatus(status, info) {
+		const self = moduleCTIClientConnectionCheckWorker;
+		const $s = self.$moduleStatus;
+		if (!$s || $s.length === 0) {
+			return;
+		}
+		const data = info || {};
+		const esc = self.escapeHtml;
+		const spinner = '<i class="spinner loading icon"></i>';
+		const tr = (key, fallback) => self.tr(key, fallback);
+
+		let cls = 'cti-summary-grey';
+		let led = 'unknown';
+		let icon = '';
+		let text = '';
 
 		switch (status) {
 			case 'Connected':
-				moduleCTIClientConnectionCheckWorker.$moduleStatus
-					.addClass('green')
-					.html(globalTranslate.mod_cti_Connected);
+				cls = 'cti-summary-green';
+				led = 'ok';
+				text = tr('mod_cti_Connected', 'The module works successfully');
+				break;
+			case 'ConnectionProgress': {
+				cls = 'cti-summary-yellow';
+				led = 'warn';
+				icon = spinner;
+				let progress = tr('mod_cti_ConnectionProgress', 'Module services are starting');
+				if (data.count && data.count > 0) {
+					progress += ` (${data.count})`;
+				}
+				text = progress;
+				break;
+			}
+			case 'ConnectionTo1CWaiting':
+				// longpool: 1C connects to us; we are waiting for it.
+				cls = 'cti-summary-yellow';
+				led = 'warn';
+				icon = spinner;
+				text = tr('mod_cti_state_waiting_1c', 'Waiting for 1C to connect');
+				break;
+			case 'ConnectionTo1CConnecting':
+				// webservice: we are reaching out to 1C.
+				cls = 'cti-summary-yellow';
+				led = 'warn';
+				icon = spinner;
+				text = tr('mod_cti_state_connecting_1c', 'Connecting to 1C…');
+				break;
+			case 'ConnectionError': {
+				cls = 'cti-summary-red';
+				led = 'error';
+				const names = Array.isArray(data.names) ? data.names.filter(Boolean) : [];
+				if (names.length > 0) {
+					text = `${tr('mod_cti_StatusProblem', 'Problem')}: ${names.join(', ')}`;
+				} else {
+					text = tr('mod_cti_ConnectionError', 'Failure');
+				}
+				break;
+			}
+			case 'Disabled':
+				cls = 'cti-summary-grey';
+				led = 'unknown';
+				text = tr('mod_cti_StatusModuleDisabled', 'Module is disabled');
 				break;
 			case 'Disconnected':
-				moduleCTIClientConnectionCheckWorker.$moduleStatus
-					.addClass('grey')
-					.html(globalTranslate.mod_cti_Disconnected);
-				break;
-			case 'ConnectionProgress':
-				moduleCTIClientConnectionCheckWorker.$moduleStatus
-					.addClass('yellow')
-					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_ConnectionProgress}`);
-				break;
-			case 'ConnectionTo1CWait':
-				moduleCTIClientConnectionCheckWorker.$moduleStatus
-					.addClass('yellow')
-					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_ConnectionWait}`);
-				break;
-			case 'ConnectionTo1CError':
-				moduleCTIClientConnectionCheckWorker.$moduleStatus
-					.addClass('yellow')
-					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_ConnectionTo1CError}`);
-				break;
-			case 'ConnectionError':
-				moduleCTIClientConnectionCheckWorker.$moduleStatus
-					.addClass('red')
-					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_ConnectionError}`);
+				cls = 'cti-summary-grey';
+				led = 'unknown';
+				text = tr('mod_cti_Disconnected', 'Disconnected');
 				break;
 			case 'Updating':
-				moduleCTIClientConnectionCheckWorker.$moduleStatus
-					.addClass('grey')
-					.html(`<i class="spinner loading icon"></i>${globalTranslate.mod_cti_UpdateStatus}`);
+				cls = 'cti-summary-grey';
+				led = 'unknown';
+				icon = spinner;
+				text = tr('mod_cti_UpdateStatus', 'Updating status…');
 				break;
 			default:
-				moduleCTIClientConnectionCheckWorker.$moduleStatus
-					.addClass('red')
-					.html(globalTranslate.mod_cti_ConnectionError);
+				cls = 'cti-summary-red';
+				led = 'error';
+				text = tr('mod_cti_ConnectionError', 'Failure');
 				break;
 		}
+
+		$s
+			.removeClass('cti-summary-grey cti-summary-green cti-summary-yellow cti-summary-red')
+			.addClass(cls)
+			.html(`<span class="cti-summary-led ${esc(led)}"></span>`
+				+ `<span class="cti-summary-text">${icon}${esc(text)}</span>`);
 	},
 };

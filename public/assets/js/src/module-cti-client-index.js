@@ -13,7 +13,8 @@ const moduleCTIClient = {
 	$callerIdSetupToggle: $('#setup-caller-id-toggle'),
 	$callerIdTransliterationToggleBlock: $('#transliterate-caller-id-toggle-block'),
 	$formObj: $('#module-cti-client-form'),
-	$moduleStatus: $('#status'),
+	$moduleStatus: $('#cti-status-summary'),
+	$remoteMigrationLockMessage: $('#cti-remote-migration-lock-message'),
 	$debugToggle: $('#debug-mode-toggle'),
 	$autoSettingsToggle: $('#auto-settings-mode-toggle'),
 	$onlyAutoSettingsVisible: $('#module-cti-client-form .only-auto-settings'),
@@ -22,6 +23,22 @@ const moduleCTIClient = {
 	$dirrtyField: $('#dirrty'),
 	$sslModeSelect: $('.server1c_scheme select'),
 	$debugTab: $('#module-cti-client-tabs .item[data-tab="debug"]'),
+	remoteMigrationLocked: false,
+	remoteMigrationLockServices: [],
+	remoteMigrationLockListenerBound: false,
+	remoteProtectedFieldIds: [
+		'remote_host',
+		'remote_ssh_port',
+		'remote_ssh_login',
+		'remote_ssh_key',
+		'remote_bin_dir',
+	],
+	remoteToggleFieldIds: ['remote_whatsapp', 'remote_telegram', 'remote_max'],
+	remoteServiceLabelKeys: {
+		chats: 'mod_cti_svc_chats',
+		tg: 'mod_cti_svc_tg',
+		max: 'mod_cti_svc_max',
+	},
 	validateRules: {
 		server1chost: {
 			identifier: 'server1chost',
@@ -118,8 +135,124 @@ const moduleCTIClient = {
 		moduleCTIClient.initializeForm();
 		moduleCTIClient.checkStatusToggle();
 		moduleCTIClient.setCallerIdToggle();
+		moduleCTIClient.initializeRemoteMigrationLock();
 		moduleCTIClient.initializeRemoteConnectionTest();
 		window.addEventListener('ModuleStatusChanged', moduleCTIClient.checkStatusToggle);
+	},
+	/**
+	 * Подписка на статус активной миграции мессенджеров.
+	 */
+	initializeRemoteMigrationLock() {
+		if (!moduleCTIClient.remoteMigrationLockListenerBound) {
+			window.addEventListener(
+				'RemoteMigrationLockChanged',
+				moduleCTIClient.setRemoteMigrationLock,
+			);
+			moduleCTIClient.remoteMigrationLockListenerBound = true;
+		}
+		moduleCTIClient.applyRemoteMigrationLock();
+	},
+	/**
+	 * Обновить состояние блокировки remote/VPS полей.
+	 * @param {CustomEvent} event
+	 */
+	setRemoteMigrationLock(event) {
+		const detail = (event && event.detail) ? event.detail : {};
+		moduleCTIClient.remoteMigrationLocked = detail.active === true;
+		moduleCTIClient.remoteMigrationLockServices = Array.isArray(detail.services)
+			? detail.services : [];
+		moduleCTIClient.applyRemoteMigrationLock();
+	},
+	/**
+	 * Применить текущую блокировку к полям формы без disabled-атрибутов:
+	 * values должны продолжать отправляться при сохранении других настроек.
+	 */
+	applyRemoteMigrationLock() {
+		const locked = moduleCTIClient.remoteMigrationLocked === true;
+		const $remoteInputs = moduleCTIClient.getRemoteProtectedInputs();
+		const $remoteToggles = moduleCTIClient.getRemoteToggleInputs();
+		const $remoteTestButton = $('#cti-test-remote-conn');
+
+		$remoteInputs
+			.prop('readonly', locked)
+			.attr('aria-disabled', locked ? 'true' : 'false')
+			.closest('.field')
+			.toggleClass('cti-remote-field-locked', locked);
+		if (locked) {
+			$remoteInputs.attr('tabindex', '-1');
+		} else {
+			$remoteInputs.removeAttr('tabindex');
+		}
+
+		$remoteToggles
+			.attr('aria-disabled', locked ? 'true' : 'false')
+			.closest('.ui.segment')
+			.toggleClass('cti-remote-field-locked', locked);
+		if (locked) {
+			$remoteToggles.attr('tabindex', '-1');
+		} else {
+			$remoteToggles.removeAttr('tabindex');
+		}
+
+		$remoteTestButton
+			.toggleClass('disabled', locked)
+			.attr('aria-disabled', locked ? 'true' : 'false');
+
+		if (moduleCTIClient.$remoteMigrationLockMessage.length > 0) {
+			const serviceText = moduleCTIClient.formatRemoteMigrationServices(
+				moduleCTIClient.remoteMigrationLockServices,
+			);
+			const baseText = globalTranslate.mod_cti_RemoteMigrationLocked
+				|| 'Messenger migration is in progress. Remote settings are locked until it finishes.';
+			const text = serviceText === '' ? baseText : `${baseText} (${serviceText})`;
+			moduleCTIClient.$remoteMigrationLockMessage.find('p').text(text);
+			moduleCTIClient.$remoteMigrationLockMessage.toggle(locked);
+		}
+	},
+	/**
+	 * @returns {jQuery}
+	 */
+	getRemoteProtectedInputs() {
+		return $(moduleCTIClient.remoteProtectedFieldIds.map((id) => `#${id}`).join(','));
+	},
+	/**
+	 * @returns {jQuery}
+	 */
+	getRemoteToggleInputs() {
+		return $(moduleCTIClient.remoteToggleFieldIds.map((id) => `#${id}`).join(','));
+	},
+	/**
+	 * @param {string[]} services
+	 * @returns {string}
+	 */
+	formatRemoteMigrationServices(services) {
+		if (!Array.isArray(services) || services.length === 0) {
+			return '';
+		}
+		return services.map((service) => {
+			const key = moduleCTIClient.remoteServiceLabelKeys[service];
+			if (key && globalTranslate[key]) {
+				return globalTranslate[key];
+			}
+			return service;
+		}).join(', ');
+	},
+	/**
+	 * Preserve locked remote values in POST data when saving unrelated settings.
+	 * @param {Object} formData
+	 * @returns {Object}
+	 */
+	syncRemoteFieldsBeforeSubmit(formData) {
+		if (moduleCTIClient.remoteMigrationLocked !== true) {
+			return formData;
+		}
+		moduleCTIClient.remoteProtectedFieldIds.forEach((id) => {
+			formData[id] = $(`#${id}`).val() || '';
+		});
+		moduleCTIClient.remoteToggleFieldIds.forEach((id) => {
+			formData[id] = $(`#${id}`).is(':checked') ? 'on' : '';
+		});
+		return formData;
 	},
 	/**
 	 * Кнопка «Проверить подключение» на вкладке Удалённые мессенджеры —
@@ -134,6 +267,7 @@ const moduleCTIClient = {
 		}
 		const renderResult = (probe, fallbackErr) => {
 			$btn.removeClass('loading disabled');
+			moduleCTIClient.applyRemoteMigrationLock();
 			if (probe && probe.ok === true) {
 				const okLabel = globalTranslate.mod_cti_RemoteTestOk || 'Connection OK';
 				const arch = probe.arch ? ` ${probe.arch}` : '';
@@ -146,8 +280,11 @@ const moduleCTIClient = {
 			$result.css('color', '#db2828').text(err ? `${failLabel}: ${err}` : failLabel);
 		};
 
-		$btn.on('click', (e) => {
+		$btn.off('click.ctiRemoteTest').on('click.ctiRemoteTest', (e) => {
 			e.preventDefault();
+			if (moduleCTIClient.remoteMigrationLocked === true) {
+				return;
+			}
 			$btn.addClass('loading disabled');
 			$result.removeClass('green red')
 				.css('color', '#666')
@@ -238,6 +375,7 @@ const moduleCTIClient = {
 	cbBeforeSendForm(settings) {
 		const result = settings;
 		result.data = moduleCTIClient.$formObj.form('get values');
+		result.data = moduleCTIClient.syncRemoteFieldsBeforeSubmit(result.data);
 		return result;
 	},
 	cbAfterSendForm() {
@@ -275,4 +413,3 @@ $.fn.form.settings.rules.wrongPortCustomRule = function (value) {
 $(document).ready(() => {
 	moduleCTIClient.initialize();
 });
-

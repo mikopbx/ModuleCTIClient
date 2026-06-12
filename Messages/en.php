@@ -76,6 +76,9 @@ return [
     'mod_cti_RemoteTestOk' => 'Connection OK',
     'mod_cti_RemoteTestFail' => 'Connection failed',
     'mod_cti_RemoteTestRwOk' => 'write access OK',
+    'mod_cti_RemoteMigrationLockedHeader' => 'Migration in progress',
+    'mod_cti_RemoteMigrationLocked' => 'Messenger migration is in progress. Remote settings are locked until it finishes.',
+    'mod_cti_RemoteMigrationLockedSaveError' => 'Remote messenger settings cannot be changed while migration is in progress. Wait until migration finishes and try again.',
 
     // Services status panel
     'mod_cti_tab_Status'             => 'Services status',
@@ -84,6 +87,7 @@ return [
     'mod_cti_StatusUnavailable'      => 'Services status unavailable',
     'mod_cti_StatusModuleDisabled'   => 'Module is disabled — services are not running',
     'mod_cti_StatusEmpty'            => 'No services reported',
+    'mod_cti_StatusProblem'          => 'Problem',
     'mod_cti_Uptime'                 => 'Uptime',
     'mod_cti_Version'                => 'Version',
 
@@ -114,6 +118,9 @@ return [
     // Service states
     'mod_cti_state_ok'               => 'OK',
     'mod_cti_state_authenticated'    => 'Authenticated',
+    'mod_cti_state_connected'        => 'Connected to 1C',
+    'mod_cti_state_waiting_1c'       => 'Waiting for a connection from 1C',
+    'mod_cti_state_connecting_1c'    => 'Connecting to 1C…',
     'mod_cti_state_error'            => 'Error',
     'mod_cti_state_unknown'          => 'Unknown',
     'mod_cti_state_pending'          => 'Pending',
