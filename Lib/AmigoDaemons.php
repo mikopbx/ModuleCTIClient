@@ -91,6 +91,14 @@ class AmigoDaemons extends Injectable
      */
     private const MIGRATION_MAX_CONFIRM = 12;
 
+    /**
+     * Absolute wall-clock ceiling for one migration attempt. The per-step retry
+     * counters catch normal transient failures; this guards against a stuck
+     * cursor that keeps `migrating`/`resuming` true without reaching those
+     * counters (worker restarts, partial state writes, or an unexpected loop).
+     */
+    private const MIGRATION_HARD_TIMEOUT_SECONDS = 900;
+
     public array $dirs;
     private array $module_settings = [];
     private string $moduleUniqueID = 'ModuleCTIClient';
@@ -502,12 +510,14 @@ class AmigoDaemons extends Injectable
     private function defaultServiceState(): array
     {
         return [
-            'migrating'  => false,
-            'resuming'   => false,
-            'parked'     => false,
-            'fail_count' => 0,
-            'last_error' => '',
-            'areas'      => [],
+            'migrating'            => false,
+            'resuming'             => false,
+            'parked'               => false,
+            'fail_count'           => 0,
+            'last_error'           => '',
+            'migration_started_at' => 0,
+            'migration_updated_at' => 0,
+            'areas'                => [],
         ];
     }
 
@@ -2038,9 +2048,118 @@ class AmigoDaemons extends Injectable
         }
         $state[$svc]['migrating'] = false;
         $state[$svc]['resuming'] = false;
+        $state[$svc]['parked'] = false;
+        $state[$svc]['fail_count'] = 0;
         $state[$svc]['last_error'] = $reason;
+        $this->clearMigrationTimestamps($state, $svc);
         $this->writeRemoteState($state);
         $this->applyMonitordConfigAndReconcile();
+    }
+
+    /**
+     * Areas that still need STEP 3b confirmation before the cursor may commit.
+     *
+     * @param array<string,mixed> $record
+     * @param string $desiredSide
+     * @return string[]
+     */
+    private function getMigrationConfirmAreas(array $record, string $desiredSide): array
+    {
+        $confirm = [];
+        foreach (($record['areas'] ?? []) as $area => $a) {
+            if (is_array($a) && (string)($a['side'] ?? '') !== $desiredSide) {
+                $confirm[] = (string)$area;
+            }
+        }
+
+        return $confirm;
+    }
+
+    /**
+     * Start or refresh diagnostic timestamps on an active migration cursor.
+     *
+     * @param array<string,array<string,mixed>> $state
+     * @param string $svc
+     * @param bool $started
+     * @return void
+     */
+    private function touchMigrationTimestamps(array &$state, string $svc, bool $started = false): void
+    {
+        $now = time();
+        if ($started || (int)($state[$svc]['migration_started_at'] ?? 0) <= 0) {
+            $state[$svc]['migration_started_at'] = $now;
+        }
+        $state[$svc]['migration_updated_at'] = $now;
+    }
+
+    /**
+     * Clear migration timing metadata when the active cursor is resolved.
+     *
+     * @param array<string,array<string,mixed>> $state
+     * @param string $svc
+     * @return void
+     */
+    private function clearMigrationTimestamps(array &$state, string $svc): void
+    {
+        $state[$svc]['migration_started_at'] = 0;
+        $state[$svc]['migration_updated_at'] = 0;
+    }
+
+    /**
+     * Enforce the absolute migration wall-clock budget.
+     *
+     * @param string $svc
+     * @param string $desiredSide
+     * @param string $src
+     * @return bool True when timeout handled the cursor and caller must stop.
+     */
+    private function enforceMigrationHardTimeout(string $svc, string $desiredSide, string $src): bool
+    {
+        $state = $this->readRemoteState();
+        $record = $state[$svc] ?? [];
+        if (!is_array($record) || empty($record['migrating'])) {
+            return false;
+        }
+
+        $now = time();
+        $startedAt = (int)($record['migration_started_at'] ?? 0);
+        if ($startedAt <= 0) {
+            // Old cursors created before this field existed start their hard
+            // timeout from the first tick after upgrade, avoiding surprise rollback.
+            $this->touchMigrationTimestamps($state, $svc, true);
+            $this->writeRemoteState($state);
+
+            return false;
+        }
+
+        $elapsed = $now - $startedAt;
+        if ($elapsed < self::MIGRATION_HARD_TIMEOUT_SECONDS) {
+            return false;
+        }
+
+        $reason = 'migration hard timeout after ' . $elapsed . 's';
+        if (!empty($record['resuming'])) {
+            $confirm = $this->getMigrationConfirmAreas($record, $desiredSide);
+            if (empty($confirm)) {
+                $state[$svc]['migrating'] = false;
+                $state[$svc]['resuming'] = false;
+                $state[$svc]['fail_count'] = 0;
+                $state[$svc]['last_error'] = $reason . ', no pending areas left';
+                $this->clearMigrationTimestamps($state, $svc);
+                $this->writeRemoteState($state);
+                $this->applyMonitordConfigAndReconcile();
+
+                return true;
+            }
+
+            $this->rollbackService($svc, $confirm, $src, $reason . ', rolled back to ' . $src);
+
+            return true;
+        }
+
+        $this->failPark($svc, $src, $reason . ', still on ' . $src);
+
+        return true;
     }
 
     /**
@@ -2101,6 +2220,10 @@ class AmigoDaemons extends Injectable
         $migrating = !empty($state[$svc]['migrating']);
         $resuming  = !empty($state[$svc]['resuming']);
 
+        if ($migrating && $this->enforceMigrationHardTimeout($svc, $desiredSide, $src)) {
+            return;
+        }
+
         // ---- STEP 1: SUPPRESS (begin migration; take the whole service down) ----
         if (!$migrating) {
             if (empty($moving)) {
@@ -2109,6 +2232,7 @@ class AmigoDaemons extends Injectable
             $state[$svc]['migrating'] = true;
             $state[$svc]['resuming'] = false;
             $state[$svc]['last_error'] = '';
+            $this->touchMigrationTimestamps($state, $svc, true);
             $this->writeRemoteState($state);
             $this->applyMonitordConfigAndReconcile();
             return; // next tick re-enters and checks bothSidesDown
@@ -2124,12 +2248,7 @@ class AmigoDaemons extends Injectable
             // a no-op. During resume the cursor `side` is deliberately still src
             // (F2 — flipped only here at commit), so derive the confirm-set from
             // the cursor: areas whose side != desired.
-            $confirm = [];
-            foreach (($state[$svc]['areas'] ?? []) as $area => $a) {
-                if (is_array($a) && (string)($a['side'] ?? '') !== $desiredSide) {
-                    $confirm[] = (string)$area;
-                }
-            }
+            $confirm = $this->getMigrationConfirmAreas($state[$svc] ?? [], $desiredSide);
             if (empty($confirm)) {
                 // Cursor already shows everything on desired (e.g. a replayed
                 // tick after commit) — nothing left to confirm; clear anchors.
@@ -2138,6 +2257,7 @@ class AmigoDaemons extends Injectable
                 $state[$svc]['resuming'] = false;
                 $state[$svc]['fail_count'] = 0;
                 $state[$svc]['last_error'] = '';
+                $this->clearMigrationTimestamps($state, $svc);
                 $this->writeRemoteState($state);
                 $this->applyMonitordConfigAndReconcile();
                 return;
@@ -2168,6 +2288,7 @@ class AmigoDaemons extends Injectable
                 $state[$svc]['resuming'] = false;
                 $state[$svc]['fail_count'] = 0;
                 $state[$svc]['last_error'] = '';
+                $this->clearMigrationTimestamps($state, $svc);
                 $this->writeRemoteState($state);
                 $this->applyMonitordConfigAndReconcile();
                 $this->sweepStaleMigrationArtifacts();
@@ -2178,6 +2299,7 @@ class AmigoDaemons extends Injectable
             // a cross-host receiver + qrcode/2FA re-auth takes longer to show).
             $state = $this->readRemoteState();
             $state[$svc]['fail_count'] = (int)($state[$svc]['fail_count'] ?? 0) + 1;
+            $this->touchMigrationTimestamps($state, $svc);
             if ($state[$svc]['fail_count'] >= self::MIGRATION_MAX_CONFIRM) {
                 // Receiver won't come up after the copy => ROLLBACK to source.
                 $this->writeRemoteState($state);
@@ -2196,6 +2318,7 @@ class AmigoDaemons extends Injectable
         if (!$this->bothSidesDown($svc)) {
             $state = $this->readRemoteState();
             $state[$svc]['fail_count'] = (int)($state[$svc]['fail_count'] ?? 0) + 1;
+            $this->touchMigrationTimestamps($state, $svc);
             if ($state[$svc]['fail_count'] >= self::MIGRATION_MAX_FAILS) {
                 $this->failPark($svc, $src);
                 return;
@@ -2213,6 +2336,7 @@ class AmigoDaemons extends Injectable
         $state = $this->readRemoteState();
         if ((int)($state[$svc]['fail_count'] ?? 0) !== 0) {
             $state[$svc]['fail_count'] = 0;
+            $this->touchMigrationTimestamps($state, $svc);
             $this->writeRemoteState($state);
         }
 
@@ -2231,6 +2355,7 @@ class AmigoDaemons extends Injectable
             $state = $this->readRemoteState();
             $state[$svc]['fail_count'] = (int)($state[$svc]['fail_count'] ?? 0) + 1;
             $state[$svc]['last_error'] = 'copy failed: ' . $copy['error'];
+            $this->touchMigrationTimestamps($state, $svc);
             if ($state[$svc]['fail_count'] >= self::MIGRATION_MAX_FAILS) {
                 $this->writeRemoteState($state);
                 $this->failPark($svc, $src);
@@ -2249,6 +2374,7 @@ class AmigoDaemons extends Injectable
         // cursor-derived confirm-set actually contains the moving areas.
         $state = $this->readRemoteState();
         $state[$svc]['fail_count'] = 0;
+        $this->touchMigrationTimestamps($state, $svc);
         foreach ($moving as $area) {
             if (!isset($state[$svc]['areas'][$area]) || !is_array($state[$svc]['areas'][$area])) {
                 $state[$svc]['areas'][$area] = ['side' => $src, 'last_sync_ts' => 0, 'health' => 'unknown'];
@@ -2274,6 +2400,7 @@ class AmigoDaemons extends Injectable
         $state = $this->readRemoteState();
         $state[$svc]['resuming'] = true;
         $state[$svc]['fail_count'] = 0;
+        $this->touchMigrationTimestamps($state, $svc);
         $this->writeRemoteState($state);
         $this->applyMonitordConfigAndReconcile();
     }
@@ -2286,16 +2413,20 @@ class AmigoDaemons extends Injectable
      *
      * @param string $svc
      * @param string $src source side ("local"|"remote")
+     * @param string $reason optional explicit last_error
      * @return void
      */
-    private function failPark(string $svc, string $src): void
+    private function failPark(string $svc, string $src, string $reason = ''): void
     {
         $state = $this->readRemoteState();
         $state[$svc]['migrating'] = false;
         $state[$svc]['resuming'] = false;
         $state[$svc]['parked'] = true;
         $state[$svc]['fail_count'] = 0;
-        $state[$svc]['last_error'] = 'migration failed (VPS unreachable), still on ' . $src;
+        $state[$svc]['last_error'] = $reason !== ''
+            ? $reason
+            : 'migration failed (VPS unreachable), still on ' . $src;
+        $this->clearMigrationTimestamps($state, $svc);
         $this->writeRemoteState($state);
         $this->applyMonitordConfigAndReconcile();
     }
