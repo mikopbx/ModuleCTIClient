@@ -133,6 +133,13 @@ class WorkerRemoteTunnel extends WorkerBase
                 $cti->healOrphanedRemoteStateWhenUnconfigured();
             }
 
+            // Drop the adopt_local intent for any service Go has finished pulling
+            // home. Runs BEFORE the idle gate: a completed failback leaves the node
+            // local (no toggle, no remote area) → idle → and a marker left set here
+            // would block a later re-offload (generateMonitordConf keeps an
+            // adopt_local service out of remote_services). Cheap, local-file only.
+            $cti->clearConvergedAdoptLocalMarkers();
+
             if (!$active || $ssh === null) {
                 // Truly nothing remote remains (no toggle, no remote area, no
                 // migration). Don't exit (the supervisor would respawn us for
@@ -161,6 +168,15 @@ class WorkerRemoteTunnel extends WorkerBase
             //    the receiver never comes up. Idempotent / one-step-per-tick.
             $cti->reconcileMigrations();
 
+            // 0b. Auto-failback: if the monitord-owned tunnel has been down longer
+            //     than the grace, bring services stranded on the (unreachable) VPS
+            //     home to local — fence the toggle + adopt the warm-standby mirror
+            //     via the adopt_local intent. Self-gating (no-op while connected or
+            //     under the grace); split-brain is fenced upstream by the owner-lock
+            //     self-fence + the grace exceeding the lock TTL. (The converged-
+            //     marker cleanup runs before the idle gate above.)
+            $cti->autoFailbackIfTunnelDownTooLong();
+
             // 0a. Tunnel up INDEPENDENT of channels (operator request): when a
             //     service is toggled remote but has no channels yet, STEP 1 above
             //     is a no-op (nothing to migrate) and would never render/boot the
@@ -174,14 +190,11 @@ class WorkerRemoteTunnel extends WorkerBase
             if ($cti->isInfraNeeded() && !$cti->isRemoteTunnelConnected()) {
                 // An orphaned reverse-forward from a previously-killed monitord can
                 // still hold the VPS loopback nats ports (the VPS sshd does not reap
-                // the half-open session), so the fresh tunnel fails forever with
-                // "tcpip-forward request denied by peer". When monitord reports that
-                // exact block, clear the stale holder on the VPS so the tunnel binds
-                // on the next reconnect. Gated on the denied signature, so it never
-                // touches our own live tunnel.
-                if ($cti->isRemoteTunnelPortBlocked()) {
-                    $cti->clearStaleRemoteReverseForwards();
-                }
+                // the half-open session). That is now cleared by monitord's own
+                // owner-lock (reclaim_ports runs at tunnel acquire while we hold the
+                // lock), which replaced the old PHP clearStaleRemoteReverseForwards
+                // hack — that one killed port holders on every !connected flap and so
+                // kept severing the live tunnel (~54s reconnect storm).
                 $cti->applyMonitordConfigAndReconcile();
             }
 

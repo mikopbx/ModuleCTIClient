@@ -99,6 +99,15 @@ class AmigoDaemons extends Injectable
      */
     private const MIGRATION_HARD_TIMEOUT_SECONDS = 900;
 
+    /**
+     * Default grace before an auto-failback: how long the monitord-owned tunnel
+     * must stay down (no successful exchange) before the worker brings stranded
+     * remote services home to local. Overridable per-install via the optional
+     * `remote_failback_after_sec` setting (0/unset => this default). Kept well
+     * above the owner-lock TTL so the VPS has self-fenced before we adopt local.
+     */
+    private const FAILBACK_AFTER_SECONDS = 7200;
+
     public array $dirs;
     private array $module_settings = [];
     private string $moduleUniqueID = 'ModuleCTIClient';
@@ -2461,7 +2470,26 @@ class AmigoDaemons extends Injectable
 
             $migrating = !empty($state[$svc]['migrating']);
             if (empty($moving) && !$migrating) {
-                continue; // IDLE — nothing to do
+                // IDLE. With nothing in flight, custom_config is the source of truth,
+                // so re-sync any cursor `side` that drifted from it (a legacy impotent
+                // rollback — pre-fix, or the hard-timeout path — could leave the cursor
+                // on the wrong side, which silently stops the warm-standby mirror).
+                $healed = false;
+                foreach ($current as $area => $location) {
+                    if (isset($state[$svc]['areas'][$area]) && is_array($state[$svc]['areas'][$area])
+                        && (string)($state[$svc]['areas'][$area]['side'] ?? '') !== $location) {
+                        $state[$svc]['areas'][$area]['side'] = $location;
+                        $healed = true;
+                    }
+                }
+                if ($healed) {
+                    // The service is now consistent again — drop any stale failure
+                    // note from the legacy impotent rollback (it lied: the daemon
+                    // actually runs on custom_config's side).
+                    $state[$svc]['last_error'] = '';
+                    $this->writeRemoteState($state);
+                }
+                continue;
             }
 
             // Advance ONE step for this service, then return so each tick does
@@ -2540,9 +2568,21 @@ class AmigoDaemons extends Injectable
                     break;
                 }
             }
-            if ($allCommitted && $this->receiverHealthy($svc, $confirm)) {
-                // Durable commit point (follows Go's commit — F2). Flip the
-                // cursor side now; receiverHealthy already stamped per-area health.
+            if ($allCommitted) {
+                // Go has placed EVERY area on the desired side — the migration's
+                // placement is done and durable (F2 commit point). The source daemon
+                // was already killed in STEP 1 SUPPRESS, so there is nothing to fall
+                // back to; and the operator's toggle pins custom_config to the desired
+                // side, so a "rollback to source" cannot move Go — it would only
+                // desync the cursor from custom_config, which silently stops the
+                // warm-standby mirror (it copies areas whose cursor side==remote).
+                // So do NOT gate the commit on the receiver being live yet: stamp
+                // whatever health is visible, then flip the cursor to match Go's
+                // truth and finish. A receiver that is slow (cold-start VPS) or truly
+                // dead then shows as an unhealthy daemon the operator recovers from
+                // (toggle-off drain / auto-failback on a tunnel drop) — not a lying
+                // "rolled back to local" while the daemon actually runs remote.
+                $this->receiverHealthy($svc, $confirm); // stamp per-area health only
                 $state = $this->readRemoteState();
                 foreach ($confirm as $area) {
                     if (!isset($state[$svc]['areas'][$area]) || !is_array($state[$svc]['areas'][$area])) {
@@ -2561,14 +2601,15 @@ class AmigoDaemons extends Injectable
                 $this->sweepStaleMigrationArtifacts();
                 return;
             }
-            // Not yet committed/healthy. Count confirmation ticks; ROLLBACK on
-            // the resume-phase budget (larger than the copy-phase fail budget —
-            // a cross-host receiver + qrcode/2FA re-auth takes longer to show).
+            // Go has NOT committed every area yet — its forward call is still in
+            // flight or failing (e.g. the VPS is unreachable for an L2R add), so
+            // custom_config is still on the source side. A rollback IS coherent here
+            // (the toggle drives a clean retry, no cursor↔custom_config divergence).
+            // Count ticks and roll back on the budget.
             $state = $this->readRemoteState();
             $state[$svc]['fail_count'] = (int)($state[$svc]['fail_count'] ?? 0) + 1;
             $this->touchMigrationTimestamps($state, $svc);
             if ($state[$svc]['fail_count'] >= self::MIGRATION_MAX_CONFIRM) {
-                // Receiver won't come up after the copy => ROLLBACK to source.
                 $this->writeRemoteState($state);
                 $this->rollbackService($svc, $confirm, $src, 'migration failed, rolled back to ' . $src);
                 $st2 = $this->readRemoteState();
@@ -2770,6 +2811,183 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Mutate $state so $svc adopts its on-disk (mirrored) session as local WITHOUT
+     * pulling from the VPS: flip every area's cursor side -> local, set the
+     * `adopt_local` intent (read by generateMonitordConf into monitord.json so Go's
+     * doReconcile commits location=local even when the remote-stop call fails on a
+     * dead VPS), and clear every in-flight / parked flag + the wall-clock cursor.
+     * The caller persists $state and reconciles. Idempotent.
+     *
+     * @param array<string,mixed> $state passed by reference
+     * @param string              $svc
+     * @param string              $reason recorded as last_error for diagnostics
+     * @return void
+     */
+    private function adoptServiceAreasLocal(array &$state, string $svc, string $reason): void
+    {
+        $areas = is_array($state[$svc]['areas'] ?? null) ? $state[$svc]['areas'] : [];
+        foreach ($areas as $areaKey => $area) {
+            if (is_array($area)) {
+                $state[$svc]['areas'][$areaKey]['side'] = 'local';
+            }
+        }
+        $state[$svc]['adopt_local'] = true;
+        $state[$svc]['migrating'] = false;
+        $state[$svc]['resuming'] = false;
+        $state[$svc]['parked'] = false;
+        $state[$svc]['fail_count'] = 0;
+        $state[$svc]['last_error'] = $reason;
+        $this->clearMigrationTimestamps($state, $svc);
+    }
+
+    /**
+     * Grace (seconds) the tunnel must stay down before auto-failback fires.
+     * Optional per-install override via `remote_failback_after_sec`; else default.
+     *
+     * @return int
+     */
+    private function getFailbackAfterSeconds(): int
+    {
+        $override = intval($this->module_settings['remote_failback_after_sec'] ?? 0);
+        return $override > 0 ? $override : self::FAILBACK_AFTER_SECONDS;
+    }
+
+    /**
+     * Continuous-downtime of the monitord-owned tunnel, in seconds, maintained by a
+     * durable stamp in spoolDir. Returns -1 when the tunnel is healthy or its state
+     * can't be assessed (monitord unreachable / not configured).
+     *
+     * Why a PHP stamp and not monitord's last_ok_ts alone: last_ok_ts resets to 0
+     * whenever monitord restarts WITHOUT ever reconnecting (crash/upgrade/reboot
+     * while the VPS is already down) — exactly the auto-failback case — so it cannot
+     * measure a multi-restart outage. The stamp survives both monitord and worker
+     * restarts. It is anchored to last_ok_ts when still known, else to first-observed
+     * -down (a cold start mid-outage then counts continuous downtime from boot, which
+     * is the honest semantic). Cleared the moment the tunnel reports connected.
+     *
+     * @return int seconds down, or -1 if healthy/unknown
+     */
+    private function trackTunnelDowntime(): int
+    {
+        $stampFile = "{$this->dirs['spoolDir']}/remote_tunnel_down_since";
+        $data = $this->getMonitordTunnelStatus();
+        if ($data === null) {
+            return -1; // monitord unreachable (transient, e.g. mid-restart) — keep stamp.
+        }
+        if (empty($data['configured']) || !empty($data['connected'])) {
+            // Tunnel healthy, or intentionally torn down (e.g. after a failback) —
+            // clear the anchor so a later re-enable doesn't fail back on a stale stamp.
+            if (file_exists($stampFile)) {
+                @unlink($stampFile);
+            }
+            return -1;
+        }
+        // configured && !connected — establish/keep a durable down-since anchor.
+        $downSince = is_file($stampFile) ? intval(trim((string)@file_get_contents($stampFile))) : 0;
+        if ($downSince <= 0) {
+            $lastOk = intval($data['last_ok_ts'] ?? 0);
+            $downSince = $lastOk > 0 ? $lastOk : time();
+            $tmp = $stampFile . '.tmp';
+            if (@file_put_contents($tmp, (string)$downSince) !== false) {
+                @rename($tmp, $stampFile);
+            }
+        }
+        return time() - $downSince;
+    }
+
+    /**
+     * Auto-failback: when the monitord-owned tunnel has been down longer than the
+     * grace (trackTunnelDowntime, durable across monitord/worker restarts), bring
+     * every service still routed to the (unreachable) VPS home to local. Each
+     * service is fenced (its remote toggle cleared durably) so a VPS that reappears
+     * does not re-offload and recreate the split-brain we are escaping; then adopted
+     * local via the adopt_local intent (Go relaxes the remote->local relocation).
+     *
+     * Conservative: never acts while the tunnel is healthy or its state is unknown
+     * (trackTunnelDowntime returns -1) and never on a service mid-migration (its own
+     * cutoffs apply). Idempotent — a service already adopting is skipped.
+     *
+     * @return void
+     */
+    public function autoFailbackIfTunnelDownTooLong(): void
+    {
+        $downtime = $this->trackTunnelDowntime();
+        if ($downtime < $this->getFailbackAfterSeconds()) {
+            return; // healthy, unknown, or not down long enough yet.
+        }
+
+        $state = $this->readRemoteState();
+        $toggleMap = $this->getRemoteServiceMap();
+        $settings = null;
+        $changed = false;
+        foreach ($this->getRoutedRemoteServices() as $svc) {
+            if (!empty($state[$svc]['migrating']) && empty($state[$svc]['resuming'])) {
+                continue; // mid-migration: leave the state machine's cutoffs to it.
+            }
+            if (!empty($state[$svc]['adopt_local'])) {
+                continue; // already adopting.
+            }
+            // FENCE: clear the remote toggle durably (desiredSide -> local).
+            $toggle = array_search($svc, $toggleMap, true);
+            if ($toggle !== false) {
+                if ($settings === null) {
+                    $settings = ModuleCTIClient::findFirst();
+                }
+                if ($settings !== null) {
+                    $settings->writeAttribute($toggle, '0');
+                }
+            }
+            $this->adoptServiceAreasLocal($state, $svc, 'auto-failback: VPS unreachable');
+            $changed = true;
+        }
+        if (!$changed) {
+            return;
+        }
+        if ($settings !== null && $settings->save() !== false) {
+            // Refresh cached settings so the reconcile below sees desired=local.
+            $this->module_settings = $settings->toArray();
+        }
+        $this->writeRemoteState($state);
+        // The outage is handled — drop the downtime anchor so a later re-enable of
+        // offload doesn't fail back instantly off this now-stale stamp. A fresh
+        // outage re-anchors from scratch.
+        @unlink("{$this->dirs['spoolDir']}/remote_tunnel_down_since");
+        $this->applyMonitordConfigAndReconcile();
+    }
+
+    /**
+     * Drop the `adopt_local` intent for any service Go has finished relocating to
+     * local (no longer present in the custom_config routing anchor). Leaving the
+     * marker set would keep excluding a re-offloaded service from remote_services.
+     * Cheap no-op when nothing converged. Called from the worker each tick.
+     *
+     * @return void
+     */
+    public function clearConvergedAdoptLocalMarkers(): void
+    {
+        $state = $this->readRemoteState();
+        $routed = $this->getRoutedRemoteServices();
+        $changed = false;
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            if (!empty($state[$svc]['adopt_local']) && !in_array($svc, $routed, true)) {
+                unset($state[$svc]['adopt_local']);
+                $changed = true;
+            }
+        }
+        if ($changed) {
+            $this->writeRemoteState($state);
+            // Convergence reached — the outage is fully resolved, so drop the
+            // downtime anchor too (a later re-enable must re-measure from scratch,
+            // not fail back instantly off this stale stamp).
+            @unlink("{$this->dirs['spoolDir']}/remote_tunnel_down_since");
+            // Re-render monitord.json so it no longer carries the now-cleared
+            // adopt_local (the worker idles right after this on a fully-local node,
+            // so nothing else would refresh it). Pure file write, no restart.
+            $this->generateMonitordConf();
+        }
+    }
+
+    /**
      * Phase C — OPERATOR-GATED FAILBACK (§VPS-loss resilience). Bring a service
      * that is stranded on the VPS back to local, used when the VPS is lost /
      * unreachable so the normal toggle-off drain (which PULLS from the VPS) can
@@ -2845,27 +3063,18 @@ class AmigoDaemons extends Injectable
         $this->module_settings = $settings->toArray();
 
         // 2. Adopt the on-disk local copy: flip the cursor side -> local WITHOUT a
-        //    VPS pull (the VPS is gone). Clear every in-flight / parked flag and
-        //    the wall-clock cursor so the service starts clean on local.
+        //    VPS pull (the VPS is gone) and set the adopt_local intent so Go commits
+        //    location=local despite the dead-VPS remote-stop call failing.
         $state = $this->readRemoteState();
-        $areas = is_array($state[$svc]['areas'] ?? null) ? $state[$svc]['areas'] : [];
-        foreach ($areas as $areaKey => $area) {
-            if (is_array($area)) {
-                $state[$svc]['areas'][$areaKey]['side'] = 'local';
-            }
-        }
-        $state[$svc]['migrating'] = false;
-        $state[$svc]['resuming'] = false;
-        $state[$svc]['parked'] = false;
-        $state[$svc]['fail_count'] = 0;
-        $state[$svc]['last_error'] = 'failed back to local (operator)';
-        $this->clearMigrationTimestamps($state, $svc);
+        $this->adoptServiceAreasLocal($state, $svc, 'failed back to local (operator)');
         $this->writeRemoteState($state);
 
         // 3. Reconcile: the local monitord brings the daemon up on the local DB.
-        //    With the toggle off and no remote areas left, infra is no longer
-        //    needed, so applyMonitordConfigAndReconcile also tears the tunnel down
-        //    (best-effort VPS push just no-ops when the VPS is unreachable).
+        //    The routing anchor (custom_config = "remote") is broken by Go's
+        //    adopt_local pass, not by a PHP write here (CC2: only Go writes
+        //    custom_config). With the toggle off and no remote areas left, infra is
+        //    no longer needed, so applyMonitordConfigAndReconcile also tears the
+        //    tunnel down (best-effort VPS push just no-ops when the VPS is unreachable).
         $this->applyMonitordConfigAndReconcile();
 
         return ['ok' => true, 'error' => ''];
@@ -3130,62 +3339,6 @@ class AmigoDaemons extends Injectable
     {
         $data = $this->getMonitordTunnelStatus();
         return $data !== null && !empty($data['connected']);
-    }
-
-    /**
-     * Whether the monitord tunnel is configured but cannot establish its reverse
-     * forwards because the VPS-side ports are already held — the signature of an
-     * orphaned forward left by a previously-killed monitord that the VPS sshd has
-     * not reaped ("tcpip-forward request denied by peer"). Distinct from a plain
-     * not-connected (VPS unreachable) so the caller only clears stale holders
-     * when the port is genuinely blocked, never racing our own live tunnel.
-     *
-     * @return bool
-     */
-    public function isRemoteTunnelPortBlocked(): bool
-    {
-        $data = $this->getMonitordTunnelStatus();
-        if ($data === null || empty($data['configured']) || !empty($data['connected'])) {
-            return false;
-        }
-        return strpos((string)($data['last_error'] ?? ''), 'tcpip-forward') !== false;
-    }
-
-    /**
-     * Kill whatever currently holds the reverse-forward ports (nats + nats-http)
-     * on the VPS loopback. Called ONLY when isRemoteTunnelPortBlocked() is true,
-     * so the holder is necessarily an orphaned ssh session (a half-open forward
-     * from a previously-killed monitord) and never our own live tunnel — clearing
-     * it lets monitord bind on its next reconnect. The remote monitord
-     * (manager.api on its own port) never listens on these ports, so it is left
-     * untouched. Best-effort over direct ssh; a failure just retries next tick.
-     *
-     * @return void
-     */
-    public function clearStaleRemoteReverseForwards(): void
-    {
-        $ssh = $this->getRemoteSshParams();
-        if ($ssh === null) {
-            return;
-        }
-        $natsPort     = (int)$this->getNatsPort();
-        $natsHttpPort = (int)$this->getNatsHttpPort();
-        if ($natsPort <= 0 || $natsHttpPort <= 0) {
-            return;
-        }
-        // ss first (modern), netstat as a fallback; extract ONLY the owning pid
-        // (pid=N for ss, N/name for netstat) so the port number is never mistaken
-        // for a pid. $P/$PIDS/$pid are remote-shell vars (literal here).
-        $remote =
-            'for P in ' . $natsPort . ' ' . $natsHttpPort . '; do '
-            . 'PIDS=$(ss -tlnp 2>/dev/null | grep -E ":$P[[:space:]]" | grep -oE "pid=[0-9]+" | cut -d= -f2 | sort -u); '
-            . '[ -z "$PIDS" ] && PIDS=$(netstat -tlnp 2>/dev/null | grep -E ":$P[[:space:]]" | grep -oE "[0-9]+/" | cut -d/ -f1 | sort -u); '
-            . 'for pid in $PIDS; do kill "$pid" 2>/dev/null; done; '
-            . 'done';
-        $cmd = self::buildSshArgs($ssh) . ' ' . escapeshellarg($remote) . ' 2>/dev/null';
-        $out = [];
-        $rc = 0;
-        exec($cmd, $out, $rc);
     }
 
 
@@ -3694,12 +3847,30 @@ class AmigoDaemons extends Injectable
             $arr_settings['suppressed'] = $suppressed;
         }
 
+        // adopt_local: services being brought home from a (likely unreachable) VPS.
+        // Go relaxes their remote->local relocation, committing local from the
+        // on-disk mirror even when the remote-stop call fails. Rendered top-level
+        // (like suppressed) so a monitord restart mid-failback still converges.
+        $adoptLocal = [];
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            if (!empty($state[$svc]['adopt_local'])) {
+                $adoptLocal[] = $svc;
+            }
+        }
+        if (!empty($adoptLocal)) {
+            $arr_settings['adopt_local'] = $adoptLocal;
+        }
+
         // remote_services: current-side routing for idle/parked services, but the
         // DESIRED side for a service in the resume phase (so Go's doReconcile
-        // actually relocates its areas, §4 STEP 3a).
+        // actually relocates its areas, §4 STEP 3a). A service being adopted local
+        // is NEVER listed remote — that is the precondition for Go's R2L pass.
         $routed = $this->getRoutedRemoteServices();
         $remoteServices = [];
         foreach (self::MIGRATABLE_SERVICES as $svc) {
+            if (!empty($state[$svc]['adopt_local'])) {
+                continue;
+            }
             if (!empty($state[$svc]['resuming'])) {
                 if (in_array($svc, $desiredToggles, true)) {
                     $remoteServices[] = $svc;
