@@ -2729,6 +2729,98 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Phase C — OPERATOR-GATED FAILBACK (§VPS-loss resilience). Bring a service
+     * that is stranded on the VPS back to local, used when the VPS is lost /
+     * unreachable so the normal toggle-off drain (which PULLS from the VPS) can
+     * never complete. We do NOT pull: the local db already holds a recent copy
+     * from the Phase-B warm-standby mirror (or, failing that, the migration-time
+     * snapshot the migrate kept on the source side), so we just adopt it.
+     *
+     * FENCE-ON-RETURN: the first thing we do is durably turn the service's remote
+     * toggle OFF. That makes desiredSide=local authoritative, so even if the VPS
+     * reboots and reappears the state machine never re-migrates the account back
+     * — without the fence a flapping VPS would recreate the split-brain we are
+     * escaping (two live sessions for one account; WhatsApp would force-unlink).
+     *
+     * If an area was first authorized on the VPS and no mirror ever ran, its
+     * local session file may be absent — the local daemon then starts a fresh
+     * session and the operator re-authorizes (QR/2FA). That is the unavoidable
+     * floor when a VPS is lost with no mirror; Phase B exists to avoid it.
+     *
+     * @param string $svc one of MIGRATABLE_SERVICES
+     * @return array{ok:bool,error:string}
+     */
+    public function failbackRemoteServiceToLocal(string $svc): array
+    {
+        if (!in_array($svc, self::MIGRATABLE_SERVICES, true)) {
+            return ['ok' => false, 'error' => 'unknown service'];
+        }
+        $toggle = array_search($svc, $this->getRemoteServiceMap(), true);
+        if ($toggle === false) {
+            return ['ok' => false, 'error' => 'no toggle for service'];
+        }
+
+        // GUARD (defends against a stale button render / a race): refuse unless
+        // the service is actually stranded on the VPS and NOT mid-migration.
+        // Mutating a remote setting during a migration is exactly what c32b578's
+        // save-guard forbids, and adopting the mirror mid-pull-back would race
+        // the worker's advanceMigrationStep.
+        $guardState = $this->readRemoteState();
+        if (!empty($guardState[$svc]['migrating']) || !empty($guardState[$svc]['resuming'])) {
+            return ['ok' => false, 'error' => 'service is mid-migration'];
+        }
+        $guardAreas = is_array($guardState[$svc]['areas'] ?? null) ? $guardState[$svc]['areas'] : [];
+        $onRemote = false;
+        foreach ($guardAreas as $guardArea) {
+            if (is_array($guardArea) && (string)($guardArea['side'] ?? '') === 'remote') {
+                $onRemote = true;
+                break;
+            }
+        }
+        if (!$onRemote) {
+            return ['ok' => false, 'error' => 'service is not on the VPS'];
+        }
+
+        // 1. FENCE: clear the remote toggle durably (desiredSide -> local).
+        $settings = ModuleCTIClient::findFirst();
+        if ($settings === null) {
+            return ['ok' => false, 'error' => 'settings row missing'];
+        }
+        $settings->writeAttribute($toggle, '0');
+        if ($settings->save() === false) {
+            return ['ok' => false, 'error' => 'failed to clear remote toggle'];
+        }
+        // Refresh the cached settings so the reconcile below sees desired=local.
+        $this->module_settings = $settings->toArray();
+
+        // 2. Adopt the on-disk local copy: flip the cursor side -> local WITHOUT a
+        //    VPS pull (the VPS is gone). Clear every in-flight / parked flag and
+        //    the wall-clock cursor so the service starts clean on local.
+        $state = $this->readRemoteState();
+        $areas = is_array($state[$svc]['areas'] ?? null) ? $state[$svc]['areas'] : [];
+        foreach ($areas as $areaKey => $area) {
+            if (is_array($area)) {
+                $state[$svc]['areas'][$areaKey]['side'] = 'local';
+            }
+        }
+        $state[$svc]['migrating'] = false;
+        $state[$svc]['resuming'] = false;
+        $state[$svc]['parked'] = false;
+        $state[$svc]['fail_count'] = 0;
+        $state[$svc]['last_error'] = 'failed back to local (operator)';
+        $this->clearMigrationTimestamps($state, $svc);
+        $this->writeRemoteState($state);
+
+        // 3. Reconcile: the local monitord brings the daemon up on the local DB.
+        //    With the toggle off and no remote areas left, infra is no longer
+        //    needed, so applyMonitordConfigAndReconcile also tears the tunnel down
+        //    (best-effort VPS push just no-ops when the VPS is unreachable).
+        $this->applyMonitordConfigAndReconcile();
+
+        return ['ok' => true, 'error' => ''];
+    }
+
+    /**
      * Startup / post-migration sweep (§3.5, R10): remove leftover migrate temp
      * dirs and aged .old backups on BOTH sides, and tear stale REMOTE
      * custom_config stubs whose area no longer exists locally. Best-effort.
@@ -3898,7 +3990,69 @@ class AmigoDaemons extends Injectable
         $res->data['startup_grace'] = $startupGrace;
         $res->data['remote_migration_active'] = !empty($activeMigrationServices);
         $res->data['remote_migration_services'] = $activeMigrationServices;
+        // Phase C: per-service failback eligibility + warm-standby mirror age, so
+        // the status panel can offer "bring back to local" for a service stranded
+        // on the VPS and show how fresh the local copy is.
+        $res->data['remote_failback'] = $this->buildRemoteFailbackInfo();
         return $res;
+    }
+
+    /**
+     * Per-service failback info for the status UI (Phase C): can_failback is true
+     * when the service still has at least one area living on the VPS (side==remote
+     * in the cursor); last_mirror_ts is the most recent warm-standby mirror across
+     * its areas (0 = never mirrored). READ-ONLY.
+     *
+     * @return array<string,array{can_failback:bool,last_mirror_ts:int}>
+     */
+    private function buildRemoteFailbackInfo(): array
+    {
+        $state = $this->readRemoteState();
+        $info = [];
+        $anyStranded = false;
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            $areas = is_array($state[$svc]['areas'] ?? null) ? $state[$svc]['areas'] : [];
+            $onRemote = false;
+            $lastMirror = 0;
+            foreach ($areas as $area) {
+                if (!is_array($area)) {
+                    continue;
+                }
+                if ((string)($area['side'] ?? '') === 'remote') {
+                    $onRemote = true;
+                }
+                $ts = (int)($area['last_mirror_ts'] ?? 0);
+                if ($ts > $lastMirror) {
+                    $lastMirror = $ts;
+                }
+            }
+            // A "stranded" candidate lives on the VPS and is NOT mid-migration.
+            // We must NOT offer failback during an active pull-back (areas stay
+            // side==remote until the 3b commit) — clicking then would race the
+            // worker and mutate a remote setting mid-migration (the very thing
+            // c32b578's save-guard forbids).
+            $stranded = $onRemote
+                && empty($state[$svc]['migrating'])
+                && empty($state[$svc]['resuming']);
+            if ($stranded) {
+                $anyStranded = true;
+            }
+            $info[$svc] = [
+                '_stranded'      => $stranded,
+                'last_mirror_ts' => $lastMirror,
+            ];
+        }
+
+        // Final gate: only when the tunnel is actually DOWN. With a live tunnel
+        // the normal toggle-off drain does a FRESH pull and is strictly safer
+        // than adopting the (possibly stale) local mirror — failback exists for
+        // when the VPS is gone. Probe once, and only if there's a candidate.
+        $tunnelDown = $anyStranded ? !$this->isRemoteTunnelConnected() : false;
+        foreach ($info as $svc => $row) {
+            $info[$svc]['can_failback'] = ($row['_stranded'] === true) && $tunnelDown;
+            unset($info[$svc]['_stranded']);
+        }
+        return $info;
     }
 
     /**

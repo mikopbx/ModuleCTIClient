@@ -137,6 +137,7 @@ const moduleCTIClient = {
 		moduleCTIClient.setCallerIdToggle();
 		moduleCTIClient.initializeRemoteMigrationLock();
 		moduleCTIClient.initializeRemoteConnectionTest();
+		moduleCTIClient.initializeRemoteFailback();
 		window.addEventListener('ModuleStatusChanged', moduleCTIClient.checkStatusToggle);
 	},
 	/**
@@ -317,6 +318,58 @@ const moduleCTIClient = {
 				},
 			});
 		});
+	},
+	/**
+	 * Phase C: операторский failback вынесенного сервиса обратно на локаль.
+	 * Кнопка живёт в панели статусов, которая перерисовывается на каждом опросе,
+	 * поэтому слушатель делегированный (на document). Бэкенд снимает тумблер
+	 * (fence) и поднимает локаль из локальной копии сессии.
+	 */
+	initializeRemoteFailback() {
+		$(document).off('click.ctiFailback', '.cti-failback-btn')
+			.on('click.ctiFailback', '.cti-failback-btn', (e) => {
+				e.preventDefault();
+				const $btn = $(e.currentTarget);
+				const svc = $btn.attr('data-svc') || '';
+				if (svc === '' || $btn.hasClass('disabled')) {
+					return;
+				}
+				const confirmMsg = globalTranslate.mod_cti_FailbackConfirm
+					|| 'Bring this service back to local from the last local copy? '
+						+ 'The VPS will be turned off for it.';
+				// eslint-disable-next-line no-alert
+				if (!window.confirm(confirmMsg)) {
+					return;
+				}
+				$btn.addClass('loading disabled');
+				const failLabel = globalTranslate.mod_cti_FailbackFailed || 'Failback failed';
+				$.ajax({
+					url: `${Config.pbxUrl}/pbxcore/api/modules/ModuleCTIClient/failback`,
+					method: 'POST',
+					contentType: 'application/json',
+					dataType: 'json',
+					data: JSON.stringify({ service: svc }),
+					success(response) {
+						const ok = response && response.data && response.data.ok === true;
+						if (ok) {
+							// Leave the button busy; the status worker re-polls within
+							// a few seconds, the service flips to local and the row
+							// (with its button) disappears on the next render.
+							return;
+						}
+						$btn.removeClass('loading disabled');
+						const msg = (response && Array.isArray(response.messages) && response.messages.length > 0)
+							? response.messages.join('; ') : '';
+						// eslint-disable-next-line no-alert
+						window.alert(msg ? `${failLabel}: ${msg}` : failLabel);
+					},
+					error(xhr) {
+						$btn.removeClass('loading disabled');
+						// eslint-disable-next-line no-alert
+						window.alert(`${failLabel}: HTTP ${xhr.status || 'error'}`);
+					},
+				});
+			});
 	},
 	/**
 	 * Проверка состояния модуля

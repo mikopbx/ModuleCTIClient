@@ -284,6 +284,10 @@ const moduleCTIClientConnectionCheckWorker = {
 
 		const statuses = (data && data.statuses) ? data.statuses : null;
 
+		// Phase C: per-service failback eligibility + warm-standby mirror age.
+		self.remoteFailback = (data && data.remote_failback && typeof data.remote_failback === 'object')
+			? data.remote_failback : {};
+
 		// Бэк может вернуть строку 'Module disabled' вместо массива.
 		if (!Array.isArray(statuses)) {
 			const text = (typeof statuses === 'string')
@@ -294,8 +298,9 @@ const moduleCTIClientConnectionCheckWorker = {
 		}
 
 		// Пропускаем перерисовку DOM, если данные не изменились — убирает
-		// мерцание таблицы при опросе раз в 3 секунды.
-		const hash = JSON.stringify(statuses);
+		// мерцание таблицы при опросе раз в 3 секунды. Включаем remoteFailback в
+		// хэш, иначе появление кнопки/обновление возраста копии не перерисуется.
+		const hash = JSON.stringify({ s: statuses, f: self.remoteFailback });
 		if (hash === self.lastRenderHash && $rows.children().length > 0) {
 			if ($placeholder.length > 0) {
 				$placeholder.hide();
@@ -348,6 +353,14 @@ const moduleCTIClientConnectionCheckWorker = {
 				});
 			} else {
 				body.push(self.renderServiceRow(rows[0], false, hasRemote));
+			}
+			// Phase C: offer "bring back to local" once per service group whose
+			// channels still live on the VPS (derive the base svc from a
+			// "chats.<area>" group name).
+			const svcKey = name.indexOf('.') >= 0 ? name.split('.')[0] : name;
+			const fbRow = self.failbackControlRow(svcKey, colCount);
+			if (fbRow !== '') {
+				body.push(fbRow);
 			}
 		});
 
@@ -418,6 +431,55 @@ const moduleCTIClientConnectionCheckWorker = {
 		}
 
 		return html;
+	},
+
+	/**
+	 * Phase C: строка с кнопкой «вернуть на локаль» + возрастом локальной копии,
+	 * показывается для сервиса, чьи каналы ещё на VPS (can_failback).
+	 *
+	 * @param {string} svc базовое имя сервиса (chats|tg|max)
+	 * @param {number} colCount число колонок таблицы
+	 * @returns {string} HTML (<tr>) либо '' если failback не применим
+	 */
+	failbackControlRow(svc, colCount) {
+		const self = moduleCTIClientConnectionCheckWorker;
+		const esc = self.escapeHtml;
+		const info = self.remoteFailback ? self.remoteFailback[svc] : null;
+		if (!info || info.can_failback !== true) {
+			return '';
+		}
+		const label = self.tr('mod_cti_FailbackToLocal', 'Bring back to local');
+		const age = self.mirrorAgeText(info.last_mirror_ts);
+		return `<tr class="cti-failback-row"><td colspan="${colCount}">`
+			+ `<button class="ui tiny basic orange button cti-failback-btn" data-svc="${esc(svc)}">`
+			+ `<i class="reply icon"></i>${esc(label)}</button>`
+			+ `<span class="cti-failback-age">${esc(age)}</span>`
+			+ '</td></tr>';
+	},
+
+	/**
+	 * Phase C: человекочитаемый возраст локальной копии сессии (warm-standby
+	 * mirror). ts — unix-секунды; 0/пусто => «копии ещё нет».
+	 *
+	 * @param {number} ts
+	 * @returns {string}
+	 */
+	mirrorAgeText(ts) {
+		const self = moduleCTIClientConnectionCheckWorker;
+		const n = parseInt(ts, 10);
+		if (!n || n <= 0) {
+			return self.tr('mod_cti_MirrorNever', 'local copy: none yet');
+		}
+		const secs = Math.max(0, Math.floor(Date.now() / 1000) - n);
+		let human;
+		if (secs < 90) {
+			human = `${secs}s`;
+		} else if (secs < 5400) {
+			human = `${Math.round(secs / 60)}m`;
+		} else {
+			human = `${Math.round(secs / 3600)}h`;
+		}
+		return self.tr('mod_cti_MirrorAge', 'local copy: %age% ago').replace('%age%', human);
 	},
 
 	/**

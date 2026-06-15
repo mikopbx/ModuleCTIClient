@@ -94,6 +94,11 @@ return [
     'mod_cti_RemoteMigrationLockedHeader'    => 'Идёт миграция',
     'mod_cti_RemoteMigrationLocked'          => 'Идёт перенос мессенджеров. Удалённые настройки заблокированы до завершения миграции.',
     'mod_cti_RemoteMigrationLockedSaveError' => 'Нельзя менять удалённые настройки мессенджеров, пока идёт миграция. Дождитесь завершения и повторите сохранение.',
+    'mod_cti_FailbackToLocal'         => 'Вернуть на локаль',
+    'mod_cti_FailbackConfirm'         => 'Вернуть сервис на локаль из последней локальной копии? VPS для него будет отключён, и вернувшийся VPS его больше не перехватит.',
+    'mod_cti_FailbackFailed'          => 'Не удалось вернуть на локаль',
+    'mod_cti_MirrorAge'               => 'локальная копия: %age% назад',
+    'mod_cti_MirrorNever'             => 'локальной копии ещё нет',
 
     // Панель статуса сервисов
     'mod_cti_tab_Status'               => 'Статус сервисов',

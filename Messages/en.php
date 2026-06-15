@@ -79,6 +79,11 @@ return [
     'mod_cti_RemoteMigrationLockedHeader' => 'Migration in progress',
     'mod_cti_RemoteMigrationLocked' => 'Messenger migration is in progress. Remote settings are locked until it finishes.',
     'mod_cti_RemoteMigrationLockedSaveError' => 'Remote messenger settings cannot be changed while migration is in progress. Wait until migration finishes and try again.',
+    'mod_cti_FailbackToLocal' => 'Bring back to local',
+    'mod_cti_FailbackConfirm' => 'Bring this service back to local from the last local copy? The VPS will be turned off for it, and a returning VPS will not take it over again.',
+    'mod_cti_FailbackFailed' => 'Failback failed',
+    'mod_cti_MirrorAge' => 'local copy: %age% ago',
+    'mod_cti_MirrorNever' => 'local copy: none yet',
 
     // Services status panel
     'mod_cti_tab_Status'             => 'Services status',

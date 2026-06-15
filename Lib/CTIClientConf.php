@@ -261,6 +261,28 @@ class CTIClientConf extends ConfigClass
                     $res->messages[] = $probe['error'];
                 }
                 break;
+            case 'FAILBACK':
+                // Operator-gated failback: bring a service stranded on a lost VPS
+                // back to local from the warm-standby mirror, fencing the toggle
+                // off so a returning VPS can't re-migrate it. Body parsing mirrors
+                // TESTREMOTECONNECTION (old cores park the JSON under 'input').
+                $amigoDaemons = new AmigoDaemons();
+                $data         = is_array($request['data'] ?? null) ? $request['data'] : [];
+                $rawInput     = (string)($request['input'] ?? '');
+                if ($rawInput !== '') {
+                    $decodedInput = json_decode($rawInput, true);
+                    if (is_array($decodedInput)) {
+                        $data = array_merge($data, $decodedInput);
+                    }
+                }
+                $service        = (string)($data['service'] ?? '');
+                $result         = $amigoDaemons->failbackRemoteServiceToLocal($service);
+                $res->success   = (bool)$result['ok'];
+                $res->data      = $result;
+                if (!$result['ok'] && $result['error'] !== '') {
+                    $res->messages[] = $result['error'];
+                }
+                break;
             default:
                 $res->success    = false;
                 $res->messages[] = 'API action not found in moduleRestAPICallback ModuleCTIClient';
