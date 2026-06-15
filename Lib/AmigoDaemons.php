@@ -177,6 +177,19 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Absolute spool directory ({core.tempDir}/{moduleUniqueID}) — the home of
+     * remote_state.json and the session staging dirs. Exposed so the uninstaller
+     * removes the SAME path the running code uses, instead of a hardcoded literal
+     * that can drift from core.tempDir (the surviving cursor bug, §uninstall).
+     *
+     * @return string
+     */
+    public function getSpoolDir(): string
+    {
+        return $this->dirs['spoolDir'];
+    }
+
+    /**
      * Deletes logs older than one week.
      */
     public function deleteOldLogs(): void
@@ -2429,6 +2442,74 @@ class AmigoDaemons extends Injectable
         $this->clearMigrationTimestamps($state, $svc);
         $this->writeRemoteState($state);
         $this->applyMonitordConfigAndReconcile();
+    }
+
+    /**
+     * Self-heal an ORPHANED remote_state cursor when no VPS is configured at all
+     * (remote_host / ssh key cleared — e.g. a module reinstall WITHOUT "keep
+     * settings", which now also wipes the spool dir, but a cursor can still
+     * linger from an in-flight migration on an older install or a manual host
+     * change). With no ssh, reconcileMigrations() is never reached (the worker
+     * idles before it) and failPark() is therefore unreachable too, so a
+     * migrating=true left behind has NO cutoff — the UI shows "Migrating"
+     * forever. Without a VPS the only reachable side is LOCAL, so force every
+     * migratable service back to local, clear migrating/resuming/parked, and
+     * reconcile (isInfraNeeded() is now false → the symmetric teardown in
+     * applyMonitordConfigAndReconcile closes any stale tunnel and brings the
+     * local daemons up on their intact local DB). Idempotent — a no-op once the
+     * cursor is already clean.
+     *
+     * @return bool true if it healed an orphaned cursor this call
+     */
+    public function healOrphanedRemoteStateWhenUnconfigured(): bool
+    {
+        // Gate on remote_host empty — the DEFINITIVE "operator has no VPS" signal
+        // (same one getRemoteServices uses). NOT getRemoteSshParams()===null: that
+        // also returns null when the host IS set but the ssh login/key is
+        // transiently empty/unreadable (deploy race, fs hiccup) — and forcing a
+        // genuinely-remote service to local on its stale local DB in that window
+        // is exactly the VPS-evacuation data loss we must avoid. Host-set-but-key-
+        // missing keeps the existing park/retry behaviour (still hangs, same as
+        // today — a separate known edge, not made worse here).
+        if (trim((string)($this->module_settings['remote_host'] ?? '')) !== '') {
+            return false; // VPS still configured — leave it to the state machine
+        }
+
+        $state = $this->readRemoteState();
+        $changed = false;
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            $svcState = $state[$svc] ?? [];
+            $dirty = !empty($svcState['migrating'])
+                || !empty($svcState['resuming'])
+                || !empty($svcState['parked']);
+            $areas = is_array($svcState['areas'] ?? null) ? $svcState['areas'] : [];
+            foreach ($areas as $area) {
+                if (is_array($area) && (string)($area['side'] ?? 'local') !== 'local') {
+                    $dirty = true;
+                    break;
+                }
+            }
+            if (!$dirty) {
+                continue;
+            }
+            $state[$svc]['migrating'] = false;
+            $state[$svc]['resuming'] = false;
+            $state[$svc]['parked'] = false;
+            $state[$svc]['fail_count'] = 0;
+            $state[$svc]['last_error'] = '';
+            foreach ($areas as $areaKey => $area) {
+                if (is_array($area)) {
+                    $state[$svc]['areas'][$areaKey]['side'] = 'local';
+                }
+            }
+            $changed = true;
+        }
+
+        if ($changed) {
+            $this->writeRemoteState($state);
+            $this->applyMonitordConfigAndReconcile();
+        }
+        return $changed;
     }
 
     /**

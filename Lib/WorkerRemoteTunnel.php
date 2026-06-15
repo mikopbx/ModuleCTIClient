@@ -116,6 +116,15 @@ class WorkerRemoteTunnel extends WorkerBase
             $active   = !empty($desired) || !empty($infraSvc);
             $ssh = $cti->getRemoteSshParams();
 
+            if ($ssh === null) {
+                // No VPS configured. If a migration cursor lingers (migrating=true
+                // or a remote-side area) it can NEVER advance to failPark from
+                // here — reconcileMigrations is below the idle gate — so it would
+                // hang "Migrating" with no cutoff. Force everything back to local
+                // (the only reachable side). No-op once the cursor is clean.
+                $cti->healOrphanedRemoteStateWhenUnconfigured();
+            }
+
             if (!$active || $ssh === null) {
                 // Truly nothing remote remains (no toggle, no remote area, no
                 // migration). Don't exit (the supervisor would respawn us for

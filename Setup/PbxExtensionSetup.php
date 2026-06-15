@@ -266,13 +266,22 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
         Processes::killbyname(AmigoDaemons::SERVICE_SPEECH);
         Processes::killbyname(AmigoDaemons::SERVICE_GNATS);
 
+        // Resolve the REAL spool dir before the rm's below. Its path is
+        // {core.tempDir}/ModuleCTIClient — NOT the old hardcoded
+        // /var/spool/custom_modules/ModuleCTIClient literal, which pointed at a
+        // nonexistent dir and so left remote_state.json behind, resurrecting a
+        // dead migration after a reinstall. Resolving via AmigoDaemons keeps it in
+        // lockstep with the path the running code actually uses (single source of
+        // truth). The constructor re-mkdir's the module dirs (incl. confDir), so
+        // we capture the path FIRST and then remove every dir AFTER — nothing the
+        // constructor recreates is left dangling.
+        $spoolDir = (new AmigoDaemons())->getSpoolDir();
 
         // confDir
         $confDir = '/etc/custom_modules/ModuleCTIClient';
         Processes::mwExec("rm -rf {$confDir}");
 
         // spoolDir
-        $spoolDir = '/var/spool/custom_modules/ModuleCTIClient';
         Processes::mwExec("rm -rf {$spoolDir}");
 
         // logDir
