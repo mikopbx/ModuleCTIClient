@@ -281,8 +281,9 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
         $confDir = '/etc/custom_modules/ModuleCTIClient';
         Processes::mwExec("rm -rf {$confDir}");
 
-        // spoolDir
-        Processes::mwExec("rm -rf {$spoolDir}");
+        // spoolDir — escaped: unlike the other hardcoded literals this path comes
+        // from core.tempDir and could in principle contain spaces/metacharacters.
+        Processes::mwExec('rm -rf ' . escapeshellarg($spoolDir));
 
         // logDir
         $logDir = System::getLogDir();

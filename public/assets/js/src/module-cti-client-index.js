@@ -352,6 +352,17 @@ const moduleCTIClient = {
 					success(response) {
 						const ok = response && response.data && response.data.ok === true;
 						if (ok) {
+							// Mirror the fence into the open settings form: the backend
+							// already cleared the remote toggle in the DB, but a later
+							// settings save would re-post the still-checked box and undo
+							// it — so uncheck it here too.
+							const fieldMap = { chats: 'remote_whatsapp', tg: 'remote_telegram', max: 'remote_max' };
+							const field = fieldMap[svc];
+							if (field) {
+								const $cb = $(`#${field}`);
+								$cb.prop('checked', false);
+								$cb.closest('.ui.checkbox').checkbox('set unchecked');
+							}
 							// Leave the button busy; the status worker re-polls within
 							// a few seconds, the service flips to local and the row
 							// (with its button) disappears on the next render.

@@ -1578,12 +1578,21 @@ class AmigoDaemons extends Injectable
         $base = $ssh['base'];
 
         $state = $this->readRemoteState();
-        $dirty = false;
 
+        // Don't compete with an active migration (Codex review): a migration tick
+        // owns the session files, and the worker's hard-timeout enforcer must stay
+        // responsive — skip the whole mirror pass while ANYTHING is moving.
         foreach (self::MIGRATABLE_SERVICES as $svc) {
-            if (!empty($state[$svc]['migrating'])) {
-                continue; // never touch session files while a migration moves them
+            if (!empty($state[$svc]['migrating']) || !empty($state[$svc]['resuming'])) {
+                return;
             }
+        }
+
+        // Collect successful mirrors, then persist them under a FRESH read so we
+        // never clobber a concurrent failback (the mirror runs in the worker while
+        // failback runs in the web process).
+        $updates = []; // each: [svc, area, sig]
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
             $areas = is_array($state[$svc]['areas'] ?? null) ? $state[$svc]['areas'] : [];
             foreach ($areas as $area => $a) {
                 if (!is_array($a) || (string)($a['side'] ?? '') !== 'remote') {
@@ -1607,16 +1616,36 @@ class AmigoDaemons extends Injectable
                     continue; // unchanged since last mirror — skip the pull
                 }
 
-                if ($this->mirrorAreaSessionFiles($sshArgs, $srcDir, $dstDir, $area)) {
-                    $state[$svc]['areas'][$area]['mirror_sig'] = $sig;
-                    $state[$svc]['areas'][$area]['last_mirror_ts'] = time();
-                    $dirty = true;
+                if ($this->mirrorAreaSessionFiles($sshArgs, $svc, $srcDir, $dstDir, $area)) {
+                    $updates[] = [$svc, $area, $sig];
                 }
             }
         }
 
-        if ($dirty) {
-            $this->writeRemoteState($state);
+        if (empty($updates)) {
+            return;
+        }
+
+        // Re-read and stamp mirror_sig/last_mirror_ts ONLY for areas that are
+        // still side==remote — an area that was failed back to local meanwhile
+        // must keep its local promotion (don't write back the stale snapshot side).
+        $fresh = $this->readRemoteState();
+        $now = time();
+        $changed = false;
+        foreach ($updates as $u) {
+            list($svc, $area, $sig) = $u;
+            if (!isset($fresh[$svc]['areas'][$area]) || !is_array($fresh[$svc]['areas'][$area])) {
+                continue;
+            }
+            if ((string)($fresh[$svc]['areas'][$area]['side'] ?? '') !== 'remote') {
+                continue; // failed back to local in the meantime — leave it
+            }
+            $fresh[$svc]['areas'][$area]['mirror_sig'] = $sig;
+            $fresh[$svc]['areas'][$area]['last_mirror_ts'] = $now;
+            $changed = true;
+        }
+        if ($changed) {
+            $this->writeRemoteState($fresh);
         }
     }
 
@@ -1629,12 +1658,13 @@ class AmigoDaemons extends Injectable
      * VPS, so a plain atomic rename-over is both correct and leak-free.
      *
      * @param string $sshArgs
+     * @param string $svc    migratable service (for the pre-commit side re-check)
      * @param string $srcDir VPS db/<svc>
      * @param string $dstDir local db/<svc>
      * @param string $area
      * @return bool
      */
-    private function mirrorAreaSessionFiles(string $sshArgs, string $srcDir, string $dstDir, string $area): bool
+    private function mirrorAreaSessionFiles(string $sshArgs, string $svc, string $srcDir, string $dstDir, string $area): bool
     {
         $tmp = $srcDir . '/.mirror.' . bin2hex(random_bytes(4));
 
@@ -1687,6 +1717,17 @@ class AmigoDaemons extends Injectable
         $localExtract = Util::which('tar') . ' -C ' . escapeshellarg($localTmp) . ' -xf -';
         $tarRc = $this->runPipedCommand($remoteTar . ' | ' . $localExtract);
         if ($tarRc !== 0 || !$this->verifyLocalManifest($localTmp, $snapManifest)) {
+            $this->localRemoveDir($localTmp);
+            $this->sshRemoveDir($sshArgs, $tmp);
+            return false;
+        }
+
+        // Re-validate right before the local overwrite (Codex review): a
+        // concurrent failback (web process) may have promoted this area to local
+        // and started the local daemon during our pull — never overwrite a
+        // now-live local session with a VPS snapshot.
+        $fresh = $this->readRemoteState();
+        if ((string)($fresh[$svc]['areas'][$area]['side'] ?? '') !== 'remote') {
             $this->localRemoveDir($localTmp);
             $this->sshRemoveDir($sshArgs, $tmp);
             return false;
@@ -2779,6 +2820,16 @@ class AmigoDaemons extends Injectable
         }
         if (!$onRemote) {
             return ['ok' => false, 'error' => 'service is not on the VPS'];
+        }
+        // Tunnel-down gate (Codex review): failback ADOPTS the on-disk mirror
+        // WITHOUT pulling — only valid when the VPS is actually gone. With the
+        // tunnel up the normal toggle-off drain does a FRESH pull and is strictly
+        // safer; adopting a possibly-stale mirror against a live VPS would create
+        // a split-brain session. The UI already hides the button then, but a stale
+        // render or a tunnel that recovered between render and click must still be
+        // refused here.
+        if ($this->isRemoteTunnelConnected()) {
+            return ['ok' => false, 'error' => 'VPS tunnel is up; use toggle-off for a clean pull'];
         }
 
         // 1. FENCE: clear the remote toggle durably (desiredSide -> local).
