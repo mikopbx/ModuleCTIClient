@@ -2710,6 +2710,9 @@ class AmigoDaemons extends Injectable
             $state[$svc]['parked'] = false;
             $state[$svc]['fail_count'] = 0;
             $state[$svc]['last_error'] = '';
+            // Clear the wall-clock cursor too (added by the hard-timeout work) so
+            // the healed service starts from a clean slate, not a stale started_at.
+            $this->clearMigrationTimestamps($state, $svc);
             foreach ($areas as $areaKey => $area) {
                 if (is_array($area)) {
                     $state[$svc]['areas'][$areaKey]['side'] = 'local';
