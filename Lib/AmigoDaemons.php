@@ -1546,6 +1546,219 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Phase B — WARM-STANDBY MIRROR (§VPS-loss resilience). For every area that
+     * currently lives on the VPS (side==remote, NOT mid-migration), pull a fresh
+     * consistent copy of its AUTH/session files back to the local db dir, so a
+     * later failback / re-migration has a recent snapshot to start from instead
+     * of losing the account (an account first authorized on the VPS otherwise has
+     * NO local copy at all). Safe by construction: the local daemon for a remote
+     * area is NOT running, so these are files at rest — no split-brain, no live
+     * local writer. Failback itself (starting the local daemon) is Phase C and
+     * stays operator-gated.
+     *
+     * ONLY the session/auth files are mirrored (filename contains "session" —
+     * tgSession.json / whatsappSession.db); the *-cache.db peer cache is a
+     * regenerable binary blob that churns constantly, so mirroring it would both
+     * waste bandwidth and defeat change-detection. Skipping it is the cheap-RPO
+     * win. Change-detected via a sha256 signature of the LIVE session files; the
+     * VPS snapshot + pull only runs when that signature moved since last mirror.
+     *
+     * Tunnel-up gated (caller runs it inside the keepalive loop). Best-effort:
+     * any ssh hiccup just leaves last_mirror_ts as-is and retries next interval.
+     *
+     * @return void
+     */
+    public function mirrorRemoteSessionsToLocal(): void
+    {
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return;
+        }
+        $sshArgs = self::buildSshArgs($ssh);
+        $base = $ssh['base'];
+
+        $state = $this->readRemoteState();
+        $dirty = false;
+
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            if (!empty($state[$svc]['migrating'])) {
+                continue; // never touch session files while a migration moves them
+            }
+            $areas = is_array($state[$svc]['areas'] ?? null) ? $state[$svc]['areas'] : [];
+            foreach ($areas as $area => $a) {
+                if (!is_array($a) || (string)($a['side'] ?? '') !== 'remote') {
+                    continue; // only areas that actually live on the VPS
+                }
+                $area = (string)$area;
+                $srcDir = $base . '/db/' . $svc;
+                $dstDir = $this->dirs['moduleDir'] . '/db/' . $svc;
+
+                // Change-detection from the LIVE session files (cheap; no .backup).
+                $manifest = $this->buildRemoteSha256Manifest($sshArgs, $srcDir, $area);
+                if ($manifest === null) {
+                    continue; // ssh hiccup — try next interval
+                }
+                $sessionManifest = $this->filterSessionManifestLines($manifest);
+                if ($sessionManifest === '') {
+                    continue; // no authorized session yet on the VPS for this area
+                }
+                $sig = sha1($sessionManifest);
+                if ((string)($a['mirror_sig'] ?? '') === $sig) {
+                    continue; // unchanged since last mirror — skip the pull
+                }
+
+                if ($this->mirrorAreaSessionFiles($sshArgs, $srcDir, $dstDir, $area)) {
+                    $state[$svc]['areas'][$area]['mirror_sig'] = $sig;
+                    $state[$svc]['areas'][$area]['last_mirror_ts'] = time();
+                    $dirty = true;
+                }
+            }
+        }
+
+        if ($dirty) {
+            $this->writeRemoteState($state);
+        }
+    }
+
+    /**
+     * Snapshot one area's session files on the VPS into a temp dir (SQLite via
+     * `sqlite3 .backup` for a consistent online copy, plain cp for the rest),
+     * pull them into a local temp, verify the manifest, then atomically replace
+     * the local copies. Unlike the migrate commit there is NO .old backup kept —
+     * the prior mirror is stale by definition and the live source stays on the
+     * VPS, so a plain atomic rename-over is both correct and leak-free.
+     *
+     * @param string $sshArgs
+     * @param string $srcDir VPS db/<svc>
+     * @param string $dstDir local db/<svc>
+     * @param string $area
+     * @return bool
+     */
+    private function mirrorAreaSessionFiles(string $sshArgs, string $srcDir, string $dstDir, string $area): bool
+    {
+        $tmp = $srcDir . '/.mirror.' . bin2hex(random_bytes(4));
+
+        // Build the consistent snapshot on the VPS. `*[Ss]ession*` selects the
+        // auth files only; `.db` ones get an online sqlite backup, the rest a cp.
+        $remoteCmd = 'set -e; '
+            . 'cd ' . escapeshellarg($srcDir) . '; '
+            . 'tmp=' . escapeshellarg($tmp) . '; '
+            . 'mkdir -p "$tmp"; '
+            . 'm=0; '
+            . 'for f in ' . escapeshellarg($area) . '-*; do '
+            . '  [ -e "$f" ] || continue; '
+            . '  case "$f" in *.old.*) continue ;; esac; '
+            . '  case "$f" in *[Ss]ession*) ;; *) continue ;; esac; '
+            . '  case "$f" in '
+            . '    *.db) sqlite3 "$f" ".backup $tmp/$f" || exit 4 ;; '
+            . '    *)    cp -f "$f" "$tmp/$f" || exit 5 ;; '
+            . '  esac; '
+            . '  m=1; '
+            . 'done; '
+            . '[ "$m" = 1 ] || { rmdir "$tmp" 2>/dev/null || true; exit 3; }; '
+            . 'sync';
+        $rc = 0;
+        $o = [];
+        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $o, $rc);
+        if ($rc !== 0) {
+            $this->sshRemoveDir($sshArgs, $tmp);
+            return false;
+        }
+
+        // Manifest of the SNAPSHOT (the sqlite .backup is byte-different from the
+        // live file, so transit verification must hash the snapshot, not the live
+        // manifest used for change-detection).
+        $snapManifest = $this->buildRemoteSha256Manifest($sshArgs, $tmp, $area);
+        if ($snapManifest === null || $snapManifest === '') {
+            $this->sshRemoveDir($sshArgs, $tmp);
+            return false;
+        }
+
+        Util::mwMkdir($dstDir);
+        $localTmp = $dstDir . '/.mirror.' . bin2hex(random_bytes(4));
+        if (!Util::mwMkdir($localTmp)) {
+            $this->sshRemoveDir($sshArgs, $tmp);
+            return false;
+        }
+
+        $remoteTar = $sshArgs . ' ' . escapeshellarg(
+            'cd ' . escapeshellarg($tmp) . ' && tar -cf - ' . escapeshellarg($area) . '-*'
+        );
+        $localExtract = Util::which('tar') . ' -C ' . escapeshellarg($localTmp) . ' -xf -';
+        $tarRc = $this->runPipedCommand($remoteTar . ' | ' . $localExtract);
+        if ($tarRc !== 0 || !$this->verifyLocalManifest($localTmp, $snapManifest)) {
+            $this->localRemoveDir($localTmp);
+            $this->sshRemoveDir($sshArgs, $tmp);
+            return false;
+        }
+
+        $ok = $this->commitMirrorFiles($localTmp, $dstDir, $area);
+        $this->localRemoveDir($localTmp);
+        $this->sshRemoveDir($sshArgs, $tmp);
+        return $ok;
+    }
+
+    /**
+     * Keep only the session/auth lines of a "hash  name" manifest (name contains
+     * "session", case-insensitive) — drops the regenerable *-cache.db entries.
+     *
+     * @param string $manifest
+     * @return string '' when no session files
+     */
+    private function filterSessionManifestLines(string $manifest): string
+    {
+        $out = [];
+        foreach (preg_split('/\r?\n/', trim($manifest)) ?: [] as $line) {
+            $line = rtrim($line);
+            if ($line === '') {
+                continue;
+            }
+            $parts = preg_split('/\s+/', $line, 2);
+            if ($parts === false || count($parts) < 2) {
+                continue;
+            }
+            $name = ltrim($parts[1], '*'); // sha256sum binary-mode marker
+            // Session/auth files only, and never their .old.<ts> backups (those
+            // are stale copies — mirroring them would waste bandwidth and the
+            // sqlite snapshot loop only treats live *.db as databases anyway).
+            if (stripos($name, 'session') !== false && strpos($name, '.old.') === false) {
+                $out[] = $line;
+            }
+        }
+        return empty($out) ? '' : implode("\n", $out) . "\n";
+    }
+
+    /**
+     * Atomically replace each {area}-* file in $dstDir with the freshly-pulled
+     * mirror from $tmp — a plain rename-over (same filesystem), NO .old backup
+     * (the mirror is a transient replica; keeping backups would leak on every
+     * interval). fsyncs the dir so the replace is durable.
+     *
+     * @param string $tmp
+     * @param string $dstDir
+     * @param string $area
+     * @return bool
+     */
+    private function commitMirrorFiles(string $tmp, string $dstDir, string $area): bool
+    {
+        foreach (glob($tmp . '/' . $area . '-*') ?: [] as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+            $target = $dstDir . '/' . basename($path);
+            if (!@rename($path, $target)) {
+                return false; // same-fs atomic overwrite; a failure aborts the area
+            }
+        }
+        $dirFp = @fopen($dstDir, 'r');
+        if ($dirFp !== false) {
+            $this->fsyncOrFlush($dirFp);
+            @fclose($dirFp);
+        }
+        return true;
+    }
+
+    /**
      * List the basenames of {area}-* files under a local directory.
      *
      * @param string $dir
@@ -2536,6 +2749,12 @@ class AmigoDaemons extends Injectable
                     $this->localRemoveDir($path);
                 }
             }
+            // Orphaned Phase-B mirror staging dirs (a crash mid-mirror).
+            foreach (glob($dir . '/.mirror.*') ?: [] as $path) {
+                if (is_dir($path)) {
+                    $this->localRemoveDir($path);
+                }
+            }
             foreach (glob($dir . '/*.old.*') ?: [] as $path) {
                 if (is_file($path) && $this->oldBackupExpired($path, $now, $ttl)) {
                     @unlink($path);
@@ -2551,7 +2770,8 @@ class AmigoDaemons extends Injectable
         }
         $sshArgs = self::buildSshArgs($ssh);
         $base = $ssh['base'];
-        $remoteCmd = 'for d in ' . escapeshellarg($base) . '/db/.*.migrate.*; do '
+        $remoteCmd = 'for d in ' . escapeshellarg($base) . '/db/.*.migrate.* '
+            . escapeshellarg($base) . '/db/*/.mirror.*; do '
             . '  [ -d "$d" ] && rm -rf "$d"; '
             . 'done; '
             . 'find ' . escapeshellarg($base) . '/db -name "*.old.*" -mtime +1 -delete 2>/dev/null; '

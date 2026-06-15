@@ -78,6 +78,14 @@ class WorkerRemoteTunnel extends WorkerBase
     private const REPROVISION_INTERVAL_SECONDS = 30;
 
     /**
+     * How often (seconds) the keepalive loop pulls a warm-standby mirror of the
+     * remote session/auth files back to local (Phase B), so a later failback has
+     * a recent snapshot. Change-detected, so an unchanged session is a cheap
+     * no-op; the interval just bounds the worst-case RPO.
+     */
+    private const MIRROR_INTERVAL_SECONDS = 1200;
+
+    /**
      * Hard ceiling on the worker's lifetime. The supervisor (WorkerSafeScripts)
      * respawns workers whose PID file goes away; periodically returning lets it
      * pick up code/config changes that we may have missed via signals.
@@ -214,6 +222,7 @@ class WorkerRemoteTunnel extends WorkerBase
             //    re-launch the remote monitord periodically (recovers a crash).
             //    On de-toggle, tear the remote stack down and restart the loop.
             $lastProvision = time();
+            $lastMirror = 0; // 0 => take a baseline mirror as soon as the tunnel is up
             while (!$this->needRestart && time() < $deadline) {
                 $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
 
@@ -239,6 +248,15 @@ class WorkerRemoteTunnel extends WorkerBase
                 // Tunnel up — advance the migration state machine by one step
                 // (idempotent; one step per tick). Tunnel-up gated per §3.6.
                 $ctiCheck->reconcileMigrations();
+
+                // Warm-standby mirror (Phase B): periodically pull the remote
+                // session/auth files back to local so a future failback / re-
+                // migration has a recent snapshot. Change-detected internally, so
+                // an unchanged session is a near-free no-op.
+                if (time() - $lastMirror >= self::MIRROR_INTERVAL_SECONDS) {
+                    $ctiCheck->mirrorRemoteSessionsToLocal();
+                    $lastMirror = time();
+                }
 
                 // Periodically re-provision (idempotent): re-pushes the staged
                 // configs so a VPS monitord that came up on a stale/default
