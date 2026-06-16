@@ -94,7 +94,9 @@ class CTIClientConf extends ConfigClass
                         $svcs[] = $toggleToService[$field];
                     }
                 }
-                $amigoDaemons = new AmigoDaemons();
+                if ($amigoDaemons === null) {
+                    $amigoDaemons = new AmigoDaemons();
+                }
                 $amigoDaemons->clearParkedForServices($svcs);
             }
 
@@ -208,7 +210,7 @@ class CTIClientConf extends ConfigClass
     {
         $res            = new PBXApiResult();
         $res->processor = __METHOD__;
-        $action         = strtoupper($request['action']);
+        $action         = strtoupper((string)($request['action'] ?? ''));
         switch ($action) {
             case 'CHECK':
                 // Проверка работы сервисов, выполняется при обновлении статуса или сохрании настроек

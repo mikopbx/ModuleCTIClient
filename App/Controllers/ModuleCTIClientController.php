@@ -383,6 +383,7 @@ class ModuleCTIClientController extends BaseController
                     break;
                 default:
                     if (array_key_exists($key, $data)
+                        && is_string($data[$key])
                         && strpos($data[$key], self::SECRET_MASK) === false
                     ) {
                         $record->$key = $data[$key];
@@ -423,8 +424,8 @@ class ModuleCTIClientController extends BaseController
         }
 
         foreach (self::REMOTE_CONNECTION_FIELDS as $field) {
-            if (!array_key_exists($field, $data)) {
-                continue;
+            if (!array_key_exists($field, $data) || !is_string($data[$field])) {
+                continue; // absent, or a malformed array POST — never written on save either.
             }
             $newValue = (string)$data[$field];
             if ($field === 'remote_ssh_key' && strpos($newValue, self::SECRET_MASK) !== false) {

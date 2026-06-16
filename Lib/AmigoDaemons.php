@@ -2006,10 +2006,6 @@ class AmigoDaemons extends Injectable
             }
         }
         // fsync the destination directory so the renames are durable.
-        $dh = @opendir($dstDir);
-        if ($dh !== false) {
-            closedir($dh);
-        }
         $dirFp = @fopen($dstDir, 'r');
         if ($dirFp !== false) {
             $this->fsyncOrFlush($dirFp);
@@ -2930,9 +2926,13 @@ class AmigoDaemons extends Injectable
         $toggleMap = $this->getRemoteServiceMap();
         $settings = null;
         $changed = false;
+        $fenceFailed = false;
         foreach ($this->getRoutedRemoteServices() as $svc) {
-            if (!empty($state[$svc]['migrating']) && empty($state[$svc]['resuming'])) {
-                continue; // mid-migration: leave the state machine's cutoffs to it.
+            // mid-migration (incl. the resume phase): leave the state machine's own
+            // cutoffs to it. Matches failbackRemoteServiceToLocal()'s guard — a
+            // sub-hard-timeout remote_failback_after_sec must not preempt a resume.
+            if (!empty($state[$svc]['migrating']) || !empty($state[$svc]['resuming'])) {
+                continue;
             }
             if (!empty($state[$svc]['adopt_local'])) {
                 continue; // already adopting.
@@ -2943,9 +2943,11 @@ class AmigoDaemons extends Injectable
                 if ($settings === null) {
                     $settings = ModuleCTIClient::findFirst();
                 }
-                if ($settings !== null) {
-                    $settings->writeAttribute($toggle, '0');
+                if ($settings === null) {
+                    $fenceFailed = true; // settings row missing — cannot fence.
+                    continue;            // don't adopt this service without a fence.
                 }
+                $settings->writeAttribute($toggle, '0');
             }
             $this->adoptServiceAreasLocal($state, $svc, 'auto-failback: VPS unreachable');
             $changed = true;
@@ -2953,7 +2955,18 @@ class AmigoDaemons extends Injectable
         if (!$changed) {
             return;
         }
-        if ($settings !== null && $settings->save() !== false) {
+        if ($settings !== null && $settings->save() === false) {
+            $fenceFailed = true;
+        }
+        if ($fenceFailed) {
+            // Could not durably clear the remote toggle. Abort WITHOUT persisting the
+            // adopt_local state or reconciling: an un-fenced adopt would let the state
+            // machine re-migrate once the VPS reappears (split-brain). A later tick
+            // retries from a clean slate. Mirrors failbackRemoteServiceToLocal()'s
+            // save-failure abort.
+            return;
+        }
+        if ($settings !== null) {
             // Refresh cached settings so the reconcile below sees desired=local.
             $this->module_settings = $settings->toArray();
         }
