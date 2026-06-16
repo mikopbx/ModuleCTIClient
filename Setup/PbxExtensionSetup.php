@@ -283,7 +283,30 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
 
         // spoolDir — escaped: unlike the other hardcoded literals this path comes
         // from core.tempDir and could in principle contain spaces/metacharacters.
-        Processes::mwExec('rm -rf ' . escapeshellarg($spoolDir));
+        //
+        // GUARDED by $keepSettings. A module UPGRADE installs the new version over
+        // the old one by first calling uninstallModule(keepSettings=TRUE) (see
+        // ModuleInstallationBase::install -> UninstallModuleAction(..., true)).
+        // Unlike confDir/logDir/pidDir (pure generated/transient state, rebuilt on
+        // enable), the spoolDir holds IRREPLACEABLE operational state that nothing
+        // regenerates:
+        //   - custom_config.json  — Go's area registry / routing truth (the only
+        //                            record that a messenger area exists; without
+        //                            it the reconcile loop has nothing to act on,
+        //                            so a remote channel's route is lost forever),
+        //   - remote_state.json   — the migration cursor,
+        //   - sessions/, remote/  — local messenger session DBs + warm-standby
+        //                            mirror (WhatsApp/Telegram auth — wiping forces
+        //                            a re-QR / re-login).
+        // Wiping these on every upgrade left freshly-updated stations amnesiac:
+        // offloaded channels kept running on the VPS but the PBX could no longer
+        // route /chats ops to them and dropped them from the status page. So on an
+        // upgrade (keepSettings) we PRESERVE the spoolDir; only a real uninstall
+        // (keepSettings=false) clears it — which is still required so a
+        // from-scratch reinstall does not resurrect a dead migration.
+        if (!$keepSettings) {
+            Processes::mwExec('rm -rf ' . escapeshellarg($spoolDir));
+        }
 
         // logDir
         $logDir = System::getLogDir();
