@@ -1689,7 +1689,17 @@ class AmigoDaemons extends Injectable
             . '  case "$f" in *.old.*) continue ;; esac; '
             . '  case "$f" in *[Ss]ession*) ;; *) continue ;; esac; '
             . '  case "$f" in '
-            . '    *.db) sqlite3 "$f" ".backup $tmp/$f" || exit 4 ;; '
+            // *.db: prefer `sqlite3 .backup` for a consistent online snapshot, but
+            // fall back to a plain `cp` when the VPS has no sqlite3 CLI. Minimal VPS
+            // images routinely ship without it (the Go daemons use an EMBEDDED
+            // SQLite, so the box runs fine), and the original hard `sqlite3 ... ||
+            // exit 4` made the .backup fail "command not found" → mirrorAreaSession-
+            // Files returned false EVERY interval → the warm-standby copy stayed
+            // empty and failback was hollow (adopt-local would boot a local chatsd
+            // on an unauthenticated session). The .db's -wal/-shm sidecars, when
+            // present, are copied by their own iterations of this loop, so a local
+            // open recovers from the wal.
+            . '    *.db) if command -v sqlite3 >/dev/null 2>&1; then sqlite3 "$f" ".backup $tmp/$f" || exit 4; else cp -f "$f" "$tmp/$f" || exit 5; fi ;; '
             . '    *)    cp -f "$f" "$tmp/$f" || exit 5 ;; '
             . '  esac; '
             . '  m=1; '
