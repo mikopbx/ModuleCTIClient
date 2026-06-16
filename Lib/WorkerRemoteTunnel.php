@@ -236,6 +236,7 @@ class WorkerRemoteTunnel extends WorkerBase
             //    On de-toggle, tear the remote stack down and restart the loop.
             $lastProvision = time();
             $lastMirror = 0; // 0 => take a baseline mirror as soon as the tunnel is up
+            $stagedInfra = null; // infra set last staged+pushed to the VPS (null => force once)
             while (!$this->needRestart && time() < $deadline) {
                 $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
 
@@ -256,6 +257,27 @@ class WorkerRemoteTunnel extends WorkerBase
                     // Tunnel dropped — stop hammering ssh; the outer loop waits
                     // for it to come back before relaunching.
                     break;
+                }
+
+                // Infra set can GROW while the tunnel is already up — a service
+                // toggled remote AFTER bring-up. The outer-loop staging path
+                // (applyMonitordConfigAndReconcile) is gated on !connected, so
+                // without this a newly-toggled service's base config never
+                // reaches the VPS: generateRemoteConfFiles is never re-run and the
+                // operator cannot add/authorize an account there (its daemon has
+                // no `-c <svc>.json` staged). Re-stage + push whenever the infra
+                // set changes. Safe while connected: applyMonitordConfigAndReconcile
+                // only bounces monitord when the tunnel is configured:false, and
+                // connected:true implies configured:true here — the live tunnel is
+                // never dropped. Fires once per change, not per tick; the null
+                // sentinel forces one re-stage on the first tick so it also covers
+                // entering keepalive with a stale on-disk stage (tunnel already up
+                // at worker start => the outer-loop staging was skipped).
+                $infraKey = implode(',', $infraInner);
+                if ($stagedInfra !== $infraKey) {
+                    $ctiCheck->applyMonitordConfigAndReconcile();
+                    $stagedInfra = $infraKey;
+                    $lastProvision = time(); // it just provisioned — avoid a double push below
                 }
 
                 // Tunnel up — advance the migration state machine by one step
