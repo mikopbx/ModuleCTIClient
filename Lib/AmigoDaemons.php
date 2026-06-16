@@ -582,11 +582,22 @@ class AmigoDaemons extends Injectable
      */
     public function readRemoteState(): array
     {
-        $path = $this->getRemoteStatePath();
-        if (!file_exists($path)) {
+        if (!file_exists($this->getRemoteStatePath())) {
             $this->seedRemoteState();
         }
+        return $this->decodeRemoteState();
+    }
 
+    /**
+     * Decode + normalize remote_state.json from disk WITHOUT seeding or locking.
+     * Used by readRemoteState() (after a seed-if-missing) and by mutateRemoteState()
+     * for the fresh read taken while the exclusive lock is held.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private function decodeRemoteState(): array
+    {
+        $path = $this->getRemoteStatePath();
         $state = [];
         $raw = @file_get_contents($path);
         if (is_string($raw) && $raw !== '') {
@@ -621,14 +632,80 @@ class AmigoDaemons extends Injectable
      */
     public function writeRemoteState(array $state): void
     {
-        $path = $this->getRemoteStatePath();
-        $lockPath = $path . '.lock';
+        $lock = $this->acquireRemoteStateLock();
+        $this->persistRemoteState($state);
+        $this->releaseRemoteStateLock($lock);
+    }
 
+    /**
+     * Atomic read-modify-write of remote_state.json under the exclusive lock.
+     * The mutator receives the FRESH on-disk state by reference and mutates it in
+     * place; the merged result is then persisted before the lock is released. This
+     * closes the read-early/write-late window between the worker and the web
+     * process (operator saves / failback button), where a write built from a stale
+     * read could clobber the other side's concurrent update — e.g. drop a fence.
+     *
+     * Light by design: callers touch only their own keys on the fresh copy, so a
+     * concurrent write to unrelated services/keys is preserved, not overwritten.
+     * The mutator may return false to signal "no change" and skip the write.
+     *
+     * The mutator MUST NOT call readRemoteState()/writeRemoteState() (the lock is
+     * not reentrant — a second flock from this process would self-deadlock); it
+     * operates purely on the array it is handed.
+     *
+     * @param callable(array<string,mixed>):mixed $mutator receives &$state
+     * @return void
+     */
+    public function mutateRemoteState(callable $mutator): void
+    {
+        $lock = $this->acquireRemoteStateLock();
+        $state = $this->decodeRemoteState();
+        $result = $mutator($state);
+        if ($result !== false) {
+            $this->persistRemoteState($state);
+        }
+        $this->releaseRemoteStateLock($lock);
+    }
+
+    /**
+     * Open + LOCK_EX the remote_state lock file. Returns the handle (or false if it
+     * could not be opened — callers degrade to an unlocked write, as before).
+     *
+     * @return resource|false
+     */
+    private function acquireRemoteStateLock()
+    {
+        $lockPath = $this->getRemoteStatePath() . '.lock';
         $lock = @fopen($lockPath, 'c');
         if ($lock !== false) {
             @flock($lock, LOCK_EX);
             @chmod($lockPath, 0600);
         }
+        return $lock;
+    }
+
+    /**
+     * @param resource|false $lock
+     * @return void
+     */
+    private function releaseRemoteStateLock($lock): void
+    {
+        if ($lock !== false) {
+            @flock($lock, LOCK_UN);
+            @fclose($lock);
+        }
+    }
+
+    /**
+     * Serialize $state to remote_state.json via atomic temp+rename. Does NOT lock —
+     * the caller must already hold the lock (writeRemoteState / mutateRemoteState).
+     *
+     * @param array<string,mixed> $state
+     * @return void
+     */
+    private function persistRemoteState(array $state): void
+    {
+        $path = $this->getRemoteStatePath();
 
         $json = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         if ($json === false) {
@@ -644,11 +721,6 @@ class AmigoDaemons extends Injectable
             @chmod($tmp, 0600);
             @rename($tmp, $path);
             @chmod($path, 0600);
-        }
-
-        if ($lock !== false) {
-            @flock($lock, LOCK_UN);
-            @fclose($lock);
         }
     }
 
@@ -682,23 +754,24 @@ class AmigoDaemons extends Injectable
         if (empty($svcs)) {
             return;
         }
-        $state = $this->readRemoteState();
-        $touched = false;
-        foreach ($svcs as $svc) {
-            if (!isset($state[$svc])) {
-                continue;
+        // Locked read-modify-write: the worker may be writing migration progress
+        // concurrently; we touch only parked/fail_count/last_error on the fresh copy.
+        $this->mutateRemoteState(function (array &$state) use ($svcs) {
+            $touched = false;
+            foreach ($svcs as $svc) {
+                if (!isset($state[$svc])) {
+                    continue;
+                }
+                if (!empty($state[$svc]['parked']) || (int)($state[$svc]['fail_count'] ?? 0) > 0
+                    || (string)($state[$svc]['last_error'] ?? '') !== '') {
+                    $state[$svc]['parked'] = false;
+                    $state[$svc]['fail_count'] = 0;
+                    $state[$svc]['last_error'] = '';
+                    $touched = true;
+                }
             }
-            if (!empty($state[$svc]['parked']) || (int)($state[$svc]['fail_count'] ?? 0) > 0
-                || (string)($state[$svc]['last_error'] ?? '') !== '') {
-                $state[$svc]['parked'] = false;
-                $state[$svc]['fail_count'] = 0;
-                $state[$svc]['last_error'] = '';
-                $touched = true;
-            }
-        }
-        if ($touched) {
-            $this->writeRemoteState($state);
-        }
+            return $touched; // false => skip the write entirely.
+        });
     }
 
     /**
@@ -2925,8 +2998,8 @@ class AmigoDaemons extends Injectable
         $state = $this->readRemoteState();
         $toggleMap = $this->getRemoteServiceMap();
         $settings = null;
-        $changed = false;
         $fenceFailed = false;
+        $toFailback = [];
         foreach ($this->getRoutedRemoteServices() as $svc) {
             // mid-migration (incl. the resume phase): leave the state machine's own
             // cutoffs to it. Matches failbackRemoteServiceToLocal()'s guard — a
@@ -2949,10 +3022,9 @@ class AmigoDaemons extends Injectable
                 }
                 $settings->writeAttribute($toggle, '0');
             }
-            $this->adoptServiceAreasLocal($state, $svc, 'auto-failback: VPS unreachable');
-            $changed = true;
+            $toFailback[] = $svc;
         }
-        if (!$changed) {
+        if ($toFailback === []) {
             return;
         }
         if ($settings !== null && $settings->save() === false) {
@@ -2970,7 +3042,20 @@ class AmigoDaemons extends Injectable
             // Refresh cached settings so the reconcile below sees desired=local.
             $this->module_settings = $settings->toArray();
         }
-        $this->writeRemoteState($state);
+        // Apply the adopt-local intent on a FRESH copy of the state under the lock so
+        // a concurrent worker write isn't clobbered. Re-check the guards on the fresh
+        // copy: if a migration started (or it was already adopted) between our read
+        // and now, the toggle is already off (desiredSide=local) and the normal drain
+        // handles it — skipping the adopt here is safe.
+        $this->mutateRemoteState(function (array &$fresh) use ($toFailback) {
+            foreach ($toFailback as $svc) {
+                if (!empty($fresh[$svc]['migrating']) || !empty($fresh[$svc]['resuming'])
+                    || !empty($fresh[$svc]['adopt_local'])) {
+                    continue;
+                }
+                $this->adoptServiceAreasLocal($fresh, $svc, 'auto-failback: VPS unreachable');
+            }
+        });
         // The outage is handled — drop the downtime anchor so a later re-enable of
         // offload doesn't fail back instantly off this now-stale stamp. A fresh
         // outage re-anchors from scratch.
@@ -3087,10 +3172,11 @@ class AmigoDaemons extends Injectable
 
         // 2. Adopt the on-disk local copy: flip the cursor side -> local WITHOUT a
         //    VPS pull (the VPS is gone) and set the adopt_local intent so Go commits
-        //    location=local despite the dead-VPS remote-stop call failing.
-        $state = $this->readRemoteState();
-        $this->adoptServiceAreasLocal($state, $svc, 'failed back to local (operator)');
-        $this->writeRemoteState($state);
+        //    location=local despite the dead-VPS remote-stop call failing. Locked
+        //    read-modify-write so a concurrent worker write isn't clobbered.
+        $this->mutateRemoteState(function (array &$state) use ($svc) {
+            $this->adoptServiceAreasLocal($state, $svc, 'failed back to local (operator)');
+        });
 
         // 3. Reconcile: the local monitord brings the daemon up on the local DB.
         //    The routing anchor (custom_config = "remote") is broken by Go's
@@ -3985,9 +4071,9 @@ class AmigoDaemons extends Injectable
 
         $base = $this->getRemoteBaseDir();
         $debug = intval($this->module_settings['debug_mode'] ?? 0) === 1;
-        // Per-messenger proxy: each service uses its own configured proxy
-        // (with fallback to the legacy single field). 'chats' on the remote
-        // side maps to the whatsapp_proxy_address field.
+        // Per-messenger proxy: each service uses its own configured proxy field
+        // (no legacy single-field fallback — getMessengerProxyAddress dropped it).
+        // 'chats' on the remote side maps to the whatsapp_proxy_address field.
         $proxyByService = [
             'chats' => $this->getMessengerProxyAddress('whatsapp'),
             'tg'    => $this->getMessengerProxyAddress('telegram'),
@@ -4812,7 +4898,7 @@ class AmigoDaemons extends Injectable
                 . 'echo "RW:OK"; '
             . 'else echo "RW:FAIL"; fi';
 
-        $cmd = '/usr/bin/ssh'
+        $cmd = Util::which('ssh')
             . ' -i ' . escapeshellarg($tmpKey)
             . ' -p ' . escapeshellarg($port)
             . ' -o BatchMode=yes'

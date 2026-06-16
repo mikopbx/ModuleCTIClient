@@ -300,7 +300,16 @@ const moduleCTIClientConnectionCheckWorker = {
 		// Пропускаем перерисовку DOM, если данные не изменились — убирает
 		// мерцание таблицы при опросе раз в 3 секунды. Включаем remoteFailback в
 		// хэш, иначе появление кнопки/обновление возраста копии не перерисуется.
-		const hash = JSON.stringify({ s: statuses, f: self.remoteFailback });
+		// Когда показана строка failback, её «local copy: N ago» должен идти даже
+		// при застывших statuses/remoteFailback (туннель лежит — last_mirror_ts не
+		// растёт), поэтому подмешиваем грубый 15-секундный бакет времени в хэш.
+		let ageBucket = 0;
+		const rf = self.remoteFailback;
+		if (rf && typeof rf === 'object'
+			&& Object.keys(rf).some((k) => rf[k] && rf[k].can_failback === true)) {
+			ageBucket = Math.floor(Date.now() / 15000);
+		}
+		const hash = JSON.stringify({ s: statuses, f: self.remoteFailback, a: ageBucket });
 		if (hash === self.lastRenderHash && $rows.children().length > 0) {
 			if ($placeholder.length > 0) {
 				$placeholder.hide();

@@ -366,6 +366,13 @@ const moduleCTIClient = {
 							// Leave the button busy; the status worker re-polls within
 							// a few seconds, the service flips to local and the row
 							// (with its button) disappears on the next render.
+							// Safety net: if the re-poll hasn't removed the row within
+							// ~15s (backend didn't converge), drop the busy state so the
+							// operator can retry instead of a permanently-spinning button.
+							// No-op if the row was already removed (button detached).
+							setTimeout(() => {
+								$btn.removeClass('loading disabled');
+							}, 15000);
 							return;
 						}
 						$btn.removeClass('loading disabled');

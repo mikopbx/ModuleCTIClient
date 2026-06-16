@@ -71,19 +71,6 @@ class CTIClientConf extends ConfigClass
                 'remote_telegram' => 'tg',
                 'remote_max'      => 'max',
             ];
-            if ($changedMigrationToggles === [] && $changed === []) {
-                $amigoDaemons = new AmigoDaemons();
-                $desiredRemote = $amigoDaemons->getRemoteServices();
-                foreach ($toggleToService as $toggle => $service) {
-                    $desiredSide = in_array($service, $desiredRemote, true) ? 'remote' : 'local';
-                    foreach ($amigoDaemons->readCustomConfigAreas($service) as $location) {
-                        if ($location !== $desiredSide) {
-                            $changedMigrationToggles[] = $toggle;
-                            break;
-                        }
-                    }
-                }
-            }
             if ($changedMigrationToggles !== []) {
                 // A toggle flip is also the operator re-trigger after a
                 // FAIL-PARK: clear `parked` for the changed services even when
