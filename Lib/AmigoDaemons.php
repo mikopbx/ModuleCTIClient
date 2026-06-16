@@ -108,6 +108,30 @@ class AmigoDaemons extends Injectable
      */
     private const FAILBACK_AFTER_SECONDS = 7200;
 
+    /**
+     * Throttle window (seconds) for the remote-log pull. Logs are diagnostic,
+     * not time-critical, so this runs on a slower cadence than the session
+     * mirror — the worker calls pullRemoteLogsToLocal() every keepalive tick but
+     * the in-method timestamp gate (remote_logs_state.json::last_pull_ts) turns
+     * all but one call per window into a near-free no-op.
+     */
+    private const REMOTE_LOG_PULL_INTERVAL_SECONDS = 60;
+
+    /**
+     * Size threshold (bytes) past which a locally-accumulated pulled `.log` is
+     * rotated to `.log.1` (then `.log.2`…), so the existing 7-day cleanup
+     * (`find logDir -name '*.log.[0-9]*' -mtime +7`, deleteOldLogs()) reaps it.
+     * The active `.log` keeps growing via append-only tail pulls otherwise.
+     */
+    private const REMOTE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
+
+    /**
+     * Bytes of a remote log's head hashed into a rotation/truncate signature.
+     * Cheap to read over ssh and enough to catch a create+rename rotation whose
+     * new size happens to equal the old offset (which a size-only check misses).
+     */
+    private const REMOTE_LOG_HEAD_BYTES = 64;
+
     public array $dirs;
     private array $module_settings = [];
     private string $moduleUniqueID = 'ModuleCTIClient';
@@ -2145,6 +2169,513 @@ class AmigoDaemons extends Injectable
         $rc = 0;
         exec($sshArgs . ' ' . escapeshellarg('rm -rf ' . escapeshellarg($dir))
             . ' 2>/dev/null', $o, $rc);
+    }
+
+    /**
+     * Spool-relative state file holding the per-file pull offsets. SEPARATE from
+     * remote_state.json (different writer cadence, different schema) — never
+     * routed through mutateRemoteState.
+     *
+     * @return string
+     */
+    private function getRemoteLogsStatePath(): string
+    {
+        return $this->dirs['spoolDir'] . '/remote_logs_state.json';
+    }
+
+    /**
+     * Decode remote_logs_state.json. Shape:
+     *   {
+     *     "last_pull_ts": <int>,
+     *     "files": { "<svcDir>/<filename>": { "size": <int>, "head": "<hex>" }, ... }
+     *   }
+     * A missing/corrupt file yields the empty default — offsets are best-effort
+     * (a lost state file just re-pulls each active log once from 0).
+     *
+     * @return array{last_pull_ts:int,files:array<string,array<string,mixed>>}
+     */
+    private function readRemoteLogsState(): array
+    {
+        $state = ['last_pull_ts' => 0, 'files' => []];
+        $raw = @file_get_contents($this->getRemoteLogsStatePath());
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $state['last_pull_ts'] = (int)($decoded['last_pull_ts'] ?? 0);
+                if (isset($decoded['files']) && is_array($decoded['files'])) {
+                    $state['files'] = $decoded['files'];
+                }
+            }
+        }
+        return $state;
+    }
+
+    /**
+     * Persist remote_logs_state.json via atomic temp+rename + fsyncOrFlush. The
+     * single serialized worker is the only writer (the pull runs in the keepalive
+     * loop), so no lock is taken — but the atomic rename keeps a concurrent reader
+     * from ever seeing a half-written map.
+     *
+     * @param array{last_pull_ts:int,files:array<string,array<string,mixed>>} $state
+     * @return void
+     */
+    private function writeRemoteLogsState(array $state): void
+    {
+        $path = $this->getRemoteLogsStatePath();
+        $json = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            $json = '{}';
+        }
+        $tmp = $path . '.tmp';
+        $fp = @fopen($tmp, 'wb');
+        if ($fp !== false) {
+            fwrite($fp, $json);
+            $this->fsyncOrFlush($fp);
+            fclose($fp);
+            @chmod($tmp, 0600);
+            @rename($tmp, $path);
+            @chmod($path, 0600);
+        }
+    }
+
+    /**
+     * Sanitize the VPS host (name or IP) for use as a path component of the
+     * archive dir `logDir/ModuleCTIClient/<svcDir>-<host>/`: keep [A-Za-z0-9._-],
+     * map everything else to `_`. Returns '' when no host is configured.
+     *
+     * @return string
+     */
+    private function getRemoteLogHostTag(): string
+    {
+        $host = trim((string)($this->module_settings['remote_host'] ?? ''));
+        if ($host === '') {
+            return '';
+        }
+        return preg_replace('/[^A-Za-z0-9._-]/', '_', $host) ?? '';
+    }
+
+    /**
+     * Periodically pull the active `*.log` of each offloaded messenger daemon
+     * (and the VPS monitord) from the VPS into a per-host archive folder under
+     * the local logDir, so MikoPBX's System → Logs (recursive logDir scan) can
+     * see and download them. INCREMENTAL by byte offset — only the bytes appended
+     * since the last pull cross the ssh tunnel.
+     *
+     * Layout: `logDir/ModuleCTIClient/<daemon>-<host>/<basename>` where <daemon>
+     * is the VPS log subdir (chatsd/tgd/maxd/monitord) and <host> is the
+     * sanitized remote_host. The per-host suffix structurally excludes any
+     * collision with the LIVE local `logDir/ModuleCTIClient/<daemon>/` files.
+     *
+     * Per-service gate: a daemon's logs are pulled only while at least one of its
+     * areas is side==remote (it is actually writing on the VPS) AND the tunnel is
+     * connected. monitord is pulled whenever offload infra is up (it is not a
+     * migratable service, so it has no per-area side).
+     *
+     * Best-effort throughout: any ssh hiccup / partial read just skips that file
+     * this tick and LEAVES the offset untouched, so the next tick resumes exactly
+     * where it left off (no dupes, no gaps). Self-throttled to
+     * REMOTE_LOG_PULL_INTERVAL_SECONDS via last_pull_ts in the state file, so a
+     * per-tick call from the keepalive loop is cheap.
+     *
+     * @return void
+     */
+    public function pullRemoteLogsToLocal(): void
+    {
+        $ssh = $this->getRemoteSshParams();
+        if ($ssh === null) {
+            return; // offload not configured — nothing to pull (matches mirror/heal)
+        }
+        if (!$this->isRemoteTunnelConnected()) {
+            return; // tunnel owned by monitord is down — skip the whole pass
+        }
+
+        $logState = $this->readRemoteLogsState();
+        $now = time();
+        if ($now - $logState['last_pull_ts'] < self::REMOTE_LOG_PULL_INTERVAL_SECONDS) {
+            return; // throttled — not due yet
+        }
+
+        $hostTag = $this->getRemoteLogHostTag();
+        if ($hostTag === '') {
+            return; // no host => no archive dir to name
+        }
+
+        $sshArgs = self::buildSshArgs($ssh);
+        $base = $ssh['base'];
+
+        // Build the list of remote log subdirs to pull this pass, keyed by the
+        // VPS daemon name (also the local archive subdir stem). Only daemons that
+        // are actually active on the VPS are listed (per-service side gate).
+        $remoteState = $this->readRemoteState();
+        $binMap = $this->getServiceBinaryMap(); // area => daemon name (chatsd/...)
+        $daemons = [];
+        foreach (self::MIGRATABLE_SERVICES as $svc) {
+            if (!isset($binMap[$svc])) {
+                continue;
+            }
+            $areas = is_array($remoteState[$svc]['areas'] ?? null) ? $remoteState[$svc]['areas'] : [];
+            $anyRemote = false;
+            foreach ($areas as $a) {
+                if (is_array($a) && (string)($a['side'] ?? '') === 'remote') {
+                    $anyRemote = true;
+                    break;
+                }
+            }
+            if ($anyRemote) {
+                $daemons[] = $binMap[$svc];
+            }
+        }
+        // monitord: pull whenever offload infra is up (no per-area side of its own)
+        // — its log diagnoses the offload itself (tunnel, receivers, relocation).
+        if ($this->isInfraNeeded()) {
+            $daemons[] = self::SERVICE_MONITOR;
+        }
+
+        if (empty($daemons)) {
+            // Tunnel up but nothing remote right now — still stamp last_pull_ts so
+            // we don't re-probe every tick; offsets are left as-is.
+            $logState['last_pull_ts'] = $now;
+            $this->writeRemoteLogsState($logState);
+            return;
+        }
+
+        $seenKeys = []; // "<daemon>/<basename>" present on the VPS this pass
+        foreach (array_unique($daemons) as $daemon) {
+            $remoteDir = $base . '/logs/' . $daemon;
+            $listing = $this->listRemoteLogFiles($sshArgs, $remoteDir);
+            if ($listing === null) {
+                continue; // ssh hiccup for this dir — retry next interval, offsets intact
+            }
+            foreach ($listing as $entry) {
+                $basename = $entry['name'];
+                // Hard path-traversal guard: a basename from the remote listing
+                // must never contain a slash or `..` (it indexes a local file).
+                if ($basename === '' || strpos($basename, '/') !== false || strpos($basename, '..') !== false) {
+                    continue;
+                }
+                $key = $daemon . '/' . $basename;
+                $seenKeys[$key] = true;
+                $this->pullOneRemoteLog(
+                    $sshArgs,
+                    $remoteDir,
+                    $daemon,
+                    $hostTag,
+                    $basename,
+                    (int)$entry['size'],
+                    (string)$entry['head'],
+                    $logState
+                );
+            }
+        }
+
+        // Prune offsets for files that have vanished from the VPS (rotated away /
+        // service detoggled) so the map cannot grow without bound. We only prune
+        // entries belonging to a daemon we actually listed this pass — a daemon
+        // skipped on an ssh hiccup must keep its offsets.
+        $listedDaemons = array_flip(array_unique($daemons));
+        foreach (array_keys($logState['files']) as $key) {
+            $slash = strpos($key, '/');
+            $keyDaemon = $slash === false ? '' : substr($key, 0, $slash);
+            if (isset($listedDaemons[$keyDaemon]) && !isset($seenKeys[$key])) {
+                unset($logState['files'][$key]);
+            }
+        }
+
+        $logState['last_pull_ts'] = $now;
+        $this->writeRemoteLogsState($logState);
+    }
+
+    /**
+     * List the active `*.log` files (NOT rotated `*.log.N`) of a VPS log dir with
+     * their byte size and a head signature, using only portable shell so a
+     * busybox VPS works (no GNU `find -printf`/`stat`). Output line per file:
+     *   <size>\t<headhex>\t<basename>
+     * head signature = md5 of the first REMOTE_LOG_HEAD_BYTES bytes (md5sum on
+     * the VPS); on a box without md5sum the head field is empty and we fall back
+     * to size-only rotation detection.
+     *
+     * @param string $sshArgs
+     * @param string $remoteDir VPS {base}/logs/<daemon>
+     * @return array<int,array{name:string,size:int,head:string}>|null null on ssh failure
+     */
+    private function listRemoteLogFiles(string $sshArgs, string $remoteDir): ?array
+    {
+        $headBytes = self::REMOTE_LOG_HEAD_BYTES;
+        // `*.log` only — rotated `*.log.N` content was already pulled into the
+        // local active file, so re-pulling an archive would duplicate lines.
+        $remoteCmd = 'cd ' . escapeshellarg($remoteDir) . ' 2>/dev/null || exit 0; '
+            . 'for f in *.log; do '
+            . '  [ -f "$f" ] || continue; '
+            . '  sz=$(wc -c < "$f" 2>/dev/null); '
+            . '  [ -n "$sz" ] || continue; '
+            . '  h=$(head -c ' . (int)$headBytes . ' "$f" 2>/dev/null | md5sum 2>/dev/null | cut -d" " -f1); '
+            . '  printf \'%s\t%s\t%s\n\' "$sz" "$h" "$f"; '
+            . 'done';
+        $rc = 0;
+        $out = [];
+        exec($sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $out, $rc);
+        if ($rc !== 0) {
+            return null;
+        }
+        $files = [];
+        foreach ($out as $line) {
+            $line = rtrim($line, "\r\n");
+            if ($line === '') {
+                continue;
+            }
+            // size \t head \t name — name may contain spaces, so split into 3.
+            $parts = explode("\t", $line, 3);
+            if (count($parts) < 3) {
+                continue;
+            }
+            $size = trim($parts[0]);
+            if ($size === '' || !ctype_digit($size)) {
+                continue;
+            }
+            $files[] = [
+                'name' => $parts[2],
+                'size' => (int)$size,
+                'head' => trim($parts[1]),
+            ];
+        }
+        return $files;
+    }
+
+    /**
+     * Incrementally pull ONE remote log file into its local archive copy,
+     * mutating $logState['files'] in place on success. Decides, from the stored
+     * offset vs the freshly-listed size/head:
+     *   - new file (no offset)         => pull whole file, offset = size.
+     *   - appended (size > old, same head) => pull tail [old,size), APPEND.
+     *   - rotated/truncated (size < old, OR head changed) => re-read from 0 and
+     *     APPEND the whole current file (post-copytruncate / new-file content is
+     *     genuinely new lines), offset = size.
+     *   - unchanged (size == old, same head) => no-op.
+     * A failed/partial transfer leaves the offset untouched (skip this tick).
+     *
+     * @param string                                                       $sshArgs
+     * @param string                                                       $remoteDir VPS log dir
+     * @param string                                                       $daemon    archive subdir stem
+     * @param string                                                       $hostTag   sanitized host
+     * @param string                                                       $basename  validated remote basename
+     * @param int                                                          $sizeNew   listed remote size
+     * @param string                                                       $headNew   listed head signature ('' if unknown)
+     * @param array{last_pull_ts:int,files:array<string,array<string,mixed>>} $logState  by reference
+     * @return void
+     */
+    private function pullOneRemoteLog(
+        string $sshArgs,
+        string $remoteDir,
+        string $daemon,
+        string $hostTag,
+        string $basename,
+        int $sizeNew,
+        string $headNew,
+        array &$logState
+    ): void {
+        $key = $daemon . '/' . $basename;
+        $prev = isset($logState['files'][$key]) && is_array($logState['files'][$key])
+            ? $logState['files'][$key] : [];
+        $old = (int)($prev['size'] ?? 0);
+        $oldHead = (string)($prev['head'] ?? '');
+
+        $isNew = !isset($logState['files'][$key]);
+        // Rotation/truncate: shrank, or the head signature moved while both sides
+        // actually have a signature to compare (size-equal create+rename case).
+        $headChanged = ($headNew !== '' && $oldHead !== '' && $headNew !== $oldHead);
+        $rotated = ($sizeNew < $old) || $headChanged;
+
+        if (!$isNew && !$rotated && $sizeNew === $old) {
+            return; // unchanged — nothing to do
+        }
+        if ($sizeNew === 0) {
+            // Empty remote file (e.g. just after a create+rename): record the
+            // zero offset/head so the next non-empty tick is treated as append.
+            $logState['files'][$key] = ['size' => 0, 'head' => $headNew];
+            return;
+        }
+
+        if ($isNew || $rotated) {
+            // Pull the WHOLE current file from byte 0 and append locally. For a
+            // brand-new local target this is the initial copy; for a rotation it
+            // appends the post-rotation content as a continuation of the archive.
+            $startOffset = 0;
+            $delta = $sizeNew;
+        } else {
+            // Appended: pull exactly [old, sizeNew).
+            $startOffset = $old;
+            $delta = $sizeNew - $old;
+        }
+        if ($delta <= 0) {
+            return;
+        }
+
+        $localDir = $this->dirs['logDir'] . '/' . $daemon . '-' . $hostTag;
+        if (!Util::mwMkdir($localDir)) {
+            return; // cannot create archive dir — skip, offsets intact
+        }
+        $localPath = $localDir . '/' . $basename;
+
+        if (!$this->appendRemoteLogTail($sshArgs, $remoteDir, $basename, $startOffset, $delta, $localPath)) {
+            return; // ssh/partial failure — DO NOT advance the offset
+        }
+
+        // Transfer landed — advance the offset to the size we listed (NOT the
+        // current remote size, which may have grown mid-transfer; head -c bounded
+        // us to exactly $delta, so size-we-read is the precise new offset).
+        $logState['files'][$key] = ['size' => $sizeNew, 'head' => $headNew];
+
+        // Rotate the local archive file once it crosses the size threshold so the
+        // existing 7-day `*.log.[0-9]*` cleanup reaps it (the active `.log` would
+        // otherwise grow unbounded — deleteOldLogs only prunes rotated copies).
+        $this->rotateLocalPulledLog($localPath);
+    }
+
+    /**
+     * Stream exactly $delta bytes starting at byte offset $startOffset of the
+     * remote file and APPEND them to $localPath. Returns true only when the
+     * transfer landed the full delta (partial reads are treated as failure so the
+     * caller leaves the offset untouched and retries next tick).
+     *
+     * Portable byte slicing for a possibly-busybox VPS:
+     *   tail -c +$((startOffset+1)) -- "$f" | head -c $delta
+     * `tail -c +N` (start at the N-th byte) is a GNU extension; busybox builds
+     * without it fail the tail, so we fall back to `dd bs=1 skip=$startOffset
+     * count=$delta` via `||`. `head -c $delta` bounds the output to the listed
+     * delta either way, so a file that grew mid-read never over-reads.
+     *
+     * The bytes are appended on the LOCAL side by pointing the pipeline's stdout
+     * at $localPath opened in append mode through proc_open — so an interrupted
+     * transfer leaves a short file (caught by the byte-count check) and the offset
+     * is not advanced.
+     *
+     * @param string $sshArgs
+     * @param string $remoteDir
+     * @param string $basename     validated remote basename
+     * @param int    $startOffset  0-based byte to start at
+     * @param int    $delta        exact bytes expected
+     * @param string $localPath    local archive file (append target)
+     * @return bool
+     */
+    private function appendRemoteLogTail(
+        string $sshArgs,
+        string $remoteDir,
+        string $basename,
+        int $startOffset,
+        int $delta,
+        string $localPath
+    ): bool {
+        $tailStart = $startOffset + 1; // tail -c +N is 1-based
+        $remoteFile = escapeshellarg($basename); // run from inside $remoteDir
+        // tail (GNU) first, dd (busybox) fallback, both bounded by head -c $delta.
+        $remoteCmd = 'cd ' . escapeshellarg($remoteDir) . ' 2>/dev/null || exit 7; '
+            . '{ tail -c +' . (int)$tailStart . ' -- ' . $remoteFile . ' 2>/dev/null '
+            . '|| dd if=' . $remoteFile . ' bs=1 skip=' . (int)$startOffset
+            . ' count=' . (int)$delta . ' 2>/dev/null; } '
+            . '| head -c ' . (int)$delta;
+
+        // Record the pre-pull length from the filesystem (an append-mode handle's
+        // ftell() is 0 until the first write on some platforms, so filesize is the
+        // reliable baseline for the bytes-landed check below).
+        clearstatcache(true, $localPath);
+        $before = is_file($localPath) ? (int)@filesize($localPath) : 0;
+
+        $local = @fopen($localPath, 'ab');
+        if ($local === false) {
+            return false;
+        }
+
+        $cmd = $sshArgs . ' ' . escapeshellarg($remoteCmd);
+        $descriptors = [
+            0 => ['file', '/dev/null', 'r'],
+            1 => $local,
+            2 => ['file', '/dev/null', 'w'],
+        ];
+        $proc = @proc_open($cmd, $descriptors, $pipes);
+        if (!is_resource($proc)) {
+            @fclose($local);
+            return false;
+        }
+        $rc = proc_close($proc);
+
+        // Measure how many bytes actually landed; ssh rc alone is unreliable
+        // through the pipe (head closes the pipe early on success → SIGPIPE).
+        clearstatcache(true, $localPath);
+        $after = is_file($localPath) ? (int)@filesize($localPath) : $before;
+        $this->fsyncOrFlush($local);
+        @fclose($local);
+
+        $written = $after - $before;
+        if ($written === $delta) {
+            return true;
+        }
+        // Short/over read (interrupted ssh, or a shrinking remote): roll the local
+        // file back to its pre-pull length so the retry next tick re-pulls the
+        // same delta cleanly instead of appending duplicates onto a partial tail.
+        if ($written !== 0) {
+            $this->truncateLocalFile($localPath, $before);
+        }
+        // rc may be non-zero only because head closed the pipe; treat a clean,
+        // full-length write as success regardless (handled above).
+        unset($rc);
+        return false;
+    }
+
+    /**
+     * Truncate a local file back to $length bytes (used to undo a partial tail
+     * append so a retry does not duplicate). Best-effort.
+     *
+     * @param string $path
+     * @param int    $length
+     * @return void
+     */
+    private function truncateLocalFile(string $path, int $length): void
+    {
+        $fp = @fopen($path, 'r+b');
+        if ($fp === false) {
+            return;
+        }
+        @ftruncate($fp, $length);
+        $this->fsyncOrFlush($fp);
+        @fclose($fp);
+    }
+
+    /**
+     * Rotate a pulled local archive `.log` once it exceeds
+     * REMOTE_LOG_ROTATE_BYTES: shift `.log.(N) -> .log.(N+1)` and move the active
+     * `.log -> .log.1`, leaving a fresh empty `.log` for subsequent appends. The
+     * `.log.N` names match the existing 7-day cleanup glob so they age out on
+     * their own. No-op below the threshold.
+     *
+     * @param string $path active local `.log` path
+     * @return void
+     */
+    private function rotateLocalPulledLog(string $path): void
+    {
+        clearstatcache(true, $path);
+        if (!is_file($path)) {
+            return;
+        }
+        $size = (int)@filesize($path);
+        if ($size < self::REMOTE_LOG_ROTATE_BYTES) {
+            return;
+        }
+        // Find the highest existing index so we shift from the top down and never
+        // clobber a still-unreaped older archive.
+        $top = 0;
+        foreach (glob($path . '.[0-9]*') ?: [] as $rotated) {
+            $suffix = substr($rotated, strlen($path) + 1);
+            if ($suffix !== '' && ctype_digit($suffix)) {
+                $n = (int)$suffix;
+                if ($n > $top) {
+                    $top = $n;
+                }
+            }
+        }
+        for ($i = $top; $i >= 1; $i--) {
+            @rename($path . '.' . $i, $path . '.' . ($i + 1));
+        }
+        @rename($path, $path . '.1');
     }
 
     /**

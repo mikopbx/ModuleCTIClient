@@ -293,6 +293,15 @@ class WorkerRemoteTunnel extends WorkerBase
                     $lastMirror = time();
                 }
 
+                // Remote log sync: incrementally pull the active *.log of each
+                // offloaded daemon (+ VPS monitord) into a per-host archive folder
+                // under the local logDir so System → Logs can see them. Runs on a
+                // slower cadence than the session mirror (logs are diagnostic, not
+                // time-critical) and is self-throttled internally via its own
+                // state file, so a per-tick call is cheap; a partial/failed ssh
+                // read just leaves the offsets intact for the next interval.
+                $ctiCheck->pullRemoteLogsToLocal();
+
                 // Periodically re-provision (idempotent): re-pushes the staged
                 // configs so a VPS monitord that came up on a stale/default
                 // config (e.g. it wrote its own template before the conf was
