@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вынос мессенджеров на VPS — руководство для DevOps</title>
+<style>
+  :root{
+    --pbx:#1f6feb; --pbx-bg:#e7f0ff;
+    --vps:#1a7f5a; --vps-bg:#e4f6ee;
+    --ink:#1c2128; --muted:#57606a; --line:#d0d7de;
+    --warn:#9a6700; --warn-bg:#fff8e6; --warn-line:#e8cf7a;
+    --code:#f3f5f8; --accent:#8957e5;
+    --bad:#cf222e; --good:#1a7f37;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); line-height:1.55; margin:0;
+    background:#fafbfc;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding:40px 32px 80px;}
+  header.doc{border-bottom:3px solid var(--pbx); padding-bottom:18px; margin-bottom:8px}
+  header.doc .kicker{font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--pbx); font-weight:700}
+  header.doc h1{margin:6px 0 4px; font-size:27px; line-height:1.2}
+  header.doc .sub{color:var(--muted); font-size:15px}
+  .meta{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px}
+  .pill{font-size:12px; background:#eef1f5; border:1px solid var(--line); border-radius:20px; padding:3px 11px; color:var(--muted)}
+  .pill b{color:var(--ink)}
+  h2{font-size:20px; margin:38px 0 6px; padding-top:6px; border-top:1px solid var(--line)}
+  h2 .n{display:inline-block; width:27px; height:27px; line-height:27px; text-align:center; background:var(--pbx); color:#fff; border-radius:7px; font-size:14px; margin-right:9px; vertical-align:2px}
+  h3{font-size:15.5px; margin:22px 0 4px}
+  p{margin:8px 0}
+  .lead{font-size:16px; color:#2c333b}
+  code{background:var(--code); border:1px solid var(--line); border-radius:5px; padding:1px 5px; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:13px}
+  pre{background:#0d1117; color:#e6edf3; border-radius:9px; padding:14px 16px; overflow:auto; font-size:12.5px; line-height:1.5; font-family:"SF Mono",Menlo,Consolas,monospace}
+  pre .c{color:#8b949e}
+  pre .g{color:#7ee787}
+  pre .o{color:#ffa657}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:#f1f4f8; font-weight:700}
+  td code{font-size:12.5px}
+  .tag{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:5px}
+  .tag.pbx{background:var(--pbx-bg); color:var(--pbx)}
+  .tag.vps{background:var(--vps-bg); color:var(--vps)}
+  .note,.warn{border-radius:9px; padding:13px 16px; margin:16px 0; font-size:13.5px}
+  .note{background:#eef4ff; border:1px solid #c2d6f7}
+  .warn{background:var(--warn-bg); border:1px solid var(--warn-line)}
+  .note b,.warn b{display:block; margin-bottom:2px}
+  .warn b{color:var(--warn)}
+  ul.tight{margin:8px 0; padding-left:22px}
+  ul.tight li{margin:4px 0}
+  .legend{display:flex; gap:20px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin:10px 0 0}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .sw{width:13px; height:13px; border-radius:3px; display:inline-block}
+  figure{margin:20px 0}
+  figcaption{font-size:12.5px; color:var(--muted); margin-top:8px; text-align:center}
+  .diagram{width:100%; height:auto; background:#fff; border:1px solid var(--line); border-radius:11px}
+  .twocol{display:grid; grid-template-columns:1fr 1fr; gap:18px}
+  @media(max-width:680px){.twocol{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:#fff}
+  .card h4{margin:0 0 6px; font-size:14px}
+  footer.doc{margin-top:48px; padding-top:14px; border-top:1px solid var(--line); color:var(--muted); font-size:12.5px}
+  .ok{color:var(--good); font-weight:700}
+  .flow{font-family:"SF Mono",Menlo,monospace; font-size:12.5px; background:var(--code); border:1px solid var(--line); border-radius:7px; padding:9px 12px; margin:10px 0; overflow:auto; white-space:nowrap}
+  @media print{ .wrap{padding:0 8px} body{background:#fff} h2{break-after:avoid} figure,table,.note,.warn{break-inside:avoid} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">ModuleCTIClient · MikoPBX</div>
+  <h1>Вынос сервиса чатов (мессенджеров) на внешний VPS</h1>
+  <div class="sub">Эксплуатационное руководство для DevOps: что где работает, как держится туннель, как обновляются бинарники, как синхронизируются сессии и логи.</div>
+  <div class="meta">
+    <span class="pill">Аудитория: <b>DevOps / эксплуатация</b></span>
+    <span class="pill">Сервисы: <b>WhatsApp · Telegram · MAX</b></span>
+    <span class="pill">Транспорт: <b>SSH-туннель</b></span>
+    <span class="pill">Проверено на стенде: <b>172.16.32.94 · модуль v1.568</b></span>
+  </div>
+</header>
+
+<!-- 1 -->
+<h2><span class="n">1</span>Зачем это нужно</h2>
+<p class="lead">Демоны мессенджеров (<b>WhatsApp&nbsp;= <code>chatsd</code></b>, <b>Telegram&nbsp;= <code>tgd</code></b>, <b>MAX&nbsp;= <code>maxd</code></b>) держат постоянное соединение с серверами WhatsApp/Telegram. В сетях с DPI это соединение глушится. Поэтому демоны переносятся на <b>VPS в «чистой» локации</b>, а сама MikoPBX остаётся «мозгом»: gnatsd, лицензия, 1С-интеграция, телефония и супервизор работают как раньше.</p>
+<p>Связь между PBX и VPS — один исходящий <b>SSH-туннель</b>. Оператор включает вынос тремя тумблерами в веб-интерфейсе модуля (отдельно WhatsApp / Telegram / MAX) и указывает адрес VPS + SSH-ключ. Дальше всё происходит автоматически: провижининг, поднятие туннеля, миграция сессий, зеркалирование и сбор логов.</p>
+
+<div class="note">
+  <b>Главный принцип</b>
+  Туннель и маршрутизация полностью скрыты внутри стека. Ни 1С, ни <code>gnatsd</code>, ни клиенты ничего не знают о VPS — для них всё выглядит так, будто демон работает локально. Никаких новых портов наружу не открывается: VPS инициирует <em>входящие</em> соединения не сам — это PBX ходит к нему по SSH.
+</div>
+
+<!-- 2 -->
+<h2><span class="n">2</span>Общая схема</h2>
+<figure>
+<svg class="diagram" viewBox="0 0 900 430" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,Segoe UI,Roboto,sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#57606a"/></marker>
+    <marker id="arrB" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1f6feb"/></marker>
+    <marker id="arrG" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1a7f5a"/></marker>
+  </defs>
+
+  <!-- PBX box -->
+  <rect x="20" y="40" width="360" height="350" rx="12" fill="#e7f0ff" stroke="#1f6feb" stroke-width="2"/>
+  <text x="38" y="66" font-size="15" font-weight="700" fill="#1f6feb">MikoPBX · за DPI</text>
+  <text x="38" y="84" font-size="11" fill="#57606a">«мозг» — остаётся на месте</text>
+
+  <rect x="40" y="98" width="150" height="34" rx="6" fill="#fff" stroke="#1f6feb"/>
+  <text x="115" y="113" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1c2128">gnatsd-cti</text>
+  <text x="115" y="126" font-size="10" text-anchor="middle" fill="#57606a">NATS :4222 · шлюз :8222</text>
+
+  <rect x="40" y="142" width="150" height="34" rx="6" fill="#fff" stroke="#1f6feb"/>
+  <text x="115" y="157" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1c2128">monitord (local)</text>
+  <text x="115" y="170" font-size="10" text-anchor="middle" fill="#57606a">:8225 · владелец туннеля</text>
+
+  <rect x="40" y="186" width="150" height="30" rx="6" fill="#fff" stroke="#1f6feb"/>
+  <text x="115" y="205" font-size="10.5" text-anchor="middle" fill="#1c2128">amid · crmd · authd · proxyd</text>
+
+  <rect x="40" y="226" width="150" height="30" rx="6" fill="#fff" stroke="#8957e5"/>
+  <text x="115" y="245" font-size="10.5" text-anchor="middle" fill="#1c2128">WorkerRemoteTunnel (PHP)</text>
+
+  <rect x="210" y="98" width="150" height="158" rx="6" fill="#fff" stroke="#b6c2cf" stroke-dasharray="4 3"/>
+  <text x="285" y="118" font-size="11" font-weight="700" text-anchor="middle" fill="#57606a">локальные демоны</text>
+  <text x="285" y="135" font-size="10" text-anchor="middle" fill="#57606a">не вынесенных сервисов</text>
+  <text x="285" y="160" font-size="10.5" text-anchor="middle" fill="#1c2128">chatsd / tgd / maxd</text>
+  <text x="285" y="176" font-size="10" text-anchor="middle" fill="#57606a">(пока тумблер OFF)</text>
+
+  <!-- 1C -->
+  <rect x="120" y="300" width="160" height="56" rx="8" fill="#fff" stroke="#1c2128" stroke-width="1.5"/>
+  <text x="200" y="322" font-size="12.5" font-weight="700" text-anchor="middle" fill="#1c2128">1С:Предприятие</text>
+  <text x="200" y="340" font-size="10" text-anchor="middle" fill="#57606a">ходит ТОЛЬКО в gnatsd :8222</text>
+  <path d="M200,300 L160,176" stroke="#57606a" stroke-width="1.3" fill="none" marker-end="url(#arr)" stroke-dasharray="3 3"/>
+
+  <!-- VPS box -->
+  <rect x="520" y="40" width="360" height="350" rx="12" fill="#e4f6ee" stroke="#1a7f5a" stroke-width="2"/>
+  <text x="538" y="66" font-size="15" font-weight="700" fill="#1a7f5a">VPS x86_64 · чистая локация</text>
+  <text x="538" y="84" font-size="11" fill="#57606a">только демоны мессенджеров</text>
+
+  <rect x="540" y="110" width="150" height="34" rx="6" fill="#fff" stroke="#1a7f5a"/>
+  <text x="615" y="125" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1c2128">monitord (remote)</text>
+  <text x="615" y="138" font-size="10" text-anchor="middle" fill="#57606a">:8225 · daemons=[]</text>
+
+  <rect x="540" y="158" width="150" height="30" rx="6" fill="#fff" stroke="#1a7f5a"/>
+  <text x="615" y="177" font-size="10.5" text-anchor="middle" fill="#1c2128">chatsd -a wa1 :8228</text>
+  <rect x="540" y="194" width="150" height="30" rx="6" fill="#fff" stroke="#1a7f5a"/>
+  <text x="615" y="213" font-size="10.5" text-anchor="middle" fill="#1c2128">tgd -a tg1 :8229</text>
+  <rect x="540" y="230" width="150" height="30" rx="6" fill="#fff" stroke="#1a7f5a"/>
+  <text x="615" y="249" font-size="10.5" text-anchor="middle" fill="#1c2128">maxd -a mx1 :8230</text>
+
+  <rect x="720" y="158" width="140" height="102" rx="6" fill="#f1f4f8" stroke="#b6c2cf"/>
+  <text x="790" y="178" font-size="10.5" font-weight="700" text-anchor="middle" fill="#57606a">{base}=/opt/mikopbx-cti</text>
+  <text x="790" y="198" font-size="10" text-anchor="middle" fill="#1c2128">bin/  conf/</text>
+  <text x="790" y="214" font-size="10" text-anchor="middle" fill="#1c2128">db/   logs/</text>
+  <text x="790" y="234" font-size="10" text-anchor="middle" fill="#1c2128">spool/</text>
+  <text x="790" y="250" font-size="9.5" text-anchor="middle" fill="#57606a">bin/.version</text>
+
+  <!-- WhatsApp internet -->
+  <path d="M615,260 L615,330" stroke="#1a7f5a" stroke-width="1.4" fill="none" marker-end="url(#arrG)"/>
+  <rect x="540" y="332" width="220" height="40" rx="8" fill="#fff" stroke="#1a7f5a"/>
+  <text x="650" y="350" font-size="11" font-weight="700" text-anchor="middle" fill="#1a7f5a">WhatsApp / Telegram / MAX</text>
+  <text x="650" y="364" font-size="10" text-anchor="middle" fill="#57606a">интернет напрямую — без DPI</text>
+
+  <!-- SSH tunnel -->
+  <rect x="392" y="150" width="116" height="120" rx="9" fill="#fff" stroke="#8957e5" stroke-width="2"/>
+  <text x="450" y="172" font-size="12" font-weight="700" text-anchor="middle" fill="#8957e5">SSH</text>
+  <text x="450" y="186" font-size="10" text-anchor="middle" fill="#57606a">:22</text>
+  <line x1="402" y1="198" x2="498" y2="198" stroke="#eee"/>
+  <text x="450" y="214" font-size="9.5" text-anchor="middle" fill="#1f6feb">-R 4222 ◄</text>
+  <text x="450" y="230" font-size="9.5" text-anchor="middle" fill="#1f6feb">-R 8222 ◄</text>
+  <text x="450" y="246" font-size="9.5" text-anchor="middle" fill="#1a7f5a">-L 8226 ►</text>
+  <text x="450" y="262" font-size="8.5" text-anchor="middle" fill="#57606a">3 форварда</text>
+
+  <!-- tunnel connecting arrows -->
+  <path d="M190,200 C300,200 320,210 392,210" stroke="#8957e5" stroke-width="2" fill="none"/>
+  <path d="M508,210 C515,210 525,127 540,127" stroke="#8957e5" stroke-width="2" fill="none" marker-end="url(#arrB)"/>
+  <text x="300" y="150" font-size="10" fill="#8957e5" font-weight="700">monitord держит туннель</text>
+</svg>
+<figcaption>Рис. 1. PBX остаётся «мозгом»; на VPS уезжают только демоны мессенджеров. Связь — один SSH-туннель с тремя фиксированными форвардами (число форвардов не зависит от числа каналов).</figcaption>
+</figure>
+
+<div class="legend">
+  <span><span class="sw" style="background:#e7f0ff;border:1px solid #1f6feb"></span> PBX (за DPI)</span>
+  <span><span class="sw" style="background:#e4f6ee;border:1px solid #1a7f5a"></span> VPS (чистая локация)</span>
+  <span><span class="sw" style="background:#fff;border:1px solid #8957e5"></span> SSH-туннель</span>
+  <span><span class="sw" style="background:#fff;border:1px dashed #b6c2cf"></span> неактивно при OFF</span>
+</div>
+
+<!-- 3 -->
+<h2><span class="n">3</span>Что где работает</h2>
+<table>
+  <tr><th style="width:30%">Компонент</th><th style="width:14%">Где</th><th>Назначение</th></tr>
+  <tr><td><code>gnatsd-cti</code> (NATS :4222 + HTTP-шлюз/лицензия :8222)</td><td><span class="tag pbx">PBX</span></td><td>Шина сообщений и единственная точка входа 1С. <b>Никогда не переносится.</b></td></tr>
+  <tr><td><code>monitord</code> (local)</td><td><span class="tag pbx">PBX</span></td><td>Супервизор всего стека + маршрутизатор каналов. <b>Владеет SSH-туннелем</b> (см. §4).</td></tr>
+  <tr><td><code>amid · crmd · authd · proxyd · speechd</code></td><td><span class="tag pbx">PBX</span></td><td>AMI, 1С-CRM, авторизация, прокси, распознавание речи. Не переносятся.</td></tr>
+  <tr><td><code>chatsd</code> / <code>tgd</code> / <code>maxd</code></td><td><span class="tag pbx">PBX</span> <span style="color:#57606a">или</span> <span class="tag vps">VPS</span></td><td>Демоны мессенджеров. Уезжают на VPS по тумблеру (поканально-посервисно). Пока тумблер OFF — работают локально.</td></tr>
+  <tr><td><code>monitord</code> (remote, «тонкий»)</td><td><span class="tag vps">VPS</span></td><td>Запускает/перезапускает демоны на VPS, отдаёт их статус и проксирует <code>/chats/*</code>. Стартует с <code>daemons=[]</code>, слушает <b>только loopback</b> (<code>127.0.0.1:8225</code>).</td></tr>
+  <tr><td><code>WorkerRemoteTunnel</code> (PHP-воркер)</td><td><span class="tag pbx">PBX</span></td><td>Провижининг VPS, запуск remote-monitord, зеркало сессий, сбор логов, авто-failback. <b>Сам туннель НЕ держит</b> — этим занят <code>monitord</code>.</td></tr>
+</table>
+
+<p>Лицензия (feature 42) выдаётся <code>gnatsd</code> на PBX. На VPS демоны получают её через туннель — поэтому <b>standalone на VPS они не работают</b>, им всегда нужен живой туннель к PBX.</p>
+
+<!-- 4 -->
+<h2><span class="n">4</span>Туннелирование трафика</h2>
+<p>SSH-туннель <b>устанавливает и держит <code>monitord</code> на стороне PBX</b> (встроенный <code>ssh.Client</code> с авто-реконнектом и keepalive). Параметры подключения PHP-модуль рендерит в блок <code>ssh_tunnel</code> внутри <code>monitord.json</code> — при любой регенерации конфига туннель сохраняется. Прежняя схема с отдельным процессом <code>ssh -N</code> в PHP-воркере <b>больше не используется.</b></p>
+
+<p>Транспорт — обычный SSH на <b>порт 22</b> (настраивается полем <code>remote_ssh_port</code>), аутентификация — <b>приватным ключом</b>. Поверх одного соединения работают <b>три фиксированных форварда</b> — их число не зависит от количества каналов:</p>
+
+<table>
+  <tr><th style="width:20%">Форвард</th><th style="width:16%">Направление</th><th>Зачем</th></tr>
+  <tr><td><code>-R 4222</code><br><span style="color:#57606a;font-size:12px">reverse</span></td><td>VPS&nbsp;loopback → PBX</td><td>На VPS <code>127.0.0.1:4222</code> ведёт на <b>NATS PBX</b>. Демоны — NATS-клиенты, сами дозваниваются до шины. Через NATS идут пинги <code>monitord</code> и live-фид событий.</td></tr>
+  <tr><td><code>-R 8222</code><br><span style="color:#57606a;font-size:12px">reverse</span></td><td>VPS&nbsp;loopback → PBX</td><td>На VPS <code>127.0.0.1:8222</code> ведёт на <b>HTTP-шлюз/лицензию PBX</b>. Закрывает «вшитый» в демоны адрес проверки лицензии <code>127.0.0.1:8222</code> (feature 42).</td></tr>
+  <tr><td><code>-L 8226</code><br><span style="color:#57606a;font-size:12px">local</span></td><td>PBX → VPS:8225</td><td>На PBX <code>127.0.0.1:8226</code> ведёт на <b>manager.api удалённого monitord</b> (его <code>:8225</code>). По нему local-monitord проксирует <code>/chats/*</code> и собирает статус каналов с VPS.</td></tr>
+</table>
+
+<div class="note">
+  <b>Динамические порты каналов не туннелируются по отдельности.</b>
+  Каждый канал на VPS получает свой порт (<code>8228</code>, <code>8229</code>, …). Их проксирует <em>внутри себя</em> удалённый <code>monitord</code>, поэтому при добавлении/удалении каналов <b>топология туннеля не меняется</b> — это всегда те же 3 форварда.
+</div>
+
+<h3>Путь запроса 1С к удалённому каналу</h3>
+<div class="flow">1С → gnatsd <b>:8222</b> → monitord local <b>:8225</b> → форвард <b>-L :8226</b> → VPS monitord <b>:8225</b> → демон на VPS <b>:8228</b> → WhatsApp/TG/MAX</div>
+<p style="font-size:13px;color:var(--muted)">Для 1С путь неотличим от локального: она по-прежнему обращается только к <code>:8222</code>. Решение «локально или на VPS» monitord принимает по метке <code>location</code> канала.</p>
+
+<!-- 5 -->
+<h2><span class="n">5</span>Справочник портов</h2>
+<table>
+  <tr><th style="width:13%">Порт</th><th style="width:18%">Хост</th><th style="width:22%">Доступность</th><th>Что это</th></tr>
+  <tr><td><code>22</code></td><td><span class="tag vps">VPS</span></td><td>входящий SSH (только от PBX)</td><td>Транспорт туннеля. Настраивается (<code>remote_ssh_port</code>).</td></tr>
+  <tr><td><code>4222</code></td><td><span class="tag pbx">PBX</span></td><td>loopback + reverse-форвард</td><td>NATS / шина сообщений.</td></tr>
+  <tr><td><code>8222</code></td><td><span class="tag pbx">PBX</span></td><td>открыт в firewall (вход 1С) + reverse-форвард</td><td>HTTP-шлюз gnatsd + лицензия. <b>Единственная точка входа 1С.</b></td></tr>
+  <tr><td><code>8225</code></td><td><span class="tag pbx">PBX</span> и <span class="tag vps">VPS</span></td><td>только loopback</td><td><code>manager.api</code> монитора (статус, маршрутизация, <code>/chats/*</code>). На VPS забиндён на <code>127.0.0.1</code> — наружу не торчит.</td></tr>
+  <tr><td><code>8226</code></td><td><span class="tag pbx">PBX</span></td><td>только loopback</td><td>Local-форвард на <code>:8225</code> удалённого monitord. <b>Наличие LISTEN на 8226 = туннель сконфигурирован.</b></td></tr>
+  <tr><td><code>8228+</code></td><td><span class="tag vps">VPS</span></td><td>внутри VPS</td><td>Динамические порты каналов. Проксируются remote-monitord, отдельных форвардов не требуют.</td></tr>
+</table>
+
+<!-- 6 -->
+<h2><span class="n">6</span>Обновление бинарников на VPS</h2>
+<p>Бинарники на VPS — <b>те же linux/amd64-файлы, что и на PBX</b> (пересборки нет). Провижининг кладёт их в <code>{base}/bin/</code> (где <code>{base}</code> = <code>remote_bin_dir</code>, по умолчанию <code>/opt/mikopbx-cti</code>) вместе со сгенерированными конфигами в <code>{base}/conf/</code>.</p>
+
+<h3>Как обновление «доезжает» до VPS</h3>
+<ul class="tight">
+  <li>В <code>{base}/bin/.version</code> хранится <b>штамп версии модуля</b>, развёрнутой на VPS.</li>
+  <li>При апгрейде модуля локальные бинарники заменяются. Воркер сравнивает локальную версию со штампом на VPS; <b>при расхождении — принудительный re-push</b> (без расхождения сверяется только размер файла, лишний трафик не гоняется).</li>
+  <li>Заливка идёт <b>через temp-файл + rename</b> — чтобы перезапись работающего бинарника не упёрлась в <code>ETXTBSY</code>.</li>
+  <li>После того как новые бинарники легли, затронутые демоны на VPS <b>перезапускаются</b> (полный рестарт remote-monitord либо <code>pkill</code> конкретных дочерних) — иначе на VPS продолжил бы крутиться старый код.</li>
+  <li>Штамп <code>.version</code> пишется <b>только после полного успешного провижининга</b> — если апгрейд оборвался посередине, на следующем тике он повторится.</li>
+</ul>
+<div class="note"><b>Почему не rsync</b>Перенос файлов сделан через <code>scp</code>/tar-over-ssh намеренно: чтобы не поднимать минимальную требуемую версию ядра MikoPBX (<code>rsync</code> есть не везде).</div>
+
+<!-- 7 -->
+<h2><span class="n">7</span>Синхронизация сессий (авторизация)</h2>
+<p>Вся авторизация мессенджера лежит в <b>файлах сессии</b> и <b>переживает перенос между хостами и смену IP/гео без повторной авторизации</b> (проверено round-trip-тестом):</p>
+<table>
+  <tr><th>Сервис</th><th>Файл авторизации</th><th>Каталог</th></tr>
+  <tr><td>WhatsApp</td><td><code>&lt;area&gt;-whatsappSession.db</code> (SQLite)</td><td><code>{base}/db/chats/</code></td></tr>
+  <tr><td>Telegram</td><td><code>&lt;area&gt;-tgSession.json</code></td><td><code>{base}/db/tg/</code></td></tr>
+  <tr><td>MAX</td><td><code>&lt;area&gt;-max_session.json</code></td><td><code>{base}/db/max/</code></td></tr>
+</table>
+
+<div class="twocol">
+  <div class="card">
+    <h4>① Миграция (по тумблеру)</h4>
+    <p style="font-size:13px;margin:4px 0">При включении/выключении выноса сессия копируется в нужную сторону:</p>
+    <div class="flow" style="white-space:normal">стоп источника → tar-over-ssh пофайлово по area (<code>&lt;area&gt;-*</code>) + сверка <code>sha256</code> → старт приёмника → флип метки <code>location</code></div>
+    <p style="font-size:12.5px;color:var(--muted);margin:6px 0 0"><b>Жёсткое правило:</b> один и тот же канал <b>никогда</b> не запускается одновременно на обеих сторонах — это разлогинило бы сессию.</p>
+  </div>
+  <div class="card">
+    <h4>② Тёплое зеркало (постоянно)</h4>
+    <p style="font-size:13px;margin:4px 0">Пока канал на VPS, воркер <b>периодически копирует сессию VPS → PBX</b>. Локальная копия всегда наготове.</p>
+    <p style="font-size:12.5px;color:var(--muted);margin:6px 0 0">Зачем: если VPS внезапно пропал, авторизация <b>не теряется</b> — её свежая копия уже лежит на PBX, и сервис можно поднять локально без повторного сканирования QR.</p>
+  </div>
+</div>
+
+<!-- 8 -->
+<h2><span class="n">8</span>Синхронизация логов</h2>
+<p>Демоны на VPS пишут логи в <code>{base}/logs/&lt;service&gt;/</code> — локально на PBX их не видно, и штатный просмотр <b>System → Logs</b> их бы не показал. Поэтому воркер <b>инкрементально подкачивает</b> их на PBX.</p>
+<ul class="tight">
+  <li><b>Инкрементально по offset</b> — тянется только «хвост» файла (новые байты), а не весь лог. Экономия трафика через туннель.</li>
+  <li><b>Куда:</b> <code>logDir/ModuleCTIClient/&lt;service&gt;-&lt;host&gt;/</code>, где <code>&lt;host&gt;</code> — это <code>remote_host</code> (IP/имя VPS, очищенное до <code>[A-Za-z0-9._-]</code>). Отдельная папка с именем хоста <b>исключает коллизию</b> с локальным логом того же сервиса и сразу показывает источник.</li>
+  <li><b>Условие закачки:</b> канал реально на VPS (<code>side == remote</code>) <b>и</b> туннель <code>connected</code>. Каденция ~60&nbsp;с (реже, чем зеркало сессий).</li>
+  <li><b>Видимость «бесплатно»:</b> System → Logs сканирует <code>logDir</code> рекурсивно, поэтому подкачанные файлы появляются в списке и доступны на просмотр/скачивание <b>без доработки ядра</b>.</li>
+  <li>Локальный накопительный файл ротируется по размеру; штатная 7-дневная чистка убирает старьё.</li>
+</ul>
+
+<!-- 9 -->
+<h2><span class="n">9</span>Поведение при потере VPS</h2>
+<table>
+  <tr><th style="width:30%">Что отказало</th><th>Что происходит</th></tr>
+  <tr><td>VPS / туннель недоступны</td><td><b>Локальная телефония, CRM и не-вынесенные мессенджеры не страдают.</b> По вынесенным каналам приостанавливаются и отправка, и приём (data-plane идёт по HTTP через туннель): исходящие из 1С падают по таймауту.</td></tr>
+  <tr><td>Входящие сообщения во время простоя</td><td>Не теряются: WhatsApp/Telegram держат бэклог у себя; демон на VPS вытянет пропущенное после реконнекта, 1С увидит это при следующем поллинге.</td></tr>
+  <tr><td>Данные авторизации</td><td>В безопасности — тёплое зеркало (§7) держит свежую копию сессии на PBX.</td></tr>
+  <tr><td>Долгий простой VPS</td><td>Предусмотрен авто-failback на локаль по таймауту (<code>remote_failback_after_sec</code>, по умолчанию 7200&nbsp;с) — поднимает сервис из локальной копии сессии. <span style="color:var(--warn)">(Часть фенсинга — owner-lock на VPS — на момент написания дорабатывается.)</span></td></tr>
+</table>
+<div class="warn"><b>Не делать ручной «фейловер», пока VPS жив</b>Запуск того же канала на PBX при работающем канале на VPS = две живые сессии = разлогин. Переключение на локаль — это <b>осознанный хэндовер при доступном VPS</b> (через тумблер/миграцию), а не аварийное действие.</div>
+
+<!-- 10 -->
+<h2><span class="n">10</span>Эксплуатация и диагностика</h2>
+<h3>Проверки на PBX</h3>
+<pre><span class="c"># Жив ли супервизор (он же — владелец туннеля)</span>
+pgrep -a monitord
+
+<span class="c"># Статус туннеля (configured/connected/last_ok_ts/attempts)</span>
+curl -s http://127.0.0.1:8225/manager.api/tunnel/status
+
+<span class="c"># Local-форвард на удалённый monitord должен слушать — признак, что туннель сконфигурирован</span>
+ss -tlnp | grep 127.0.0.1:8226
+
+<span class="c"># Сводный статус всех каналов (как его видит 1С): local + remote вместе</span>
+curl -s http://127.0.0.1:8222/manager.api/status</pre>
+
+<h3>Как выглядит «здоровый» туннель</h3>
+<pre>{ "result": {
+    <span class="g">"configured": true</span>,
+    <span class="g">"connected":  true</span>,
+    "state": "connected",
+    "last_ok_ts": 1781677831,   <span class="c">// растёт, пока линк жив</span>
+    "last_error": "",
+    "attempts": 1               <span class="c">// 1 = поднялся с первой попытки</span>
+} }</pre>
+
+<div class="note">
+  <b>Живой снимок со стенда (172.16.32.94, модуль v1.568)</b>
+  <code>monitord</code> запущен; <code>tunnel/status</code> → <span class="ok">configured:true · connected:true · attempts:1</span>; <code>127.0.0.1:8226</code> в LISTEN. То есть туннель поднят и держится. Аутентификация/QR каналов читаются штатно через <code>/chats/status</code> и <code>/chats/qrcode</code> (заголовок <code>Area</code>).
+</div>
+
+<h3>На что смотреть при разборе инцидента</h3>
+<ul class="tight">
+  <li><code>connected:false</code> + растущий <code>attempts</code> → SSH до VPS не встаёт: проверить сеть/firewall до VPS :22, ключ, что VPS жив.</li>
+  <li>Туннель <code>connected</code>, но канал в <code>error</code> → демон на VPS падает: смотреть подкачанный лог <code>logDir/ModuleCTIClient/&lt;service&gt;-&lt;host&gt;/</code> (System → Logs).</li>
+  <li>Канал в состоянии <code>qrcode</code> → нужна (повторная) авторизация: QR доступен прямо в UI модуля.</li>
+  <li>После апгрейда модуля канал на старом поведении → проверить, что <code>{base}/bin/.version</code> на VPS совпал с версией модуля (иначе re-push не прошёл — см. §6).</li>
+</ul>
+
+<footer class="doc">
+  <p><b>Источники:</b> код модуля <code>ModuleCTIClient</code> (ветка <code>develop</code>: <code>Lib/AmigoDaemons.php</code>, <code>Lib/WorkerRemoteTunnel.php</code>), серверный код <code>nightbird/server/monitor</code> (ветка <code>develop</code>: <code>ssh_tunnel.go</code>), живой стенд <code>172.16.32.94</code> (модуль v1.568).</p>
+  <p>Документ описывает дизайн ветки <code>develop</code>. Конкретные адреса VPS берутся из настроек модуля (<code>remote_host</code>) и в этой инструкции намеренно не зашиты.</p>
+</footer>
+
+</div>
+</body>
+</html>
