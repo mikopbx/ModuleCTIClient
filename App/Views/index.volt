@@ -1,5 +1,7 @@
 <form class="ui large grey segment form disability" id="module-cti-client-form">
     <input type="hidden" name="dirrty" id="dirrty"/>
+    {# Marks this POST as the full settings form so saveAction may turn absent checkboxes OFF. #}
+    <input type="hidden" name="cti_full_form" value="1"/>
     {# top menu #}
     <div class="ui top attached tabular menu" id="module-cti-client-tabs">
         <a class="item active" data-tab="status">{{ t._('mod_cti_tab_Status') }}</a>

@@ -41,6 +41,15 @@ use function MikoPBX\Common\Config\appPath;
 class ModuleCTIClientController extends BaseController
 {
     private const SECRET_MASK = '******';
+
+    /**
+     * Hidden marker submitted only by the full settings Volt form. Partial/automation
+     * POSTs (e.g. the 1C setup wizard hitting /pbx/setup -> save with a curated subset
+     * of fields) never include it. Used to scope the "absent checkbox => '0'" rule to
+     * the full form, so a partial POST cannot silently zero toggles it did not send.
+     */
+    private const FULL_FORM_MARKER = 'cti_full_form';
+
     private const REMOTE_TOGGLE_FIELDS = ['remote_whatsapp', 'remote_telegram', 'remote_max'];
     private const REMOTE_CONNECTION_FIELDS = [
         'remote_host',
@@ -350,9 +359,13 @@ class ModuleCTIClientController extends BaseController
             $record = new ModuleCTIClient();
         }
 
+        // The full settings form always submits the hidden marker; partial/automation
+        // POSTs (1C wizard) do not. Only the full form may turn checkboxes OFF by omission.
+        $isFullForm = array_key_exists(self::FULL_FORM_MARKER, $data);
+
         $amigoDaemons = new AmigoDaemons();
         if (!empty($amigoDaemons->getActiveRemoteMigrationServices())
-            && $this->hasProtectedRemoteChanges($data, $record)
+            && $this->hasProtectedRemoteChanges($data, $record, $isFullForm)
         ) {
             $message = $this->translation->_('mod_cti_RemoteMigrationLockedSaveError');
             $this->flash->error($message);
@@ -376,10 +389,15 @@ class ModuleCTIClientController extends BaseController
                 case 'remote_whatsapp':
                 case 'remote_telegram':
                 case 'remote_max':
-                    // Unchecked toggles are absent from POST data; explicitly write '0' so
-                    // the operator can switch them OFF (otherwise the default branch never
-                    // sees the key and the old value sticks).
-                    $record->$key = (isset($data[$key]) && $data[$key] === 'on') ? '1' : '0';
+                    // On the full form an unchecked toggle is absent from the POST, so an
+                    // absent key means "switch OFF". For a partial POST (no full-form marker)
+                    // an absent key just means "not submitted" — leave the stored value alone,
+                    // otherwise a wizard POST would silently zero every toggle it never sent.
+                    if (isset($data[$key])) {
+                        $record->$key = ($data[$key] === 'on') ? '1' : '0';
+                    } elseif ($isFullForm) {
+                        $record->$key = '0';
+                    }
                     break;
                 default:
                     if (array_key_exists($key, $data)
@@ -412,11 +430,17 @@ class ModuleCTIClientController extends BaseController
      *
      * @param array<string,mixed> $data
      * @param ModuleCTIClient $record
+     * @param bool $isFullForm Whether the POST carries the full-form marker.
      * @return bool
      */
-    private function hasProtectedRemoteChanges(array $data, ModuleCTIClient $record): bool
+    private function hasProtectedRemoteChanges(array $data, ModuleCTIClient $record, bool $isFullForm): bool
     {
         foreach (self::REMOTE_TOGGLE_FIELDS as $field) {
+            if (!isset($data[$field]) && !$isFullForm) {
+                // Mirror saveAction: a partial POST never writes an absent toggle, so it
+                // cannot constitute a protected change — don't block the wizard spuriously.
+                continue;
+            }
             $newValue = (isset($data[$field]) && $data[$field] === 'on') ? '1' : '0';
             if ((string)($record->$field ?? '0') !== $newValue) {
                 return true;
