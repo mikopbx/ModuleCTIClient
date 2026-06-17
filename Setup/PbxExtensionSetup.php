@@ -124,10 +124,45 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
         }
 
         if ($result) {
+            $this->migrateLegacyProxy();
+        }
+
+        if ($result) {
             $result = $this->addToSidebar();
         }
 
         return $result;
+    }
+
+    /**
+     * One-time migration of the legacy single proxy setting. Older installs
+     * configured one `chats_proxy_address`; it was replaced by per-messenger
+     * fields and the runtime fallback was deliberately removed (a stale legacy
+     * value could otherwise override an intentionally cleared per-service field,
+     * see AmigoDaemons::getMessengerProxyAddress). To avoid silently dropping a
+     * working proxy on upgrade, seed each EMPTY per-service field from the legacy
+     * value, then CLEAR the legacy field so this runs exactly once and never
+     * re-seeds a field the operator later clears on purpose.
+     */
+    protected function migrateLegacyProxy(): void
+    {
+        $settings = ModuleCTIClient::findFirst();
+        if ($settings === null) {
+            return;
+        }
+        $legacy = trim((string)($settings->chats_proxy_address ?? ''));
+        if ($legacy === '') {
+            return;
+        }
+        foreach (['whatsapp_proxy_address', 'telegram_proxy_address', 'max_proxy_address'] as $field) {
+            if (trim((string)($settings->$field ?? '')) === '') {
+                $settings->$field = $legacy;
+            }
+        }
+        $settings->chats_proxy_address = '';
+        if (!$settings->save()) {
+            $this->messages[] = 'ModuleCTIClient: failed to migrate legacy proxy setting';
+        }
     }
 
     /**
@@ -231,14 +266,47 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
         Processes::killbyname(AmigoDaemons::SERVICE_SPEECH);
         Processes::killbyname(AmigoDaemons::SERVICE_GNATS);
 
+        // Resolve the REAL spool dir before the rm's below. Its path is
+        // {core.tempDir}/ModuleCTIClient — NOT the old hardcoded
+        // /var/spool/custom_modules/ModuleCTIClient literal, which pointed at a
+        // nonexistent dir and so left remote_state.json behind, resurrecting a
+        // dead migration after a reinstall. Resolving via AmigoDaemons keeps it in
+        // lockstep with the path the running code actually uses (single source of
+        // truth). The constructor re-mkdir's the module dirs (incl. confDir), so
+        // we capture the path FIRST and then remove every dir AFTER — nothing the
+        // constructor recreates is left dangling.
+        $spoolDir = (new AmigoDaemons())->getSpoolDir();
 
         // confDir
         $confDir = '/etc/custom_modules/ModuleCTIClient';
         Processes::mwExec("rm -rf {$confDir}");
 
-        // spoolDir
-        $spoolDir = '/var/spool/custom_modules/ModuleCTIClient';
-        Processes::mwExec("rm -rf {$spoolDir}");
+        // spoolDir — escaped: unlike the other hardcoded literals this path comes
+        // from core.tempDir and could in principle contain spaces/metacharacters.
+        //
+        // GUARDED by $keepSettings. A module UPGRADE installs the new version over
+        // the old one by first calling uninstallModule(keepSettings=TRUE) (see
+        // ModuleInstallationBase::install -> UninstallModuleAction(..., true)).
+        // Unlike confDir/logDir/pidDir (pure generated/transient state, rebuilt on
+        // enable), the spoolDir holds IRREPLACEABLE operational state that nothing
+        // regenerates:
+        //   - custom_config.json  — Go's area registry / routing truth (the only
+        //                            record that a messenger area exists; without
+        //                            it the reconcile loop has nothing to act on,
+        //                            so a remote channel's route is lost forever),
+        //   - remote_state.json   — the migration cursor,
+        //   - sessions/, remote/  — local messenger session DBs + warm-standby
+        //                            mirror (WhatsApp/Telegram auth — wiping forces
+        //                            a re-QR / re-login).
+        // Wiping these on every upgrade left freshly-updated stations amnesiac:
+        // offloaded channels kept running on the VPS but the PBX could no longer
+        // route /chats ops to them and dropped them from the status page. So on an
+        // upgrade (keepSettings) we PRESERVE the spoolDir; only a real uninstall
+        // (keepSettings=false) clears it — which is still required so a
+        // from-scratch reinstall does not resurrect a dead migration.
+        if (!$keepSettings) {
+            Processes::mwExec('rm -rf ' . escapeshellarg($spoolDir));
+        }
 
         // logDir
         $logDir = System::getLogDir();

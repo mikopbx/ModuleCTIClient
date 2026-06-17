@@ -26,6 +26,7 @@ use Phalcon\Forms\Element\Password;
 use Phalcon\Forms\Element\Radio;
 use Phalcon\Forms\Element\Select;
 use Phalcon\Forms\Element\Text;
+use Phalcon\Forms\Element\TextArea;
 use Phalcon\Forms\Form;
 
 class ModuleCTIClientForm extends Form
@@ -60,7 +61,14 @@ class ModuleCTIClientForm extends Form
         $this->add(new Password('secret'));
         $this->add(new Text('database'));
         $this->add(new Text('publish_name_with_auth'));
-        $this->add(new Text('chats_proxy_address', ['placeholder' => 'socks5://user:password@host:port or http://host:port']));
+        $proxyPlaceholder = 'socks5://user:password@host:port or http://host:port';
+        $this->add(new Text('whatsapp_proxy_address', ['placeholder' => $proxyPlaceholder]));
+        $this->add(new Text('telegram_proxy_address', ['placeholder' => $proxyPlaceholder]));
+        $this->add(new Text('max_proxy_address', ['placeholder' => $proxyPlaceholder]));
+        // Legacy single-proxy field kept registered (hidden in the UI) so the
+        // generator's fallback path keeps working for installs that haven't
+        // moved to the per-messenger fields yet.
+        $this->add(new Text('chats_proxy_address', ['placeholder' => $proxyPlaceholder]));
         $this->add(new Text('mt_proxy_address', ['placeholder' => '185.154.194.147:443']));
         $this->add(new Text('mt_proxy_secret', ['placeholder' => 'ddb73df2f75e3040671668c6066328e5d5']));
 
@@ -81,6 +89,23 @@ class ModuleCTIClientForm extends Form
 
         // Set Transliterate caller ID
         $this->addCheckBox('transliterate_caller_id', intval($entity->transliterate_caller_id) === 1);
+
+        // ---- Remote messenger server (Phase 3) ----
+        // Connection params for the VPS that hosts offloaded chatsd/tgd/maxd.
+        $this->add(new Text('remote_host', ['placeholder' => '198.51.100.10']));
+        $this->add(new Numeric('remote_ssh_port'));
+        $this->add(new Text('remote_ssh_login', ['placeholder' => 'root']));
+        $this->add(new TextArea('remote_ssh_key', [
+            'rows' => 6,
+            'placeholder' => "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+        ]));
+        $this->add(new Text('remote_bin_dir', ['placeholder' => '/opt/mikopbx-cti']));
+
+        // Per-service offload toggles. Empty by default — the worker stays idle
+        // until the operator opts in.
+        $this->addCheckBox('remote_whatsapp', intval($entity->remote_whatsapp) === 1);
+        $this->addCheckBox('remote_telegram', intval($entity->remote_telegram) === 1);
+        $this->addCheckBox('remote_max', intval($entity->remote_max) === 1);
     }
 
     /**

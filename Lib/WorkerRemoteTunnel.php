@@ -1,0 +1,386 @@
+<?php
+/*
+ * MikoPBX - free phone system for small business
+ * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
+
+namespace Modules\ModuleCTIClient\Lib;
+
+use MikoPBX\Common\Handlers\CriticalErrorsHandler;
+use MikoPBX\Core\Workers\WorkerBase;
+use MikoPBX\Modules\PbxExtensionUtils;
+use Throwable;
+
+require_once 'Globals.php';
+
+/**
+ * WorkerRemoteTunnel — keeps the messenger-offload VPS stack alive.
+ *
+ * Since the Go-side refactor, the SSH tunnel itself is owned by the local
+ * monitord (an ssh.Client goroutine with reconnect/keepalive, configured via
+ * the `ssh_tunnel` block in monitord.json). This worker no longer runs
+ * `ssh -N`. Its remaining duties:
+ *   1. provisionRemote()      — push binaries + staged configs to the VPS (idempotent).
+ *   2. launchRemoteMonitord() — start monitord on the VPS over a one-shot ssh
+ *                               exec, but ONLY once the monitord-owned tunnel
+ *                               reports connected (chatsd on the VPS FATALs
+ *                               without NATS, which only reaches it through the
+ *                               reverse forward).
+ *   3. keepalive              — re-run launchRemoteMonitord() periodically
+ *                               (pgrep-guarded) so a crashed VPS monitord is
+ *                               brought back; tear the remote stack down when
+ *                               the operator de-toggles offload.
+ *
+ * The tunnel's own connectivity is reported separately by monitord through
+ * /manager.api/tunnel/status (see AmigoDaemons::checkRemoteTunnelStatus), so
+ * this worker does not write a status file anymore.
+ *
+ * Registered under WorkerSafeScriptsCore::CHECK_BY_PID_NOT_ALERT (see
+ * CTIClientConf::getModuleWorkers()), so start() blocks for the worker's
+ * lifetime — if it returns, the supervisor sees a dead PID and respawns it.
+ * On SIGTERM we simply exit: the VPS monitord and the monitord-owned tunnel
+ * keep running and are picked up again on the next spawn.
+ *
+ * TODO: encrypt remote_ssh_key at rest (planned follow-up per
+ *       docs/REMOTE_MESSENGERS_VPS.md §16).
+ */
+class WorkerRemoteTunnel extends WorkerBase
+{
+    private const MODULE_UNIQUE_ID = 'ModuleCTIClient';
+    private const BACKOFF_MIN_SECONDS = 2;
+    private const BACKOFF_MAX_SECONDS = 60;
+    private const POLL_INTERVAL_SECONDS = 5;
+
+    /**
+     * How long to wait for the monitord-owned tunnel to report connected before
+     * giving up this iteration and backing off (the Go side dials + retries on
+     * its own; we just gate the remote monitord launch on it).
+     */
+    private const TUNNEL_WAIT_SECONDS = 40;
+
+    /**
+     * How often (seconds) the keepalive loop re-pushes the staged remote
+     * configs, so a VPS monitord that came up on a stale config self-heals.
+     */
+    private const REPROVISION_INTERVAL_SECONDS = 30;
+
+    /**
+     * How often (seconds) the keepalive loop pulls a warm-standby mirror of the
+     * remote session/auth files back to local (Phase B), so a later failback has
+     * a recent snapshot. Change-detected, so an unchanged session is a cheap
+     * no-op; the interval just bounds the worst-case RPO.
+     */
+    private const MIRROR_INTERVAL_SECONDS = 1200;
+
+    /**
+     * Hard ceiling on the worker's lifetime. The supervisor (WorkerSafeScripts)
+     * respawns workers whose PID file goes away; periodically returning lets it
+     * pick up code/config changes that we may have missed via signals.
+     */
+    private const MAX_LIFETIME_SECONDS = 3600;
+
+    public function start($argv): void
+    {
+        if (!PbxExtensionUtils::isEnabled(self::MODULE_UNIQUE_ID)) {
+            return;
+        }
+
+        $deadline = time() + self::MAX_LIFETIME_SECONDS;
+        $backoff = self::BACKOFF_MIN_SECONDS;
+        // Upgrade hygiene: a pre-refactor `ssh -N` (run by the old worker that
+        // owned the tunnel) can survive the module upgrade as an orphan and
+        // hold the VPS-side reverse-forward ports, so monitord's own tunnel
+        // gets "tcpip-forward request denied by peer". Kill any such stale
+        // client once per worker lifetime before doing anything else.
+        $cleanedStaleSsh = false;
+
+        // One-time Phase-6 discovery: seed remote_state.json from custom_config
+        // (READ-ONLY) so per-area `side` is known before the machine runs (R6).
+        // Idempotent — never clobbers an existing in-flight cursor.
+        (new AmigoDaemons())->seedRemoteState();
+
+        while (time() < $deadline && !$this->needRestart) {
+            // Re-read settings every iteration so the operator can toggle
+            // services and have us pick it up without a full daemon restart.
+            $cti = new AmigoDaemons();
+            // R4: gate on (desired toggles) OR (remote presence / migration in
+            // flight) — NOT on empty toggles. Toggling the LAST service OFF must
+            // keep the worker alive so its DB can be pulled back from the VPS.
+            $desired  = $cti->getRemoteServices();        // toggles
+            $infraSvc = $cti->getInfraServices();         // >=1 remote area OR migrating
+            $active   = !empty($desired) || !empty($infraSvc);
+            $ssh = $cti->getRemoteSshParams();
+
+            if ($ssh === null) {
+                // No VPS configured. If a migration cursor lingers (migrating=true
+                // or a remote-side area) it can NEVER advance to failPark from
+                // here — reconcileMigrations is below the idle gate — so it would
+                // hang "Migrating" with no cutoff. Force everything back to local
+                // (the only reachable side). No-op once the cursor is clean.
+                $cti->healOrphanedRemoteStateWhenUnconfigured();
+            }
+
+            // Drop the adopt_local intent for any service Go has finished pulling
+            // home. Runs BEFORE the idle gate: a completed failback leaves the node
+            // local (no toggle, no remote area) → idle → and a marker left set here
+            // would block a later re-offload (generateMonitordConf keeps an
+            // adopt_local service out of remote_services). Cheap, local-file only.
+            $cti->clearConvergedAdoptLocalMarkers();
+
+            if (!$active || $ssh === null) {
+                // Truly nothing remote remains (no toggle, no remote area, no
+                // migration). Don't exit (the supervisor would respawn us for
+                // nothing) — just idle.
+                $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
+                continue;
+            }
+
+            if (!$cleanedStaleSsh) {
+                $this->killStaleSshTunnel($ssh['host']);
+                $cleanedStaleSsh = true;
+            }
+
+            // 0. First-activation bootstrap (BUG 2): advance the migration state
+            //    machine BEFORE the tunnel wait below. STEP 1 SUPPRESS is what
+            //    sets migrating=true → renders the ssh_tunnel block → restarts
+            //    monitord to bring the Go tunnel up (via the tunnel-aware
+            //    applyMonitordConfigAndReconcile). Gating this behind
+            //    waitTunnelConnected would deadlock: the tunnel needs the
+            //    migration to start, and the migration would be waiting for the
+            //    tunnel. Safe to run pre-tunnel — STEP 1 (bothSidesDown polls the
+            //    LOCAL monitord) and STEP 2 (copy over direct ssh) don't use the
+            //    Go tunnel, and a bad host fails the STEP 2 copy into FAIL-PARK
+            //    (which restores the local service). STEP 3 (receiver on the VPS)
+            //    runs in the tunnel-gated keepalive loop and self-rolls-back if
+            //    the receiver never comes up. Idempotent / one-step-per-tick.
+            $cti->reconcileMigrations();
+
+            // 0b. Auto-failback: if the monitord-owned tunnel has been down longer
+            //     than the grace, bring services stranded on the (unreachable) VPS
+            //     home to local — fence the toggle + adopt the warm-standby mirror
+            //     via the adopt_local intent. Self-gating (no-op while connected or
+            //     under the grace); split-brain is fenced upstream by the owner-lock
+            //     self-fence + the grace exceeding the lock TTL. (The converged-
+            //     marker cleanup runs before the idle gate above.)
+            $cti->autoFailbackIfTunnelDownTooLong();
+
+            // 0a. Tunnel up INDEPENDENT of channels (operator request): when a
+            //     service is toggled remote but has no channels yet, STEP 1 above
+            //     is a no-op (nothing to migrate) and would never render/boot the
+            //     ssh_tunnel — so the operator could never add+authorize an
+            //     account on the VPS (auth can't be done locally then moved).
+            //     applyMonitordConfigAndReconcile renders the tunnel block (now
+            //     that getInfraServices keys off the toggle) and BUG-2-restarts
+            //     monitord so Go loads it. Gated on !connected so it only runs
+            //     during bring-up; once up, the worker stays in the keepalive
+            //     loop below. Idempotent — the restart self-gates (configured).
+            if ($cti->isInfraNeeded() && !$cti->isRemoteTunnelConnected()) {
+                // An orphaned reverse-forward from a previously-killed monitord can
+                // still hold the VPS loopback nats ports (the VPS sshd does not reap
+                // the half-open session). That is now cleared by monitord's own
+                // owner-lock (reclaim_ports runs at tunnel acquire while we hold the
+                // lock), which replaced the old PHP clearStaleRemoteReverseForwards
+                // hack — that one killed port holders on every !connected flap and so
+                // kept severing the live tunnel (~54s reconnect storm).
+                $cti->applyMonitordConfigAndReconcile();
+            }
+
+            // 1. Provisioning — idempotent. Failure usually means the VPS is
+            //    unreachable; back off and retry.
+            $prov = $cti->provisionRemote();
+            if (!$prov['ok']) {
+                CriticalErrorsHandler::handleExceptionWithSyslog(
+                    new \RuntimeException('remote provision: ' . $prov['error'])
+                );
+                $this->sleepInterruptible($backoff);
+                $backoff = min($backoff * 2, self::BACKOFF_MAX_SECONDS);
+                continue;
+            }
+
+            // 1a. Module upgrade: if a binary was just repushed, kill the stale
+            //     remote process so it relaunches on the new code. On an upgrade
+            //     the old remote stack is still up on the (separate, untouched)
+            //     VPS, so this runs over direct ssh BEFORE the tunnel wait below;
+            //     launchRemoteMonitord() at step 3 respawns monitord, which
+            //     re-supervises its children from the new binaries.
+            $cti->restartChangedRemoteBinaries($prov['changed'] ?? []);
+
+            // 2. Wait for the monitord-owned tunnel to come up before launching
+            //    the remote monitord (its chatsd needs NATS over the -R forward).
+            if (!$this->waitTunnelConnected($cti)) {
+                $this->sleepInterruptible($backoff);
+                $backoff = min($backoff * 2, self::BACKOFF_MAX_SECONDS);
+                continue;
+            }
+
+            // 3. Launch monitord on the VPS (pgrep-guarded, so it's a no-op when
+            //    already running).
+            $cti->launchRemoteMonitord();
+            $backoff = self::BACKOFF_MIN_SECONDS;
+
+            // 4. Keepalive: while offload stays enabled and the tunnel stays up,
+            //    re-launch the remote monitord periodically (recovers a crash).
+            //    On de-toggle, tear the remote stack down and restart the loop.
+            $lastProvision = time();
+            $lastMirror = 0; // 0 => take a baseline mirror as soon as the tunnel is up
+            $stagedInfra = null; // infra set last staged+pushed to the VPS (null => force once)
+            while (!$this->needRestart && time() < $deadline) {
+                $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
+
+                $ctiCheck = new AmigoDaemons();
+                $desiredInner = $ctiCheck->getRemoteServices();
+                $infraInner   = $ctiCheck->getInfraServices();
+                $activeInner  = !empty($desiredInner) || !empty($infraInner);
+                if (!$activeInner || $ctiCheck->getRemoteSshParams() === null) {
+                    // R4: only tear the remote stack down when nothing remote
+                    // remains (no toggle AND no remote area AND not migrating) —
+                    // de-toggling the last service while a pull is still in
+                    // flight must NOT stop the drain.
+                    $ctiCheck->stopRemoteServices();
+                    break;
+                }
+
+                if (!$ctiCheck->isRemoteTunnelConnected()) {
+                    // Tunnel dropped — stop hammering ssh; the outer loop waits
+                    // for it to come back before relaunching.
+                    break;
+                }
+
+                // Infra set can GROW while the tunnel is already up — a service
+                // toggled remote AFTER bring-up. The outer-loop staging path
+                // (applyMonitordConfigAndReconcile) is gated on !connected, so
+                // without this a newly-toggled service's base config never
+                // reaches the VPS: generateRemoteConfFiles is never re-run and the
+                // operator cannot add/authorize an account there (its daemon has
+                // no `-c <svc>.json` staged). Re-stage + push whenever the infra
+                // set changes. Safe while connected: applyMonitordConfigAndReconcile
+                // only bounces monitord when the tunnel is configured:false, and
+                // connected:true implies configured:true here — the live tunnel is
+                // never dropped. Fires once per change, not per tick; the null
+                // sentinel forces one re-stage on the first tick so it also covers
+                // entering keepalive with a stale on-disk stage (tunnel already up
+                // at worker start => the outer-loop staging was skipped).
+                $infraKey = implode(',', $infraInner);
+                if ($stagedInfra !== $infraKey) {
+                    $ctiCheck->applyMonitordConfigAndReconcile();
+                    $stagedInfra = $infraKey;
+                    $lastProvision = time(); // it just provisioned — avoid a double push below
+                }
+
+                // Tunnel up — advance the migration state machine by one step
+                // (idempotent; one step per tick). Tunnel-up gated per §3.6.
+                $ctiCheck->reconcileMigrations();
+
+                // Warm-standby mirror (Phase B): periodically pull the remote
+                // session/auth files back to local so a future failback / re-
+                // migration has a recent snapshot. Change-detected internally, so
+                // an unchanged session is a near-free no-op.
+                if (time() - $lastMirror >= self::MIRROR_INTERVAL_SECONDS) {
+                    $ctiCheck->mirrorRemoteSessionsToLocal();
+                    $lastMirror = time();
+                }
+
+                // Remote log sync: incrementally pull the active *.log of each
+                // offloaded daemon (+ VPS monitord) into a per-host archive folder
+                // under the local logDir so System → Logs can see them. Runs on a
+                // slower cadence than the session mirror (logs are diagnostic, not
+                // time-critical) and is self-throttled internally via its own
+                // state file, so a per-tick call is cheap; a partial/failed ssh
+                // read just leaves the offsets intact for the next interval.
+                $ctiCheck->pullRemoteLogsToLocal();
+
+                // Periodically re-provision (idempotent): re-pushes the staged
+                // configs so a VPS monitord that came up on a stale/default
+                // config (e.g. it wrote its own template before the conf was
+                // delivered) self-heals instead of crash-looping forever. The
+                // bare launchRemoteMonitord() below is pgrep-gated and would
+                // otherwise keep relaunching the same broken config.
+                if (time() - $lastProvision >= self::REPROVISION_INTERVAL_SECONDS) {
+                    $reProv = $ctiCheck->provisionRemote();
+                    // Steady-state upgrade pickup: a binary changed under a live
+                    // stack — kill the stale process(es) so the launch below (or
+                    // monitord's own supervision, for children) brings up the new
+                    // code instead of pgrep-no-oping over the old one.
+                    // NB monitord case: pkill returns before the process is gone,
+                    // so the launchRemoteMonitord() right below may still pgrep-
+                    // match the dying monitord and no-op; the next keepalive tick
+                    // then finds it gone and relaunches. One POLL_INTERVAL of
+                    // remote-down, self-healing — acceptable for a rare upgrade.
+                    $ctiCheck->restartChangedRemoteBinaries($reProv['changed'] ?? []);
+                    $lastProvision = time();
+                }
+
+                $ctiCheck->launchRemoteMonitord();
+            }
+        }
+    }
+
+    /**
+     * Kill a stale pre-upgrade `ssh -N` tunnel client to the VPS, if one
+     * survived the module upgrade. It would hold the VPS reverse-forward ports
+     * and make monitord's own tunnel fail with "tcpip-forward request denied".
+     * The `[s]sh` bracket keeps the pattern from matching pkill's own command
+     * line (self-kill trap); the new design runs no `ssh -N` of its own.
+     */
+    private function killStaleSshTunnel(string $host): void
+    {
+        if ($host === '') {
+            return;
+        }
+        $pattern = '[s]sh -N.*' . $host;
+        exec('pkill -f ' . escapeshellarg($pattern) . ' 2>/dev/null');
+    }
+
+    /**
+     * Poll the monitord tunnel status until it reports connected, the worker is
+     * asked to restart, or the timeout elapses.
+     */
+    private function waitTunnelConnected(AmigoDaemons $cti): bool
+    {
+        $deadline = time() + self::TUNNEL_WAIT_SECONDS;
+        while (!$this->needRestart && time() < $deadline) {
+            if ($cti->isRemoteTunnelConnected()) {
+                return true;
+            }
+            $this->sleepInterruptible(self::POLL_INTERVAL_SECONDS);
+        }
+        return false;
+    }
+
+    /**
+     * Sleep that wakes up promptly on SIGTERM/SIGINT (pcntl_async_signals is
+     * already enabled by WorkerBase, so the signal handler fires inline).
+     */
+    private function sleepInterruptible(int $seconds): void
+    {
+        $deadline = microtime(true) + $seconds;
+        while (!$this->needRestart && microtime(true) < $deadline) {
+            usleep(200000);
+        }
+    }
+}
+
+// Start worker process
+$workerClassname = WorkerRemoteTunnel::class;
+if (isset($argv) && count($argv) > 1) {
+    cli_set_process_title($workerClassname);
+    try {
+        $worker = new $workerClassname();
+        $worker->start($argv);
+    } catch (Throwable $e) {
+        CriticalErrorsHandler::handleExceptionWithSyslog($e);
+    }
+}

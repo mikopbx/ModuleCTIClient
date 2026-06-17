@@ -30,6 +30,7 @@ use MikoPBX\Common\Models\Sip;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
+use Modules\ModuleCTIClient\Lib\AmigoDaemons;
 use Modules\ModuleCTIClient\Lib\MikoPBXVersion;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 use Phalcon\Mvc\Model\Resultset;
@@ -40,6 +41,23 @@ use function MikoPBX\Common\Config\appPath;
 class ModuleCTIClientController extends BaseController
 {
     private const SECRET_MASK = '******';
+
+    /**
+     * Hidden marker submitted only by the full settings Volt form. Partial/automation
+     * POSTs (e.g. the 1C setup wizard hitting /pbx/setup -> save with a curated subset
+     * of fields) never include it. Used to scope the "absent checkbox => '0'" rule to
+     * the full form, so a partial POST cannot silently zero toggles it did not send.
+     */
+    private const FULL_FORM_MARKER = 'cti_full_form';
+
+    private const REMOTE_TOGGLE_FIELDS = ['remote_whatsapp', 'remote_telegram', 'remote_max'];
+    private const REMOTE_CONNECTION_FIELDS = [
+        'remote_host',
+        'remote_ssh_port',
+        'remote_ssh_login',
+        'remote_ssh_key',
+        'remote_bin_dir',
+    ];
 
     private $moduleUniqueID = 'ModuleCTIClient';
     private $moduleDir;
@@ -106,13 +124,25 @@ class ModuleCTIClientController extends BaseController
     private function maskSecretFields(ModuleCTIClient $settings): void
     {
         // Mask password inside proxy URL: socks5://user:password@host:port -> socks5://user:******@host:port
-        if (!empty($settings->chats_proxy_address)) {
-            $parsed = parse_url($settings->chats_proxy_address);
+        // Covers the legacy single field plus the per-messenger proxy fields —
+        // each accepts a user:password URL and would otherwise echo the
+        // password back to the web form in clear text.
+        $proxyFields = [
+            'chats_proxy_address',
+            'whatsapp_proxy_address',
+            'telegram_proxy_address',
+            'max_proxy_address',
+        ];
+        foreach ($proxyFields as $field) {
+            if (empty($settings->$field)) {
+                continue;
+            }
+            $parsed = parse_url($settings->$field);
             if (isset($parsed['pass'])) {
-                $settings->chats_proxy_address = str_replace(
+                $settings->$field = str_replace(
                     ':' . $parsed['pass'] . '@',
                     ':' . self::SECRET_MASK . '@',
-                    $settings->chats_proxy_address
+                    $settings->$field
                 );
             }
         }
@@ -120,6 +150,11 @@ class ModuleCTIClientController extends BaseController
         // Mask MT Proxy secret
         if (!empty($settings->mt_proxy_secret)) {
             $settings->mt_proxy_secret = self::SECRET_MASK;
+        }
+
+        // Mask the remote VPS SSH private key — never echo it back to the web UI.
+        if (!empty($settings->remote_ssh_key)) {
+            $settings->remote_ssh_key = self::SECRET_MASK;
         }
     }
 
@@ -167,6 +202,138 @@ class ModuleCTIClientController extends BaseController
     }
 
     /**
+     * Normalizes MTProxy form input before it is persisted.
+     *
+     * The Go telegram daemon expects mt_proxy_address as "host:port" and
+     * mt_proxy_secret as a HEX string (it runs hex.DecodeString on it).
+     * Operators, however, usually copy a ready-made proxy link
+     * (tg://proxy?server=..&port=..&secret=.. or https://t.me/proxy?...) and
+     * the secret is frequently distributed in base64url form. Without this
+     * step those inputs decode to garbage and the daemon silently falls back
+     * to a direct (blocked) connection. Here we extract host/port/secret from
+     * a pasted link and re-encode the secret to HEX so the proxy is actually
+     * used.
+     *
+     * The masked placeholder is left untouched so an unchanged secret is not
+     * overwritten with the mask.
+     *
+     * @param array $data POST data.
+     *
+     * @return array Normalized POST data.
+     */
+    private function normalizeMtProxySettings(array $data): array
+    {
+        $hasAddress = array_key_exists('mt_proxy_address', $data);
+        $hasSecret = array_key_exists('mt_proxy_secret', $data);
+        if (!$hasAddress && !$hasSecret) {
+            return $data;
+        }
+
+        $address = trim($data['mt_proxy_address'] ?? '');
+        $secret = trim($data['mt_proxy_secret'] ?? '');
+
+        // A full proxy link may be pasted into either field. Use the first
+        // field that holds one to fill in server/port/secret.
+        foreach ([$address, $secret] as $candidate) {
+            $parsed = $this->parseMtProxyLink($candidate);
+            if ($parsed === null) {
+                continue;
+            }
+            $address = $parsed['address'];
+            if ($parsed['secret'] !== '') {
+                $secret = $parsed['secret'];
+            }
+            break;
+        }
+
+        // Re-encode the secret to lower-case HEX unless it is the mask.
+        if ($secret !== '' && strpos($secret, self::SECRET_MASK) === false) {
+            $secret = $this->normalizeMtProxySecret($secret);
+        }
+
+        if ($hasAddress) {
+            $data['mt_proxy_address'] = $address;
+        }
+        if ($hasSecret) {
+            $data['mt_proxy_secret'] = $secret;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Parses a tg://proxy or https://t.me/proxy link into address + secret.
+     *
+     * @param string $value Candidate value (any form field may hold the link).
+     *
+     * @return array|null ['address' => 'host:port', 'secret' => '<raw secret>'] or null when not a proxy link.
+     */
+    private function parseMtProxyLink(string $value): ?array
+    {
+        if ($value === '' || stripos($value, 'proxy') === false || strpos($value, '?') === false) {
+            return null;
+        }
+
+        $query = parse_url($value, PHP_URL_QUERY);
+        if (!is_string($query) || $query === '') {
+            return null;
+        }
+
+        $params = [];
+        parse_str($query, $params);
+        // parse_str() yields arrays for repeated keys (e.g. server[]=a&server[]=b);
+        // guard against non-string values so trim() does not throw a TypeError.
+        $server = $params['server'] ?? '';
+        $port = $params['port'] ?? '';
+        $secret = $params['secret'] ?? '';
+        if (!is_string($server) || !is_string($port) || !is_string($secret)) {
+            return null;
+        }
+        $server = trim($server);
+        $port = trim($port);
+        if ($server === '' || !ctype_digit($port)) {
+            return null;
+        }
+
+        return [
+            'address' => $server . ':' . $port,
+            'secret' => trim($secret),
+        ];
+    }
+
+    /**
+     * Converts an MTProxy secret to the lower-case HEX form the Go daemon decodes.
+     *
+     * Accepts a HEX secret (passed through, lower-cased) or a base64/base64url
+     * secret (decoded and re-encoded as HEX). Anything else is returned as-is
+     * so the operator's input is never silently destroyed.
+     *
+     * @param string $secret Raw secret from the form or a proxy link.
+     *
+     * @return string Normalized secret.
+     */
+    private function normalizeMtProxySecret(string $secret): string
+    {
+        // Already valid HEX: keep it (lower-cased for stable storage).
+        if (strlen($secret) % 2 === 0 && ctype_xdigit($secret)) {
+            return strtolower($secret);
+        }
+
+        // Telegram often distributes fake-TLS secrets in base64url form.
+        $b64 = strtr($secret, '-_', '+/');
+        $remainder = strlen($b64) % 4;
+        if ($remainder > 0) {
+            $b64 .= str_repeat('=', 4 - $remainder);
+        }
+        $decoded = base64_decode($b64, true);
+        if (is_string($decoded) && $decoded !== '') {
+            return bin2hex($decoded);
+        }
+
+        return $secret;
+    }
+
+    /**
      * Saves the module settings based on the submitted form data.
      * If the request method is not POST, the function returns early.
      * Retrieves the form data, finds or creates a ModuleCTIClient record,
@@ -182,10 +349,29 @@ class ModuleCTIClientController extends BaseController
         // Retrieve the form data
         $data = $this->request->getPost();
 
+        // Normalize MTProxy input (proxy links / base64 secret) into the
+        // "host:port" + HEX shape the Go telegram daemon expects.
+        $data = $this->normalizeMtProxySettings($data);
+
         // Find or create a ModuleCTIClient record
         $record = ModuleCTIClient::findFirst();
         if (!$record) {
             $record = new ModuleCTIClient();
+        }
+
+        // The full settings form always submits the hidden marker; partial/automation
+        // POSTs (1C wizard) do not. Only the full form may turn checkboxes OFF by omission.
+        $isFullForm = array_key_exists(self::FULL_FORM_MARKER, $data);
+
+        $amigoDaemons = new AmigoDaemons();
+        if (!empty($amigoDaemons->getActiveRemoteMigrationServices())
+            && $this->hasProtectedRemoteChanges($data, $record, $isFullForm)
+        ) {
+            $message = $this->translation->_('mod_cti_RemoteMigrationLockedSaveError');
+            $this->flash->error($message);
+            $this->view->success = false;
+
+            return;
         }
 
         // Update the record with the form data
@@ -200,12 +386,22 @@ class ModuleCTIClientController extends BaseController
                 case 'auto_settings_mode':
                 case 'setup_caller_id':
                 case 'transliterate_caller_id':
+                case 'remote_whatsapp':
+                case 'remote_telegram':
+                case 'remote_max':
+                    // On the full form an unchecked toggle is absent from the POST, so an
+                    // absent key means "switch OFF". For a partial POST (no full-form marker)
+                    // an absent key just means "not submitted" — leave the stored value alone,
+                    // otherwise a wizard POST would silently zero every toggle it never sent.
                     if (isset($data[$key])) {
                         $record->$key = ($data[$key] === 'on') ? '1' : '0';
+                    } elseif ($isFullForm) {
+                        $record->$key = '0';
                     }
                     break;
                 default:
                     if (array_key_exists($key, $data)
+                        && is_string($data[$key])
                         && strpos($data[$key], self::SECRET_MASK) === false
                     ) {
                         $record->$key = $data[$key];
@@ -226,6 +422,45 @@ class ModuleCTIClientController extends BaseController
         // Handle success if saving is successful
         $this->flash->success($this->translation->_('ms_SuccessfulSaved'));
         $this->view->success = true;
+    }
+
+    /**
+     * Check whether submitted data changes remote/offload settings protected
+     * while a messenger migration is active.
+     *
+     * @param array<string,mixed> $data
+     * @param ModuleCTIClient $record
+     * @param bool $isFullForm Whether the POST carries the full-form marker.
+     * @return bool
+     */
+    private function hasProtectedRemoteChanges(array $data, ModuleCTIClient $record, bool $isFullForm): bool
+    {
+        foreach (self::REMOTE_TOGGLE_FIELDS as $field) {
+            if (!isset($data[$field]) && !$isFullForm) {
+                // Mirror saveAction: a partial POST never writes an absent toggle, so it
+                // cannot constitute a protected change — don't block the wizard spuriously.
+                continue;
+            }
+            $newValue = (isset($data[$field]) && $data[$field] === 'on') ? '1' : '0';
+            if ((string)($record->$field ?? '0') !== $newValue) {
+                return true;
+            }
+        }
+
+        foreach (self::REMOTE_CONNECTION_FIELDS as $field) {
+            if (!array_key_exists($field, $data) || !is_string($data[$field])) {
+                continue; // absent, or a malformed array POST — never written on save either.
+            }
+            $newValue = (string)$data[$field];
+            if ($field === 'remote_ssh_key' && strpos($newValue, self::SECRET_MASK) !== false) {
+                continue;
+            }
+            if ((string)($record->$field ?? '') !== $newValue) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -765,4 +1000,5 @@ class ModuleCTIClientController extends BaseController
             $this->response->setContent($data);
         }
     }
+
 }

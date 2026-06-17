@@ -55,8 +55,56 @@ class CTIClientConf extends ConfigClass
             $needRestartServices = true;
         }
         if ($data['model'] === ModuleCTIClient::class) {
-            $needRestartServices = true;
             PBX::dialplanReload();
+
+            // changedFields is Phalcon's getUpdatedFields(): a NUMERIC list of
+            // field-NAME strings, so the names are the VALUES (array_values,
+            // NOT array_keys — F1).
+            $changed = array_values((array)($data['changedFields'] ?? []));
+            $migrationToggles = ['remote_whatsapp', 'remote_telegram', 'remote_max'];
+            $changedMigrationToggles = array_values(array_intersect($changed, $migrationToggles));
+            $migrationOnly = $changed !== [] && empty(array_diff($changed, $migrationToggles));
+
+            $amigoDaemons = null;
+            $toggleToService = [
+                'remote_whatsapp' => 'chats',
+                'remote_telegram' => 'tg',
+                'remote_max'      => 'max',
+            ];
+            if ($changedMigrationToggles !== []) {
+                // A toggle flip is also the operator re-trigger after a
+                // FAIL-PARK: clear `parked` for the changed services even when
+                // the same save also changes tunnel params and forces a restart.
+                $svcs = [];
+                foreach ($changedMigrationToggles as $field) {
+                    if (isset($toggleToService[$field])) {
+                        $svcs[] = $toggleToService[$field];
+                    }
+                }
+                if ($amigoDaemons === null) {
+                    $amigoDaemons = new AmigoDaemons();
+                }
+                $amigoDaemons->clearParkedForServices($svcs);
+            }
+
+            if ($migrationOnly) {
+                if ($amigoDaemons === null) {
+                    $amigoDaemons = new AmigoDaemons();
+                }
+                // §3.7 (R7/F1): don't bounce the whole stack (gnatsd/amid/crmd)
+                // on a migration-toggle flip — that defeats the in-place reconcile.
+                // In-place: regenerate monitord.json + fire /reconcile. The
+                // worker (re-reads settings every tick) drives the migration.
+                // NO stack bounce.
+                $amigoDaemons->applyMonitordConfigAndReconcile();
+            } else {
+                // Tunnel params (host/port/login/key/bin_dir) and every other
+                // module field need a real restart: the Go ssh tunnel is started
+                // once in main.Manage() and is NOT re-read by doReconcile.
+                // If changedFields is absent/empty, fall back to a restart too
+                // (correct but heavier, never wrong).
+                $needRestartServices = true;
+            }
         }
 
         if ($needRestartServices) {
@@ -149,12 +197,80 @@ class CTIClientConf extends ConfigClass
     {
         $res            = new PBXApiResult();
         $res->processor = __METHOD__;
-        $action         = strtoupper($request['action']);
+        $action         = strtoupper((string)($request['action'] ?? ''));
         switch ($action) {
             case 'CHECK':
                 // Проверка работы сервисов, выполняется при обновлении статуса или сохрании настроек
                 $amigoDaemons = new AmigoDaemons();
                 $res          = $amigoDaemons->checkModuleWorkProperly();
+                break;
+            case 'TESTREMOTECONNECTION':
+                // Ad-hoc SSH probe from the "Test connection" button on the
+                // Remote messengers tab. Operator-supplied parameters live in
+                // $request['data']; we never touch the DB here.
+                $amigoDaemons = new AmigoDaemons();
+                $data         = is_array($request['data'] ?? null) ? $request['data'] : [];
+                // Older PBX cores (<= 2024.x) do NOT parse a JSON request body
+                // into $request['data'] — they put $_REQUEST there and park the
+                // raw php://input under $request['input']. Since the form POSTs
+                // application/json, PHP leaves $_POST/$_REQUEST empty, so the
+                // host/login/key never reach us via 'data'. Decode 'input' and
+                // merge it over 'data' so the probe works on both old and new
+                // cores (on new cores 'input' equals what 'data' already holds).
+                $rawInput = (string)($request['input'] ?? '');
+                if ($rawInput !== '') {
+                    $decodedInput = json_decode($rawInput, true);
+                    if (is_array($decodedInput)) {
+                        $data = array_merge($data, $decodedInput);
+                    }
+                }
+                // The form masks the saved SSH key as '******' — if the value
+                // coming back contains the mask sentinel (or is empty) the
+                // operator did not paste a new key, so we fall back to what
+                // is already in the DB instead of trying to log in with stars.
+                $key = (string)($data['key'] ?? '');
+                if ($key === '' || strpos($key, '******') !== false) {
+                    $saved = ModuleCTIClient::findFirst();
+                    if ($saved !== null) {
+                        $data['key'] = (string)($saved->remote_ssh_key ?? '');
+                    }
+                }
+                // Fall back to the saved base dir too when the form doesn't
+                // send one, otherwise the rw probe lands in the wrong place.
+                if (trim((string)($data['base'] ?? '')) === '') {
+                    $saved = $saved ?? ModuleCTIClient::findFirst();
+                    if ($saved !== null) {
+                        $data['base'] = (string)($saved->remote_bin_dir ?? '');
+                    }
+                }
+                $probe          = $amigoDaemons->testRemoteSshConnection($data);
+                $res->success   = (bool)$probe['ok'];
+                $res->data      = $probe;
+                if (!$probe['ok'] && $probe['error'] !== '') {
+                    $res->messages[] = $probe['error'];
+                }
+                break;
+            case 'FAILBACK':
+                // Operator-gated failback: bring a service stranded on a lost VPS
+                // back to local from the warm-standby mirror, fencing the toggle
+                // off so a returning VPS can't re-migrate it. Body parsing mirrors
+                // TESTREMOTECONNECTION (old cores park the JSON under 'input').
+                $amigoDaemons = new AmigoDaemons();
+                $data         = is_array($request['data'] ?? null) ? $request['data'] : [];
+                $rawInput     = (string)($request['input'] ?? '');
+                if ($rawInput !== '') {
+                    $decodedInput = json_decode($rawInput, true);
+                    if (is_array($decodedInput)) {
+                        $data = array_merge($data, $decodedInput);
+                    }
+                }
+                $service        = (string)($data['service'] ?? '');
+                $result         = $amigoDaemons->failbackRemoteServiceToLocal($service);
+                $res->success   = (bool)$result['ok'];
+                $res->data      = $result;
+                if (!$result['ok'] && $result['error'] !== '') {
+                    $res->messages[] = $result['error'];
+                }
                 break;
             default:
                 $res->success    = false;
@@ -180,6 +296,10 @@ class CTIClientConf extends ConfigClass
             [
                 'type'   => WorkerSafeScriptsCore::CHECK_BY_PID_NOT_ALERT,
                 'worker' => WorkerLogRotate::class,
+            ],
+            [
+                'type'   => WorkerSafeScriptsCore::CHECK_BY_PID_NOT_ALERT,
+                'worker' => WorkerRemoteTunnel::class,
             ],
         ];
     }
@@ -234,13 +354,19 @@ class CTIClientConf extends ConfigClass
     }
 
     /**
-     * Kills all module daemons
-     *
+     * Kills all module daemons — local first, then the remote VPS stack if
+     * offload is configured. Without the remote step monitord + chatsd/tgd/
+     * maxd would keep running (and holding messenger sessions) on the VPS
+     * after the operator switched the module off here.
      */
     public function onAfterModuleDisable(): void
     {
         $amigoDaemons = new AmigoDaemons();
         $amigoDaemons->stopAllServices();
+        // Best-effort — if SSH params aren't filled (offload was never set up)
+        // stopRemoteServices() returns immediately, so this is safe to call
+        // unconditionally.
+        $amigoDaemons->stopRemoteServices();
         PBX::dialplanReload();
     }
 
