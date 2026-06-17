@@ -4953,9 +4953,13 @@ class AmigoDaemons extends Injectable
         $webservice = intval($this->module_settings['web_service_mode'] ?? 0) === 1;
         $row['mode'] = $webservice ? 'webservice' : 'longpool';
 
-        if ($state === 'ok') {
-            $row['state'] = 'connected';
-        } else {
+        // Keep the canonical 'ok' for a live bridge — do NOT rename it. The 1C
+        // setup wizard (ПроверкаСвязи) reads this status over /pbx/check and
+        // asserts crm-1c state === 'ok' literally; renaming 'ok' -> 'connected'
+        // made the wizard report "not connected" even with a healthy bridge.
+        // Only refine the not-yet-connected states into mode-aware labels: those
+        // were never 'ok', so 1C still (correctly) reads them as "not connected".
+        if ($state !== 'ok') {
             // pending (no exchange yet) or error (1C didn't answer): the bridge is
             // up but there is no live 1C session — calm yellow, mode-flavoured.
             $row['state'] = $webservice ? 'connecting_1c' : 'waiting_1c';
