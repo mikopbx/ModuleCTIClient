@@ -129,6 +129,14 @@
             </div>
         </div>
 
+        <div class="field">
+            <label for="interception_timeout">{{ t._('mod_cti_InterceptionTimeout') }}</label>
+            <div class="five wide field">
+                {{ form.render('interception_timeout') }}
+            </div>
+            <div class="ui small grey text">{{ t._('mod_cti_InterceptionTimeoutHint') }}</div>
+        </div>
+
     </div>
 
     {# messengers tab #}

@@ -28,6 +28,8 @@ return [
     'mod_cti_ConnectionError' => 'Failure',
     'mod_cti_UpdateStatus' => 'Updating status…',
     'mod_cti_TransliterateCallerID' => 'Perform transliteration of CallerID received from 1C',
+    'mod_cti_InterceptionTimeout' => 'Ring duration for the responsible employee, sec',
+    'mod_cti_InterceptionTimeoutHint' => 'How many seconds to ring the responsible employee on an incoming 1C call before stopping the interception. Allowed range: 10 to 600 seconds.',
     'mod_cti_EnableSetCallerID' => 'Install CallerID from 1C',
     'mod_cti_OdinEsSetupMessageStep4' => 'Press Ctrl+O (or File&#8594;Open) and select the "Установщик.epf" file',
     'mod_cti_OdinEsSetupMessageStep2' => 'Run 1C exclusively in enterprise mode',

@@ -239,6 +239,16 @@ class ModuleCTIClient extends ModulesModelsBase
     public ?string $remote_bin_dir = '/opt/mikopbx-cti';
 
     /**
+     * @var string|null Ring duration (seconds) for calling the responsible
+     * employee on an incoming CRM call. Stored/edited as seconds (bounds 10-600);
+     * the amid daemon config expects milliseconds — see
+     * AmigoDaemons::getInterceptionTimeoutMs.
+     *
+     * @Column(type='integer', nullable=true, default='10')
+     */
+    public ?string $interception_timeout = '10';
+
+    /**
      * Initialize model for module
      * @return void
      */

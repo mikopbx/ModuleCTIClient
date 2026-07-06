@@ -42,6 +42,11 @@ class ModuleCTIClientController extends BaseController
 {
     private const SECRET_MASK = '******';
 
+    // Ring duration (seconds) for calling the responsible employee. The UI and DB
+    // hold seconds; AmigoDaemons converts to the milliseconds the amid daemon wants.
+    private const INTERCEPTION_TIMEOUT_MIN_SEC = 10;
+    private const INTERCEPTION_TIMEOUT_MAX_SEC = 600;
+
     /**
      * Hidden marker submitted only by the full settings Volt form. Partial/automation
      * POSTs (e.g. the 1C setup wizard hitting /pbx/setup -> save with a curated subset
@@ -397,6 +402,20 @@ class ModuleCTIClientController extends BaseController
                         $record->$key = ($data[$key] === 'on') ? '1' : '0';
                     } elseif ($isFullForm) {
                         $record->$key = '0';
+                    }
+                    break;
+                case 'interception_timeout':
+                    // Ring duration (seconds) for the responsible employee.
+                    // Clamp defensively — the UI enforces the same bounds, but a
+                    // hand-crafted POST must never write an out-of-range value.
+                    if (array_key_exists($key, $data)) {
+                        $seconds = (int)$data[$key];
+                        if ($seconds < self::INTERCEPTION_TIMEOUT_MIN_SEC) {
+                            $seconds = self::INTERCEPTION_TIMEOUT_MIN_SEC;
+                        } elseif ($seconds > self::INTERCEPTION_TIMEOUT_MAX_SEC) {
+                            $seconds = self::INTERCEPTION_TIMEOUT_MAX_SEC;
+                        }
+                        $record->$key = (string)$seconds;
                     }
                     break;
                 default:

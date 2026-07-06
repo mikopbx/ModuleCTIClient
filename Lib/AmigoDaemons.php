@@ -4397,6 +4397,29 @@ class AmigoDaemons extends Injectable
      * Generates the configuration file for the amid daemon.
      * Subscribes to AMI events, processes them, and sends them to the queue.
      */
+    /**
+     * Ring duration for the responsible-employee interception call, in the
+     * milliseconds the amid daemon's `interception_timeout` expects. The module
+     * setting is stored/edited in seconds; clamp to 10..600 s and convert to ms
+     * so a bad DB value can never emit an out-of-range or zero timeout (0 would
+     * make the daemon silently fall back to its own default).
+     *
+     * @return int milliseconds in [10000, 600000]
+     */
+    private function getInterceptionTimeoutMs(): int
+    {
+        $raw = isset($this->module_settings['interception_timeout'])
+            ? (int)$this->module_settings['interception_timeout']
+            : 10;
+        if ($raw < 10) {
+            $raw = 10;
+        } elseif ($raw > 600) {
+            $raw = 600;
+        }
+
+        return $raw * 1000;
+    }
+
     private function generateAmidConf(): void
     {
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_AMI;
@@ -4412,6 +4435,7 @@ class AmigoDaemons extends Injectable
                 'transfer_context' => '',
                 'originate_context' => '',
                 'multiple_registration_support' => true,
+                'interception_timeout' => $this->getInterceptionTimeoutMs(),
             ],
             'mq' => [
                 'host' => '127.0.0.1',

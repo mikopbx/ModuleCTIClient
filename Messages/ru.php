@@ -55,6 +55,8 @@ return [
     'mod_cti_OdinEsSetupMessageStep4'  => 'Нажмите Ctrl+O (или Файл&#8594;Открыть) и выберите файл "Установщик.epf"',
     'mod_cti_EnableSetCallerID'        => 'Устанавливать CallerID из 1С',
     'mod_cti_TransliterateCallerID'    => 'Выполнять транслитерацию CallerID полученного из 1С',
+    'mod_cti_InterceptionTimeout'      => 'Длительность вызова ответственного сотрудника, сек',
+    'mod_cti_InterceptionTimeoutHint'  => 'Сколько секунд дозваниваться ответственному сотруднику при входящем звонке из 1С, прежде чем прекратить перехват. Допустимо от 10 до 600 секунд.',
     'mod_cti_ChatsProxyAddress'        => 'Прокси-сервер для WhatsApp и Telegram (Socks5 или https)',
     'mod_cti_tab_Messengers'           => 'Прокси-серверы мессенджеров',
     'mod_cti_MtProxyAddress'           => 'Адрес',
