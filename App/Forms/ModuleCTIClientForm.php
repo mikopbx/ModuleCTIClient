@@ -90,6 +90,14 @@ class ModuleCTIClientForm extends Form
         // Set Transliterate caller ID
         $this->addCheckBox('transliterate_caller_id', intval($entity->transliterate_caller_id) === 1);
 
+        // Ring duration (seconds) for calling the responsible employee. Bounds
+        // mirror the server-side clamp in the controller and getInterceptionTimeoutMs.
+        $this->add(new Numeric('interception_timeout', [
+            'min'  => '10',
+            'max'  => '600',
+            'step' => '1',
+        ]));
+
         // ---- Remote messenger server (Phase 3) ----
         // Connection params for the VPS that hosts offloaded chatsd/tgd/maxd.
         $this->add(new Text('remote_host', ['placeholder' => '198.51.100.10']));
