@@ -1093,7 +1093,8 @@ class AmigoDaemons extends Injectable
 
         $knownHosts = $this->dirs['spoolDir'] . '/remote_known_hosts';
         if (!file_exists($knownHosts)) {
-            // TOFU: accept-new on first contact, then strict on subsequent connections.
+            // TOFU: accept on first contact, then strict on subsequent connections
+            // (emulated via yes/no in buildSshArgs for old OpenSSH clients).
             touch($knownHosts);
             @chmod($knownHosts, 0600);
         }
@@ -1122,12 +1123,23 @@ class AmigoDaemons extends Injectable
     public static function buildSshArgs(array $ssh): string
     {
         // -o BatchMode=yes prevents an interactive prompt from hanging the worker.
-        // -o StrictHostKeyChecking=accept-new gives us TOFU: pin on first contact,
-        // strict on every subsequent connection. The known_hosts file is per-module
-        // (spool/remote_known_hosts) — a wholesale VPS swap requires clearing it.
+        //
+        // TOFU host-key policy: pin on first contact, strict on every subsequent
+        // connection. The obvious spelling is StrictHostKeyChecking=accept-new,
+        // but that value only exists on OpenSSH >= 7.6 — older clients (some
+        // MikoPBX builds, BusyBox-era boxes) abort immediately with
+        //   command-line line 0: unsupported option "accept-new"
+        // and the whole remote offload never connects. So emulate accept-new with
+        // the yes/no values supported by every OpenSSH: 'no' on first contact
+        // (accept the key and append it to known_hosts), 'yes' once the host is
+        // pinned (detect and reject a changed key). The known_hosts file is
+        // per-module (spool/remote_known_hosts) — a wholesale VPS swap requires
+        // clearing it.
+        $strict = self::isRemoteHostKnown($ssh) ? 'yes' : 'no';
+
         return Util::which('ssh')
             . ' -o BatchMode=yes'
-            . ' -o StrictHostKeyChecking=accept-new'
+            . ' -o StrictHostKeyChecking=' . $strict
             . ' -o UserKnownHostsFile=' . escapeshellarg($ssh['knownHosts'])
             . ' -o ConnectTimeout=10'
             . ' -o ServerAliveInterval=15'
@@ -1135,6 +1147,37 @@ class AmigoDaemons extends Injectable
             . ' -i ' . escapeshellarg($ssh['keyFile'])
             . ' -p ' . escapeshellarg($ssh['port'])
             . ' ' . escapeshellarg($ssh['login'] . '@' . $ssh['host']);
+    }
+
+    /**
+     * Returns true if the remote VPS host key is already pinned in the
+     * per-module known_hosts file. Used to emulate StrictHostKeyChecking=accept-new
+     * on OpenSSH clients too old to understand that value (see buildSshArgs): no
+     * entry yet → accept on first contact, entry present → strict from then on.
+     *
+     * OpenSSH stores a non-default port as "[host]:port" and the default port 22
+     * as a bare "host"; match both. Hashed known_hosts (HashKnownHosts yes) would
+     * defeat the substring check and fall back to first-contact mode — acceptable,
+     * since the worst case is the universally-safe accept-and-pin path.
+     *
+     * @param array{host:string,port:string,knownHosts:string} $ssh
+     * @return bool
+     */
+    private static function isRemoteHostKnown(array $ssh): bool
+    {
+        $file = $ssh['knownHosts'] ?? '';
+        if ($file === '' || !is_file($file)) {
+            return false;
+        }
+        $contents = (string)@file_get_contents($file);
+        if ($contents === '') {
+            return false;
+        }
+        $host = $ssh['host'];
+        $port = (string)($ssh['port'] ?? '22');
+        $needle = ($port === '' || $port === '22') ? $host : '[' . $host . ']:' . $port;
+
+        return strpos($contents, $needle) !== false;
     }
 
     /**
@@ -1381,9 +1424,11 @@ class AmigoDaemons extends Injectable
      */
     private function scpPush(array $ssh, string $localPath, string $remotePath): bool
     {
+        // Emulate accept-new for old OpenSSH clients — see buildSshArgs().
+        $strict = self::isRemoteHostKnown($ssh) ? 'yes' : 'no';
         $cmd = Util::which('scp')
             . ' -o BatchMode=yes'
-            . ' -o StrictHostKeyChecking=accept-new'
+            . ' -o StrictHostKeyChecking=' . $strict
             . ' -o UserKnownHostsFile=' . escapeshellarg($ssh['knownHosts'])
             . ' -o ConnectTimeout=10'
             . ' -i ' . escapeshellarg($ssh['keyFile'])
@@ -5433,11 +5478,14 @@ class AmigoDaemons extends Injectable
                 . 'echo "RW:OK"; '
             . 'else echo "RW:FAIL"; fi';
 
+        // Throwaway probe with a /dev/null known_hosts — nothing is ever pinned,
+        // so StrictHostKeyChecking=no is both the correct semantics and portable
+        // to OpenSSH clients too old for accept-new (see buildSshArgs()).
         $cmd = Util::which('ssh')
             . ' -i ' . escapeshellarg($tmpKey)
             . ' -p ' . escapeshellarg($port)
             . ' -o BatchMode=yes'
-            . ' -o StrictHostKeyChecking=accept-new'
+            . ' -o StrictHostKeyChecking=no'
             . ' -o UserKnownHostsFile=/dev/null'
             . ' -o ConnectTimeout=5'
             . ' -o LogLevel=ERROR'
