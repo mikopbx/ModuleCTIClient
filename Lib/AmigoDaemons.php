@@ -3508,17 +3508,15 @@ class AmigoDaemons extends Injectable
     }
 
     /**
-     * Continuous-downtime of the monitord-owned tunnel, in seconds, maintained by a
-     * durable stamp in spoolDir. Returns -1 when the tunnel is healthy or its state
-     * can't be assessed (monitord unreachable / not configured).
+     * Continuous downtime of the monitord-owned tunnel, in seconds, maintained
+     * by a durable stamp in spoolDir. The outage starts at the first observed
+     * configured=true/connected=false status. last_ok_ts is diagnostic only:
+     * monitord currently reports connection establishment time there, not the
+     * most recent successful keepalive.
      *
-     * Why a PHP stamp and not monitord's last_ok_ts alone: last_ok_ts resets to 0
-     * whenever monitord restarts WITHOUT ever reconnecting (crash/upgrade/reboot
-     * while the VPS is already down) — exactly the auto-failback case — so it cannot
-     * measure a multi-restart outage. The stamp survives both monitord and worker
-     * restarts. It is anchored to last_ok_ts when still known, else to first-observed
-     * -down (a cold start mid-outage then counts continuous downtime from boot, which
-     * is the honest semantic). Cleared the moment the tunnel reports connected.
+     * The marker survives worker and monitord restarts, is cleared immediately
+     * after a connected/unconfigured status, and is left untouched while the
+     * status endpoint is unavailable.
      *
      * @return int seconds down, or -1 if healthy/unknown
      */
@@ -3526,28 +3524,20 @@ class AmigoDaemons extends Injectable
     {
         $stampFile = "{$this->dirs['spoolDir']}/remote_tunnel_down_since";
         $data = $this->getMonitordTunnelStatus();
-        if ($data === null) {
-            return -1; // monitord unreachable (transient, e.g. mid-restart) — keep stamp.
+        $measurement = RemoteTunnelDowntime::measure($data, $stampFile, time());
+
+        if ($measurement['created']) {
+            $lastOk = is_array($data) ? intval($data['last_ok_ts'] ?? 0) : 0;
+            error_log(sprintf(
+                '[ModuleCTIClient] remote tunnel downtime marker %s: down_since=%d last_ok_ts=%d failback_after_sec=%d',
+                $measurement['reason'],
+                $measurement['down_since'],
+                $lastOk,
+                $this->getFailbackAfterSeconds()
+            ));
         }
-        if (empty($data['configured']) || !empty($data['connected'])) {
-            // Tunnel healthy, or intentionally torn down (e.g. after a failback) —
-            // clear the anchor so a later re-enable doesn't fail back on a stale stamp.
-            if (file_exists($stampFile)) {
-                @unlink($stampFile);
-            }
-            return -1;
-        }
-        // configured && !connected — establish/keep a durable down-since anchor.
-        $downSince = is_file($stampFile) ? intval(trim((string)@file_get_contents($stampFile))) : 0;
-        if ($downSince <= 0) {
-            $lastOk = intval($data['last_ok_ts'] ?? 0);
-            $downSince = $lastOk > 0 ? $lastOk : time();
-            $tmp = $stampFile . '.tmp';
-            if (@file_put_contents($tmp, (string)$downSince) !== false) {
-                @rename($tmp, $stampFile);
-            }
-        }
-        return time() - $downSince;
+
+        return $measurement['seconds'];
     }
 
     /**
