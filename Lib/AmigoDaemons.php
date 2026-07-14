@@ -3526,6 +3526,14 @@ class AmigoDaemons extends Injectable
         $data = $this->getMonitordTunnelStatus();
         $measurement = RemoteTunnelDowntime::measure($data, $stampFile, time());
 
+        if (substr($measurement['reason'], -7) === '_failed') {
+            error_log(sprintf(
+                '[ModuleCTIClient] remote tunnel downtime marker error: reason=%s path=%s',
+                $measurement['reason'],
+                $stampFile
+            ));
+        }
+
         if ($measurement['created']) {
             $lastOk = is_array($data) ? intval($data['last_ok_ts'] ?? 0) : 0;
             error_log(sprintf(

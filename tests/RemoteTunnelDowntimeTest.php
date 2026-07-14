@@ -84,6 +84,35 @@ try {
         assertSameValue('marker_repaired', $repaired['reason'], 'Invalid marker must report repair');
     }
 
+    $blockedParent = $dir . '/not-a-directory';
+    writeMarker($blockedParent, 'occupied');
+    $writeFailed = RemoteTunnelDowntime::measure(
+        ['configured' => true, 'connected' => false, 'last_ok_ts' => 1000],
+        $blockedParent . '/remote_tunnel_down_since',
+        25000
+    );
+    assertSameValue(-1, $writeFailed['seconds'], 'Failed marker write must disable failback');
+    assertSameValue(false, $writeFailed['created'], 'Failed marker write must not report marker creation');
+    assertSameValue('marker_write_failed', $writeFailed['reason'], 'Failed marker write must be diagnosable');
+    @unlink($blockedParent);
+
+    writeMarker($stamp, '24000');
+    if (!chmod($dir, 0500)) {
+        throw new RuntimeException('Cannot make test directory read-only: ' . $dir);
+    }
+    try {
+        $removeFailed = RemoteTunnelDowntime::measure(
+            ['configured' => true, 'connected' => true, 'last_ok_ts' => 25000],
+            $stamp,
+            25000
+        );
+        assertSameValue(-1, $removeFailed['seconds'], 'Failed marker removal must disable failback');
+        assertSameValue('marker_remove_failed', $removeFailed['reason'], 'Failed marker removal must be diagnosable');
+        assertSameValue(true, file_exists($stamp), 'Failed marker removal must leave the failure observable');
+    } finally {
+        @chmod($dir, 0700);
+    }
+
     writeMarker($stamp, '24000');
     $unconfigured = RemoteTunnelDowntime::measure(
         ['configured' => false, 'connected' => false, 'last_ok_ts' => 1000],
@@ -93,6 +122,8 @@ try {
     assertSameValue(-1, $unconfigured['seconds'], 'Unconfigured tunnel must not count downtime');
     assertSameValue(false, file_exists($stamp), 'Unconfigured tunnel must clear stale marker');
 } finally {
+    @chmod($dir, 0700);
+    @unlink($dir . '/not-a-directory');
     @unlink($stamp . '.tmp');
     @unlink($stamp);
     @rmdir($dir);

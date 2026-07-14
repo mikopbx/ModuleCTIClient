@@ -19,6 +19,9 @@ final class RemoteTunnelDowntime
         if (empty($status['configured']) || !empty($status['connected'])) {
             if (file_exists($stampFile)) {
                 @unlink($stampFile);
+                if (file_exists($stampFile)) {
+                    return self::result(-1, false, 0, 'marker_remove_failed');
+                }
             }
             return self::result(-1, false, 0, 'healthy');
         }
@@ -28,7 +31,9 @@ final class RemoteTunnelDowntime
         if ($downSince <= 0 || $downSince > $now) {
             $reason = $exists ? 'marker_repaired' : 'marker_created';
             $downSince = $now;
-            self::writeAtomic($stampFile, (string) $downSince);
+            if (!self::writeAtomic($stampFile, (string) $downSince)) {
+                return self::result(-1, false, 0, 'marker_write_failed');
+            }
             return self::result(0, true, $downSince, $reason);
         }
 
@@ -48,11 +53,20 @@ final class RemoteTunnelDowntime
         ];
     }
 
-    private static function writeAtomic(string $stampFile, string $value): void
+    private static function writeAtomic(string $stampFile, string $value): bool
     {
         $tmp = $stampFile . '.tmp';
-        if (@file_put_contents($tmp, $value) !== false) {
-            @rename($tmp, $stampFile);
+        if (@file_put_contents($tmp, $value) !== strlen($value)) {
+            @unlink($tmp);
+            return false;
         }
+
+        if (!@rename($tmp, $stampFile)) {
+            @unlink($tmp);
+            return false;
+        }
+
+        return is_file($stampFile)
+            && trim((string) @file_get_contents($stampFile)) === $value;
     }
 }
