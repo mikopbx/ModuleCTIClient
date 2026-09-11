@@ -4470,6 +4470,8 @@ class AmigoDaemons extends Injectable
 
         if (MikoPBXVersion::isPhalcon512Version()) {
             $settings_amid['records']['request'] = "http://127.0.0.1:$WEBPort/pbxcore/api/v3/cdr:playback?view=%s";
+            $settings_amid['records']['download_request'] = "http://127.0.0.1:$WEBPort/pbxcore/api/v3/cdr:download?view=%s&format=original";
+            $settings_amid['records']['speech_request'] = "http://127.0.0.1:$WEBPort/pbxcore/api/v3/cdr:download?view=%s&format=ogg";
         }
 
         Util::fileWriteContent(
