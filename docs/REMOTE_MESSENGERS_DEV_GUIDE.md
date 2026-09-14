@@ -294,9 +294,11 @@ offset** (только хвост файла) в `logDir/ModuleCTIClient/<servic
   remote как источник. Намерение `adopt_local:[svc]` в `monitord.json` + `POST /reconcile`.
 - **VPS-self-fence:** при протухшем owner-lock VPS-monitord гасит демоны (`suppressed`) → во время партиции VPS
   уходит вниз → PBX безопасно усыновляет локаль. `fence-grace > TTL` (иначе блип убивает WA-сессию).
-- **Авто-failback:** порог `remote_failback_after_sec` (дефолт **7200с**). Downtime мерить по **durable-маркеру**
-  `{spool}/remote_tunnel_down_since`, НЕ по `monitord.last_ok_ts` (он сбрасывается в 0 при рестарте monitord, если
-  тот ни разу не переподключился — ровно кейс failback). `N (failback) > grace > TTL`.
+- **Авто-failback:** порог `remote_failback_after_sec` (дефолт **7200с**). Downtime измеряется только
+  durable-маркером `{spool}/remote_tunnel_down_since`: marker создаётся текущим временем при первом
+  подтверждённом `configured=true, connected=false`, сохраняется через рестарты и удаляется при reconnect.
+  `monitord.last_ok_ts` используется только для диагностики, поскольку отражает время установления текущей
+  SSH-сессии, а не время последнего успешного keepalive. `N (failback) > grace > TTL`.
 - ⚠️ **Не делать авто-фейловер при ЖИВОМ VPS** — две живые сессии = разлогин. Переход на локаль при доступном
   VPS — осознанный хэндовер (тумблер/миграция).
 
