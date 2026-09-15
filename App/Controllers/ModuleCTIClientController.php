@@ -563,7 +563,9 @@ class ModuleCTIClientController extends BaseController
             $resultTable[] = [
                 'userid' => $extension['userid'],
                 'number' => $extension['number'],
-                'secret' => base64_encode($extension['secret']),
+                // SIP-запись может отсутствовать (LEFT JOIN) — null в base64_encode
+                // на PHP 8 даёт Deprecated прямо в JSON-ответ
+                'secret' => base64_encode((string)($extension['secret'] ?? '')),
                 'username' => $extension['username'],
                 'mobile' => $extension['mobile'],
                 'avatar' => $extension['avatar'],
