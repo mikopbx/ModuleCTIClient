@@ -144,10 +144,11 @@ class CTIClientConf extends ConfigClass
             'Hangup',
             'Hold',
             'Masquerade',
-            'MeetmeEnd',
-            'MeetmeJoin',
-            'MeetmeLeave',
-            'MeetmeTalking',
+            'ConfbridgeEnd',
+            'ConfbridgeJoin',
+            'ConfbridgeLeave',
+            'ConfbridgeStart',
+            'ConfbridgeTalking',
             'MessageWaiting',
             'MusicOnHold',
             'MusicOnHoldStart',
@@ -418,14 +419,26 @@ class CTIClientConf extends ConfigClass
     public function extensionGenContexts(): string
     {
         $PBXRecordCalls = $this->generalSettings['PBXRecordCalls'];
-        $rec_options    = ($PBXRecordCalls === '1') ? 'r' : '';
         $conf           = "[miko_cti2]\n";
         $conf           .= 'exten => 10000107,1,Answer()' . "\n\t";
         $conf           .= 'same => n,Set(CHANNEL(hangup_handler_wipe)=hangup_handler_meetme,s,1)' . "\n\t";
         $conf           .= 'same => n,AGI(cdr_connector.php,meetme_dial)' . "\n\t";
         $conf           .= 'same => n,Set(CALLERID(num)=Conference_Room)' . "\n\t";
         $conf           .= 'same => n,Set(CALLERID(name)=${mikoconfcid})' . "\n\t";
-        $conf           .= 'same => n,Meetme(${mikoidconf},' . $rec_options . '${mikoparamconf})' . "\n\t";
+        // Опции ConfBridge — зеркало ядра ConferenceConf.php (флаги MeetMe q/d/M/T/r).
+        $conf           .= 'same => n,Set(CONFBRIDGE(bridge,video_mode)=follow_talker)' . "\n\t";
+        $conf           .= 'same => n,Set(CONFBRIDGE(user,talk_detection_events)=yes)' . "\n\t";
+        $conf           .= 'same => n,Set(CONFBRIDGE(user,quiet)=yes)' . "\n\t";
+        $conf           .= 'same => n,Set(CONFBRIDGE(user,music_on_hold_when_empty)=yes)' . "\n\t";
+        // Запись конференции — только при включённой глобальной записи звонков
+        // (зеркало ядра ConferenceConf.php:125-129). AGI meetme_dial.php выставляет
+        // MEETME_RECORDINGFILE безусловно, поэтому гейт — именно PBXRecordCalls.
+        if ($PBXRecordCalls === '1') {
+            $conf .= 'same => n,Set(CONFBRIDGE(bridge,record_file)=${MEETME_RECORDINGFILE}.wav)' . "\n\t";
+            $conf .= 'same => n,Set(CONFBRIDGE(bridge,record_file_timestamp)=false)' . "\n\t";
+            $conf .= 'same => n,Set(CONFBRIDGE(bridge,record_conference)=yes)' . "\n\t";
+        }
+        $conf           .= 'same => n,ConfBridge(${mikoidconf})' . "\n\t";
         $conf           .= 'same => n,Hangup()' . "\n\n";
 
         $conf .= '[miko-cti2-originate]' . "\n";
