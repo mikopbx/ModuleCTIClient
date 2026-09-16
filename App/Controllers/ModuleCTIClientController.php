@@ -494,6 +494,18 @@ class ModuleCTIClientController extends BaseController
         $resultTable = [];
         $pjsipPort = PbxSettings::getValueByKey('SIPPort');
         $tlsPort = PbxSettings::getValueByKey('TLS_PORT');
+
+        // АТС за NAT: клиент, подключившийся по внешнему адресу, должен
+        // использовать внешние SIP-порты из настроек сети MikoPBX.
+        $isExternalClient = $this->isExternalClientHost();
+        $externalSipPort = (string)PbxSettings::getValueByKey('externalSIPPort');
+        $externalTlsPort = (string)PbxSettings::getValueByKey('externalTLSPort');
+        $plainPort = ($isExternalClient && $externalSipPort !== '') ? $externalSipPort : $pjsipPort;
+        $securePort = ($isExternalClient && $externalTlsPort !== '') ? $externalTlsPort : $tlsPort;
+
+        // Текущий транспорт клиента: если он разрешён сотруднику — сохраним выбор.
+        $clientTransport = strtolower(trim((string)$this->request->getHeader('X-Client-Transport')));
+
         $parameters = [
             'models' => [
                 'Extensions' => Extensions::class,
@@ -537,8 +549,9 @@ class ModuleCTIClientController extends BaseController
                     $extensionTable[$extension->userid]['number'] = $extension->number;
                     $extensionTable[$extension->userid]['username'] = $extension->username;
                     $extensionTable[$extension->userid]['email'] = $extension->email;
-                    $extensionTable[$extension->userid]['port'] = ($extension->transport === 'tls') ? $tlsPort : $pjsipPort;
-                    $extensionTable[$extension->userid]['transport'] = $extension->transport;
+                    $transport = $this->normalizeTransport((string)$extension->transport, $clientTransport);
+                    $extensionTable[$extension->userid]['port'] = ($transport === 'tls') ? $securePort : $plainPort;
+                    $extensionTable[$extension->userid]['transport'] = $transport;
                     $extensionTable[$extension->userid]['dtmfmode'] = $extension->dtmfmode;
                     if (!empty($extension->avatar)) {
                         $parsed = $this->parseAvatarData($extension->avatar);
@@ -579,6 +592,82 @@ class ModuleCTIClientController extends BaseController
         $this->response->setContentType('application/json', 'UTF-8');
         $data = json_encode($resultTable);
         $this->response->setContent($data);
+    }
+
+    /**
+     * Клиент подключился по внешнему адресу АТС («АТС за NAT»)?
+     * Сравнивает X-Client-Host с extipaddr/exthostname сетевых интерфейсов
+     * (точное совпадание, без DNS-резолва). Нет заголовка или совпадения — false.
+     */
+    private function isExternalClientHost(): bool
+    {
+        $clientHost = $this->extractHost((string)$this->request->getHeader('X-Client-Host'));
+        if ($clientHost === '') {
+            return false;
+        }
+        $interfaces = LanInterfaces::find(['hydration' => Resultset::HYDRATE_ARRAYS]);
+        foreach ($interfaces as $interface) {
+            foreach (['extipaddr', 'exthostname'] as $field) {
+                $value = $this->extractHost((string)($interface[$field] ?? ''));
+                if ($value !== '' && $value === $clientHost) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Нормализует адрес/домен для сравнения: снимает схему, порт и квадратные
+     * скобки IPv6, приводит к нижнему регистру. Голый IPv6 без скобок parse_url
+     * не разбирает — возвращаем его как есть (порта в такой записи не бывает).
+     */
+    private function extractHost(string $raw): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return '';
+        }
+        if (strpos($raw, ']') === false && strpos($raw, '/') === false && substr_count($raw, ':') > 1) {
+            return strtolower($raw);
+        }
+        // parse_url достаёт host только при наличии "//" или схемы.
+        if (strpos($raw, '//') !== 0 && strpos($raw, '://') === false) {
+            $raw = '//' . $raw;
+        }
+        $parsedUrl = parse_url($raw);
+        // IPv6 от parse_url приходит в квадратных скобках.
+        return strtolower(trim((string)($parsedUrl['host'] ?? ''), '[]'));
+    }
+
+    /**
+     * Sip.transport сотрудника хранит список разрешённых транспортов ("udp,tcp"),
+     * софтфон понимает одиночное значение. Приоритет tls > tcp > udp;
+     * если текущий транспорт клиента разрешён — возвращаем его.
+     */
+    private function normalizeTransport(string $raw, string $preferred = ''): string
+    {
+        $list = [];
+        foreach (explode(',', $raw) as $item) {
+            $item = strtolower(trim($item));
+            if (in_array($item, ['udp', 'tcp', 'tls'], true)) {
+                $list[] = $item;
+            }
+        }
+        if (empty($list)) {
+            return 'udp';
+        }
+        if ($preferred !== '' && in_array($preferred, $list, true)) {
+            return $preferred;
+        }
+        foreach (['tls', 'tcp'] as $candidate) {
+            if (in_array($candidate, $list, true)) {
+                return $candidate;
+            }
+        }
+
+        return $list[0];
     }
 
     /**
