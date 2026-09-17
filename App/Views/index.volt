@@ -143,14 +143,16 @@
     {# CTI client tab: download links + screenshots gallery #}
     <div class="ui bottom attached tab segment" data-tab="client">
         <div class="field">
-            <div class="ui icon message">
+            <div class="ui icon message cti-download-message">
                 <i class="desktop icon"></i>
                 <div class="content">
                     <div class="header">{{ t._('mod_cti_DownloadClientHeader') }}</div>
                     <p>{{ t._('mod_cti_DownloadClientMessage') }}</p>
-                    {# Download links for the Miko CTI desktop client. Permanent URLs, they #}
-                    {# answer with a 302 redirect to the latest release file on the CDN.    #}
-                    <div class="ui tiny basic button dropdown" id="cti-download-client">
+                </div>
+                {# Download links for the Miko CTI desktop client. Permanent URLs, they #}
+                {# answer with a 302 redirect to the latest release file on the CDN.    #}
+                <div class="cti-download-button">
+                    <div class="ui basic button dropdown" id="cti-download-client">
                         <i class="download icon"></i>
                         <div class="text">{{ t._('mod_cti_DownloadClientButton') }}</div>
                         <div class="menu">
@@ -181,6 +183,25 @@
         </div>
         {% endif %}
         <style>
+            /* download block: text left, download button right */
+            .cti-download-message {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+            .cti-download-message > .content {
+                padding: 6px 12px;
+            }
+            .cti-download-message > .cti-download-button {
+                flex: 0 0 auto;
+                margin-left: auto;
+                padding: 6px 12px;
+            }
+            /* в большой форме Semantic увеличивает шрифт dropdown до 1.12rem,
+               как у полей ввода; возвращаем кнопке размер обычных кнопок */
+            #cti-download-client {
+                font-size: 1rem;
+            }
             /* client screenshots gallery */
             #cti-screenshot-preview {
                 display: block;
