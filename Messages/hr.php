@@ -52,4 +52,9 @@ return [
     'mod_cti_OdinEsSetupHeaderMessage' => 'Instalirajte telefonski podsustav u 1C:Enterprise 8',
     'mod_cti_OdinEsSetupMessageStep1' => 'Napravite sigurnosnu kopiju svoje 1C baze podataka',
     'mod_cti_OdinEsSetupMessageStep3' => 'Preuzmite instalacijski program za proširenje &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> s poveznice <i class="cloud download icon"></i></a>',
+    'mod_cti_DownloadClientHeader' => 'Klijent telefonijske ploče Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Za upućivanje poziva i rad s razgovorima preuzmite telefonijsku ploču Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Preuzmi',
+    'mod_cti_tab_Client' => 'CTI aplikacija',
+    'mod_cti_ClientScreenshotAlt' => 'Snimka zaslona telefonijske ploče Miko CTI',
 ];

@@ -52,4 +52,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep3' => 'Descărcați programul de instalare a extensiei &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> de la linkul <i class="cloud download icon"></i></a>',
     'mod_cti_EnableSetCallerID' => 'Instalați CallerID din 1C',
     'mod_cti_TransliterateCallerID' => 'Efectuați transliterarea ID-ului apelantului primit de la 1C',
+    'mod_cti_DownloadClientHeader' => 'Clientul panoului de telefonie Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Pentru a efectua apeluri și a utiliza chaturile, descărcați panoul de telefonie Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Descărcați',
+    'mod_cti_tab_Client' => 'Aplicație CTI',
+    'mod_cti_ClientScreenshotAlt' => 'Captură de ecran a panoului de telefonie Miko CTI',
 ];

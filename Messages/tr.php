@@ -41,4 +41,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep3' => 'bağlantısından uzantı yükleyicisini &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> indirin<i class="cloud download icon"></i></a>',
     'mod_cti_OdinEsSetupMessageStep1' => '1C veritabanınızın yedek bir kopyasını oluşturun',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Telefon alt sistemini 1C:Enterprise 8\'e kurun',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI telefon paneli istemcisi',
+    'mod_cti_DownloadClientMessage' => 'Arama yapmak ve sohbetlerle çalışmak için Miko CTI telefon panelini indirin',
+    'mod_cti_DownloadClientButton' => 'İndir',
+    'mod_cti_tab_Client' => 'CTI uygulaması',
+    'mod_cti_ClientScreenshotAlt' => 'Miko CTI telefon paneli ekran görüntüsü',
 ];

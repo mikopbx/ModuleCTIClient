@@ -34,4 +34,9 @@ return [
     'mod_cti_ConnectionWait' => 'Vi väntar på en anslutning till MikoPBX från 1C-sidan',
     'mod_cti_tab_Settings' => 'inställningar',
     'mod_cti_tab_debug' => 'Avlusningsmodultjänster',
+    'mod_cti_DownloadClientHeader' => 'Klient för telefonipanelen Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'För att ringa samtal och arbeta med chattar, ladda ner telefonipanelen Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Ladda ner',
+    'mod_cti_tab_Client' => 'CTI-program',
+    'mod_cti_ClientScreenshotAlt' => 'Skärmbild av telefonipanelen Miko CTI',
 ];

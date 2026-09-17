@@ -41,4 +41,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep3' => 'Laden Sie das Installationsprogramm für die Erweiterung &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> über den Link <i class="cloud download icon"></i></a> herunter',
     'mod_cti_OdinEsSetupMessageStep1' => 'Erstellen Sie eine Sicherungskopie Ihrer 1C-Datenbank',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Installieren Sie das Telefonie-Subsystem in 1C:Enterprise 8',
+    'mod_cti_DownloadClientHeader' => 'Client des Telefoniepanels Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Um Anrufe zu tätigen und Chats zu nutzen, laden Sie das Telefoniepanel Miko CTI herunter',
+    'mod_cti_DownloadClientButton' => 'Herunterladen',
+    'mod_cti_tab_Client' => 'CTI-Anwendung',
+    'mod_cti_ClientScreenshotAlt' => 'Screenshot des Telefoniepanels Miko CTI',
 ];

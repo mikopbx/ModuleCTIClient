@@ -34,4 +34,9 @@ return [
     'mod_cti_ConnectionWait' => 'Aspettiamo la connessione a MikoPBX dal lato 1C',
     'mod_cti_tab_Settings' => 'Impostazioni',
     'mod_cti_tab_debug' => 'Servizi del modulo di debug',
+    'mod_cti_DownloadClientHeader' => 'Client del pannello di telefonia Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Per effettuare chiamate e utilizzare le chat, scaricare il pannello di telefonia Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Scarica',
+    'mod_cti_tab_Client' => 'Applicazione CTI',
+    'mod_cti_ClientScreenshotAlt' => 'Screenshot del pannello di telefonia Miko CTI',
 ];

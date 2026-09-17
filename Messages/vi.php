@@ -34,4 +34,9 @@ return [
     'mod_cti_ConnectionWait' => 'Chúng tôi đang chờ kết nối với MikoPBX từ phía 1C',
     'mod_cti_tab_Settings' => 'Cài đặt',
     'mod_cti_tab_debug' => 'Dịch vụ mô-đun gỡ lỗi',
+    'mod_cti_DownloadClientHeader' => 'Ứng dụng khách bảng điện thoại Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Để thực hiện cuộc gọi và làm việc với trò chuyện, hãy tải xuống bảng điện thoại Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Tải xuống',
+    'mod_cti_tab_Client' => 'Ứng dụng CTI',
+    'mod_cti_ClientScreenshotAlt' => 'Ảnh chụp màn hình bảng điện thoại Miko CTI',
 ];

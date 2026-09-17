@@ -41,4 +41,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep3' => 'Завантажте установник розширень &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> за посиланням <i class="cloud download icon"></i></a>',
     'mod_cti_OdinEsSetupMessageStep1' => 'Зробіть резервну копію вашої бази 1С',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Встановіть підсистему телефонії в 1С:Підприємство 8',
+    'mod_cti_DownloadClientHeader' => 'Клієнт панелі телефонії Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Для здійснення дзвінків та роботи з чатами завантажте панель телефонії Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Завантажити',
+    'mod_cti_tab_Client' => 'CTI-застосунок',
+    'mod_cti_ClientScreenshotAlt' => 'Скриншот панелі телефонії Miko CTI',
 ];

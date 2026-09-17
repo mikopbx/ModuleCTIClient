@@ -40,4 +40,9 @@ return [
  */
     'BreadcrumbModuleCTIClient' => 'Painel de telefonia 1.0 para 1C',
     'mod_cti_PublicationNameForAuth' => 'Nome da publicação com autenticação do SO (opcional)',
+    'mod_cti_DownloadClientHeader' => 'Cliente do painel de telefonia Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Para fazer chamadas e trabalhar com os chats, baixe o painel de telefonia Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Baixar',
+    'mod_cti_tab_Client' => 'Aplicativo CTI',
+    'mod_cti_ClientScreenshotAlt' => 'Captura de tela do painel de telefonia Miko CTI',
 ];

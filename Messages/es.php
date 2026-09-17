@@ -34,4 +34,9 @@ return [
     'mod_cti_PublicationOverHeader' => 'Modo de conexión con 1C',
     'mod_cti_tab_debug' => 'Servicios del módulo de depuración',
     'mod_cti_tab_Settings' => 'Ajustes',
+    'mod_cti_DownloadClientHeader' => 'Cliente del panel de telefonía Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Para realizar llamadas y trabajar con los chats, descargue el panel de telefonía Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Descargar',
+    'mod_cti_tab_Client' => 'Aplicación CTI',
+    'mod_cti_ClientScreenshotAlt' => 'Captura de pantalla del panel de telefonía Miko CTI',
 ];

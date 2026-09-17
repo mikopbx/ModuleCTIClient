@@ -42,4 +42,9 @@ return [
     'mod_cti_ValidateServer1CHostEmpty' => 'Η διεύθυνση διακομιστή 1C δεν έχει συμπληρωθεί',
     'fw_modulecticlientDescription' => 'CTI CLIENT - Πίνακας τηλεφωνίας 4.0 για 1C',
     'SubHeaderModuleCTIClient' => 'Μονάδα διαχείρισης κλήσεων από υπολογιστή',
+    'mod_cti_DownloadClientHeader' => 'Πελάτης τηλεφωνικού πάνελ Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Για να πραγματοποιείτε κλήσεις και να χρησιμοποιείτε τις συνομιλίες, πραγματοποιήστε λήψη του τηλεφωνικού πάνελ Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Λήψη',
+    'mod_cti_tab_Client' => 'Εφαρμογή CTI',
+    'mod_cti_ClientScreenshotAlt' => 'Στιγμιότυπο του τηλεφωνικού πάνελ Miko CTI',
 ];

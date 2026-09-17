@@ -150,4 +150,9 @@ return [
     'mod_cti_state_qrcode'             => 'Ожидает авторизации по QR-коду',
     'mod_cti_state_reauth'             => 'Требуется авторизация',
     'mod_cti_state_suppressed'         => 'Переносится',
+    'mod_cti_DownloadClientHeader' => 'Клиент панели телефонии Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Для совершения звонков и работы с чатами используйте панель телефонии Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Скачать',
+    'mod_cti_tab_Client' => 'CTI приложение',
+    'mod_cti_ClientScreenshotAlt' => 'Скриншот панели телефонии Miko CTI',
 ];
