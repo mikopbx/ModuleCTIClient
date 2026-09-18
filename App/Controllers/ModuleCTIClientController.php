@@ -506,6 +506,12 @@ class ModuleCTIClientController extends BaseController
         // Текущий транспорт клиента: если он разрешён сотруднику — сохраним выбор.
         $clientTransport = strtolower(trim((string)$this->request->getHeader('X-Client-Transport')));
 
+        // Логин для TLS-регистрации: ядро ≥ 2026.2.118 генерирует параллельный
+        // эндпоинт [<номер>-TLS] (только при наличии сертификатов), на старых
+        // ядрах его нет и REGISTER от <номер>-TLS даёт 401/404 — там клиент
+        // регистрируется голым номером, как раньше.
+        $tlsLoginSuffix = $this->hasTlsEndpoints() ? '-TLS' : '';
+
         $parameters = [
             'models' => [
                 'Extensions' => Extensions::class,
@@ -549,7 +555,12 @@ class ModuleCTIClientController extends BaseController
                     $extensionTable[$extension->userid]['number'] = $extension->number;
                     $extensionTable[$extension->userid]['username'] = $extension->username;
                     $extensionTable[$extension->userid]['email'] = $extension->email;
-                    $transport = $this->normalizeTransport((string)$extension->transport, $clientTransport);
+                    // Без X-Client-Transport (старый клиент) отдаём Sip.transport как есть:
+                    // прежние клиенты сами разбирают список "udp,tcp" и поднимают UDP,
+                    // нормализация здесь молча переводила бы их на TCP.
+                    $transport = $clientTransport !== ''
+                        ? $this->normalizeTransport((string)$extension->transport, $clientTransport)
+                        : (string)$extension->transport;
                     $extensionTable[$extension->userid]['port'] = ($transport === 'tls') ? $securePort : $plainPort;
                     $extensionTable[$extension->userid]['transport'] = $transport;
                     $extensionTable[$extension->userid]['dtmfmode'] = $extension->dtmfmode;
@@ -586,6 +597,8 @@ class ModuleCTIClientController extends BaseController
                 'port' => $extension['port'],
                 'transport' => $extension['transport'],
                 'dtmfmode' => $extension['dtmfmode'],
+                // Пусто — регистрироваться по TLS голым номером (старое ядро).
+                'tls_login' => $tlsLoginSuffix !== '' ? $extension['number'] . $tlsLoginSuffix : '',
             ];
         }
 
@@ -594,6 +607,24 @@ class ModuleCTIClientController extends BaseController
         $this->response->setContentType('application/json', 'UTF-8');
         $data = json_encode($resultTable);
         $this->response->setContent($data);
+    }
+
+    /**
+     * Генерирует ли ядро эндпоинты [<номер>-TLS]. Метод SIPConf::hasCertificates()
+     * появился в том же коммите, что и сами эндпоинты (2026.2.118) — на старых
+     * ядрах его нет, и это надёжнее сравнения версий.
+     */
+    private function hasTlsEndpoints(): bool
+    {
+        $probe = ['\\MikoPBX\\Core\\Asterisk\\Configs\\SIPConf', 'hasCertificates'];
+        if (!is_callable($probe)) {
+            return false;
+        }
+        try {
+            return (bool)call_user_func($probe);
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**
