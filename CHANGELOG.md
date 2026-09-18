@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - REST API v3 support for employee updates (avatar, mobile, email) on MikoPBX 2025.1.1+
 - Multi-format avatar parsing (JSON, path-only, legacy base64)
 - `isPhalcon512Version()` check for PBX version 2025.1.1+
+- `/pbx/users` provisioning: external SIP/TLS ports for clients connecting through the PBX external address (`X-Client-Host`), single normalized transport honouring the client's current choice (`X-Client-Transport`), and `tls_login` (`<number>-TLS`) on cores that generate parallel TLS endpoints (MikoPBX 2026.2.118+); clients without the headers keep the previous raw `transport` value
 
 ### Changed
 - Messenger proxy settings split per service; MTProxy accepts proxy links and base64 secrets with automatic normalization

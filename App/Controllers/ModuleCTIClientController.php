@@ -561,7 +561,8 @@ class ModuleCTIClientController extends BaseController
                     $transport = $clientTransport !== ''
                         ? $this->normalizeTransport((string)$extension->transport, $clientTransport)
                         : (string)$extension->transport;
-                    $extensionTable[$extension->userid]['port'] = ($transport === 'tls') ? $securePort : $plainPort;
+                    // Порт — по нормализованному значению: сырая строка может прийти в любом регистре.
+                    $extensionTable[$extension->userid]['port'] = (strtolower(trim($transport)) === 'tls') ? $securePort : $plainPort;
                     $extensionTable[$extension->userid]['transport'] = $transport;
                     $extensionTable[$extension->userid]['dtmfmode'] = $extension->dtmfmode;
                     if (!empty($extension->avatar)) {
@@ -612,19 +613,22 @@ class ModuleCTIClientController extends BaseController
     /**
      * Генерирует ли ядро эндпоинты [<номер>-TLS]. Метод SIPConf::hasCertificates()
      * появился в том же коммите, что и сами эндпоинты (2026.2.118) — на старых
-     * ядрах его нет, и это надёжнее сравнения версий.
+     * ядрах его нет, и это надёжнее сравнения версий. Сам метод НЕ вызываем:
+     * он идёт в SslCertificateService::prepareAsteriskCertificates(), который
+     * может сгенерировать сертификат и при каждом вызове пишет файлы в
+     * /etc/asterisk/ssl — из веб-запроса такого делать нельзя. Ядро при
+     * генерации pjsip.conf кладёт сертификат по константам сервиса — проверяем
+     * его наличие только чтением.
      */
     private function hasTlsEndpoints(): bool
     {
-        $probe = ['\\MikoPBX\\Core\\Asterisk\\Configs\\SIPConf', 'hasCertificates'];
-        if (!is_callable($probe)) {
+        if (!is_callable(['\\MikoPBX\\Core\\Asterisk\\Configs\\SIPConf', 'hasCertificates'])) {
             return false;
         }
-        try {
-            return (bool)call_user_func($probe);
-        } catch (\Throwable $e) {
-            return false;
-        }
+        $ssl = '\\MikoPBX\\Core\\System\\SslCertificateService';
+        $certFile = defined("$ssl::ASTERISK_CERT_FILE") ? constant("$ssl::ASTERISK_CERT_FILE") : '/etc/asterisk/ssl/asterisk.crt';
+        $keyFile = defined("$ssl::ASTERISK_KEY_FILE") ? constant("$ssl::ASTERISK_KEY_FILE") : '/etc/asterisk/ssl/asterisk.key';
+        return is_file($certFile) && is_file($keyFile);
     }
 
     /**
