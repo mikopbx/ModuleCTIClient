@@ -20,6 +20,7 @@
 namespace Modules\ModuleCTIClient\Models;
 
 use MikoPBX\Modules\Models\ModulesModelsBase;
+use Modules\ModuleCTIClient\Lib\CrmTypes;
 
 
 /**
@@ -29,6 +30,18 @@ use MikoPBX\Modules\Models\ModulesModelsBase;
  */
 class ModuleCTIClient extends ModulesModelsBase
 {
+    public const CRM_TYPE_1C = CrmTypes::TYPE_1C;
+    public const CRM_TYPE_NONE = 'none';
+
+    /**
+     * Выбрана ли интеграция с 1С. Делегирует в CrmTypes — правило должно
+     * оставаться доступным и из долгоживущих воркеров, чей класс модели
+     * мог пережить обновление модуля (см. CrmTypes).
+     */
+    public static function isCrm1cType(?string $crmType): bool
+    {
+        return CrmTypes::isCrm1c($crmType);
+    }
 
     /**
      * @Primary
@@ -36,6 +49,13 @@ class ModuleCTIClient extends ModulesModelsBase
      * @Column(type='integer', nullable=false)
      */
     public $id;
+
+    /**
+     * @var string|null Selected CRM integration: '1c' (1C:Enterprise) or 'none'.
+     *
+     * @Column(type='string', length=10, nullable=true, default='1c')
+     */
+    public ?string $crm_type = self::CRM_TYPE_1C;
 
     /**
      * @var string|null The address of the 1C server

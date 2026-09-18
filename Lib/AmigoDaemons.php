@@ -452,6 +452,18 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Whether the 1C bridge (crmd / crm-1c) integration is enabled.
+     * Strict opt-in: ONLY the explicit '1c' runs the 1C daemons; any future
+     * CRM type keeps the 1C stack off. Normalization lives in CrmTypes —
+     * deliberately not in the model, whose class a long-lived worker may
+     * still hold from before a module upgrade.
+     */
+    public function isCrm1cEnabled(): bool
+    {
+        return CrmTypes::isCrm1c($this->module_settings['crm_type'] ?? null);
+    }
+
+    /**
      * Absolute path to the per-area migration cursor file (§3.1, R6).
      *
      * @return string
@@ -4488,6 +4500,45 @@ class AmigoDaemons extends Injectable
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_MONITOR;
         Util::mwMkdir($logDir);
 
+        $daemons = [
+            [
+                'path' => "{$this->dirs['binDir']}/" . self::SERVICE_GNATS,
+                'args' => "-c {$this->dirs['confDir']}/nats.conf",
+            ],
+            [
+                'path' => "{$this->dirs['binDir']}/" . self::SERVICE_AMI,
+                'args' => "-c {$this->dirs['confDir']}/ami.json",
+                'subject' => 'daemon.asterisk.ping',
+            ],
+        ];
+        if ($this->isCrm1cEnabled()) {
+            $daemons[] = [
+                'path' => "{$this->dirs['binDir']}/" . self::SERVICE_CRM,
+                'args' => "-c {$this->dirs['confDir']}/crm.json",
+                'subject' => 'daemon.1c.ping',
+            ];
+        }
+        //                 https://jira.miko.ru/browse/PT-870
+        //                [
+        //                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH,
+        //                    'args' => "-c {$this->dirs['confDir']}/speech.json",
+        //                    'subject' => 'daemon.speech.ping',
+        //                ],
+        $daemons[] = [
+            'path' => "{$this->dirs['binDir']}/" . self::SERVICE_AUTH,
+            'args' => "-c {$this->dirs['confDir']}/auth.json",
+            'subject' => 'daemon.auth.ping',
+        ];
+        // proxyd tunnels only the client's 1C traffic (1C web publication and
+        // the 1C collaboration server) — without CRM it stays off alongside crmd.
+        if ($this->isCrm1cEnabled()) {
+            $daemons[] = [
+                'path' => "{$this->dirs['binDir']}/" . self::SERVICE_PROXY,
+                'args' => "-c {$this->dirs['confDir']}/proxy.json",
+                'subject' => 'daemon.proxy.ping',
+            ];
+        }
+
         $arr_settings = [
             'mq' => [
                 'host' => '127.0.0.1',
@@ -4499,38 +4550,7 @@ class AmigoDaemons extends Injectable
             'binary_dir' => $this->dirs['binDir'],
             'settings_dir' => $this->dirs['confDir'],
             'period' => 30,
-            'daemons' => [
-                [
-                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_GNATS,
-                    'args' => "-c {$this->dirs['confDir']}/nats.conf",
-                ],
-                [
-                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_AMI,
-                    'args' => "-c {$this->dirs['confDir']}/ami.json",
-                    'subject' => 'daemon.asterisk.ping',
-                ],
-                [
-                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_CRM,
-                    'args' => "-c {$this->dirs['confDir']}/crm.json",
-                    'subject' => 'daemon.1c.ping',
-                ],
-                [
-                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_AUTH,
-                    'args' => "-c {$this->dirs['confDir']}/auth.json",
-                    'subject' => 'daemon.auth.ping',
-                ],
-//                 https://jira.miko.ru/browse/PT-870
-//                [
-//                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_SPEECH,
-//                    'args' => "-c {$this->dirs['confDir']}/speech.json",
-//                    'subject' => 'daemon.speech.ping',
-//                ],
-                [
-                    'path' => "{$this->dirs['binDir']}/" . self::SERVICE_PROXY,
-                    'args' => "-c {$this->dirs['confDir']}/proxy.json",
-                    'subject' => 'daemon.proxy.ping',
-                ],
-            ],
+            'daemons' => $daemons,
         ];
 
         // Remote messenger offload (§3.2). Three distinct inputs, NEVER conflate:
@@ -4548,7 +4568,12 @@ class AmigoDaemons extends Injectable
 
         $suppressed = [];
         foreach (self::MIGRATABLE_SERVICES as $svc) {
-            if (!empty($state[$svc]['migrating']) && empty($state[$svc]['resuming'])) {
+            // Without CRM the messenger daemons have no purpose — areas are
+            // created by 1C only — so suppress chats/tg/max outright: monitord
+            // spawns them nowhere and kills any leftovers (same mechanism the
+            // migration suppress phase uses).
+            if (!$this->isCrm1cEnabled()
+                || (!empty($state[$svc]['migrating']) && empty($state[$svc]['resuming']))) {
                 $suppressed[] = $svc;
             }
         }
@@ -4838,8 +4863,8 @@ class AmigoDaemons extends Injectable
         // red in the first seconds (exactly the false alarm we suppress). This is
         // safe: a permanently-dead module has monitord down, so the tunnel check
         // returns "pending" (not error) and the other rows are unknown/starting —
-        // there is no hard error to hide, and the ever-present crm-1c row keeps
-        // the overall badge yellow regardless.
+        // there is no hard error to hide, and the crm-1c row (when 1C
+        // integration is on) keeps the overall badge yellow regardless.
         $moduleAge = null;
         foreach ($statuses as $row) {
             if (!is_array($row) || !isset($row['uptime']) || !is_string($row['uptime'])) {
@@ -5315,6 +5340,26 @@ class AmigoDaemons extends Injectable
             }
         }
 
+        // Without CRM the messenger services are suppressed; monitord still
+        // reports them (state 'suppressed') — drop the rows to keep the
+        // status panel free of dead messenger entries.
+        if (!$this->isCrm1cEnabled()) {
+            $result = array_values(array_filter(
+                $result,
+                static function ($row): bool {
+                    if (!is_array($row)) {
+                        return true;
+                    }
+                    // Учёт и канальные имена вида "chats.<area>" (как в sortStatuses).
+                    $name = (string)($row['name'] ?? '');
+                    $dot = strpos($name, '.');
+                    $base = $dot === false ? $name : substr($name, 0, $dot);
+
+                    return !in_array($base, self::MIGRATABLE_SERVICES, true);
+                }
+            ));
+        }
+
         return $result;
     }
 
@@ -5406,10 +5451,12 @@ class AmigoDaemons extends Injectable
             self::SERVICE_MONITOR,        // 'monitord'
             'nats',
             'ami-listener',
-            'crm-1c',
             'auth',
-            'proxy',
         ];
+        if ($this->isCrm1cEnabled()) {
+            $expected[] = 'crm-1c';
+            $expected[] = 'proxy';
+        }
         if (!empty($this->getRemoteServices())) {
             $expected[] = self::SERVICE_REMOTE_TUNNEL;
         }

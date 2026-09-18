@@ -13,6 +13,30 @@
 
     {# general tab #}
     <div class="ui bottom attached tab segment" data-tab="settings">
+        <h4 class="ui top attached header">{{ t._('mod_cti_CrmGroupHeader') }}</h4>
+        <div class="ui attached segment">
+            <div class="field">
+                <label>{{ t._('mod_cti_CrmSelectHeader') }}</label>
+                <div class="grouped fields">
+                    <div class="field">
+                        <div class="ui radio checkbox crm-type-radio">
+                            {{ form.render('crm_type_none') }}
+                            <label for="crm_type_none">{{ t._('mod_cti_CrmNone') }}</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="ui radio checkbox crm-type-radio" id="crm-type-1c-toggle">
+                            {{ form.render('crm_type_1c') }}
+                            <label for="crm_type_1c">{{ t._('mod_cti_Crm1C') }}</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="ui hidden divider"></div>
+        <div id="crm-1c-settings-block">
+        <h4 class="ui top attached header">{{ t._('mod_cti_Crm1C') }}</h4>
+        <div class="ui attached segment">
         <div class="field">
             <div class="ui icon message">
                 <i class="wrench icon"></i>
@@ -105,15 +129,6 @@
 
         <div class="field">
             <div class="ui segment">
-                <div class="ui toggle checkbox " id="debug-mode-toggle">
-                    {{ form.render('debug_mode') }}
-                    <label for="debug_mode">{{ t._('mod_cti_EnableDebugMode') }}</label>
-                </div>
-            </div>
-        </div>
-
-        <div class="field">
-            <div class="ui segment">
                 <div class="ui toggle checkbox " id="setup-caller-id-toggle">
                     {{ form.render('setup_caller_id') }}
                     <label for="setup_caller_id">{{ t._('mod_cti_EnableSetCallerID') }}</label>
@@ -135,6 +150,20 @@
                 {{ form.render('interception_timeout') }}
             </div>
             <div class="ui small grey text">{{ t._('mod_cti_InterceptionTimeoutHint') }}</div>
+        </div>
+        </div>
+        </div>
+
+        <div class="ui hidden divider"></div>
+
+        <h4 class="ui top attached header">{{ t._('mod_cti_GroupOther') }}</h4>
+        <div class="ui attached segment">
+            <div class="field">
+                <div class="ui toggle checkbox " id="debug-mode-toggle">
+                    {{ form.render('debug_mode') }}
+                    <label for="debug_mode">{{ t._('mod_cti_EnableDebugMode') }}</label>
+                </div>
+            </div>
         </div>
 
     </div>
@@ -305,16 +334,16 @@
             }
             #cti-services-status {
                 position: relative;
-                min-height: 280px;
             }
             #cti-services-status-placeholder {
-                position: absolute;
-                inset: 0;
+                /* В потоке (не overlay): пока таблица пуста — задаёт высоту
+                   контейнеру сам; при отрисовке строк JS его скрывает, и высота
+                   определяется таблицей без остаточной пустоты снизу. */
+                min-height: 200px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 background: rgba(255,255,255,.85);
-                z-index: 2;
             }
             /* status table */
             .cti-status-table { margin-top: 0 !important; }

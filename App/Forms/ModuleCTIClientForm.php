@@ -28,11 +28,29 @@ use Phalcon\Forms\Element\Select;
 use Phalcon\Forms\Element\Text;
 use Phalcon\Forms\Element\TextArea;
 use Phalcon\Forms\Form;
+use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 
 class ModuleCTIClientForm extends Form
 {
     public function initialize($entity = null)
     {
+        // CRM selection radios. NOTE: Phalcon treats the radio `checked`
+        // attribute as the value to match against `value` — the input is only
+        // checked when they are equal. '1c' highlights the 1C radio, 'none'
+        // the no-CRM one (legacy null/'' counts as '1c', see
+        // ModuleCTIClient::isCrm1cType); any future CRM value highlights
+        // neither — its own radio joins later.
+        $crmType = $entity->crm_type ?? ModuleCTIClient::CRM_TYPE_1C;
+        $noneAttrs = ['name' => 'crm_type', 'value' => ModuleCTIClient::CRM_TYPE_NONE];
+        $oneCAttrs = ['name' => 'crm_type', 'value' => ModuleCTIClient::CRM_TYPE_1C];
+        if ($crmType === ModuleCTIClient::CRM_TYPE_NONE) {
+            $noneAttrs['checked'] = ModuleCTIClient::CRM_TYPE_NONE;
+        } elseif (ModuleCTIClient::isCrm1cType($crmType)) {
+            $oneCAttrs['checked'] = ModuleCTIClient::CRM_TYPE_1C;
+        }
+        $this->add(new Radio('crm_type_none', $noneAttrs));
+        $this->add(new Radio('crm_type_1c', $oneCAttrs));
+
         $this->add(new Text('server1chost'));
         $this->add(new Numeric('server1cport'));
 

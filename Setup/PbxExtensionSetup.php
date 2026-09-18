@@ -57,6 +57,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             $settings = ModuleCTIClient::findFirst();
             if ($settings === null) {
                 $settings                     = new ModuleCTIClient();
+                $settings->crm_type           = ModuleCTIClient::CRM_TYPE_1C;
                 $settings->debug_mode         = '0';
                 $settings->web_service_mode   = '0';
                 $settings->auto_settings_mode = '1';
@@ -265,6 +266,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
         Processes::killbyname(AmigoDaemons::SERVICE_AUTH);
         Processes::killbyname(AmigoDaemons::SERVICE_SPEECH);
         Processes::killbyname(AmigoDaemons::SERVICE_GNATS);
+        Processes::killbyname(AmigoDaemons::SERVICE_PROXY);
 
         // Resolve the REAL spool dir before the rm's below. Its path is
         // {core.tempDir}/ModuleCTIClient — NOT the old hardcoded
