@@ -47,6 +47,12 @@ return [
     'mod_cti_ConnectionWait'      => 'Ожидаем подключения к MikoPBX со стороны 1С',
 
     'mod_cti_tab_Settings'             => 'Настройки',
+    'mod_cti_CrmGroupHeader'          => 'Интеграция с CRM',
+    'mod_cti_CrmSelectHeader'         => 'Выберите CRM',
+    'mod_cti_CrmNone'                  => 'Не использую CRM',
+    'mod_cti_Crm1C'                    => '1С: Предприятие',
+    'mod_cti_GroupOther'               => 'Прочие настройки',
+    'mod_cti_CrmNoneBlockedByRemoteOffload' => 'Отключите перенос мессенджеров на удалённый сервер (верните каналы на АТС), прежде чем отключать интеграцию с 1С',
     'mod_cti_tab_debug'                => 'Отладка сервисов модуля',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Установите подсистему телефонии в 1С:Предприятие 8',
     'mod_cti_OdinEsSetupMessageStep1'  => 'Сделайте резервную копию вашей базы 1С',

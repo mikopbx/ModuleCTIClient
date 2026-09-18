@@ -33,5 +33,11 @@ return [
     'mod_cti_UpdateStatus' => 'ステータス更新',
     'mod_cti_ConnectionWait' => '1C側からMikoPBXへの接続をお待ちしております',
     'mod_cti_tab_Settings' => '設定',
+    'mod_cti_CrmGroupHeader' => 'CRM連携',
+    'mod_cti_CrmSelectHeader' => 'CRMを選択',
+    'mod_cti_GroupOther' => 'その他の設定',
+    'mod_cti_CrmNoneBlockedByRemoteOffload' => '1Cとの連携を無効にする前に、メッセンジャーのリモートサーバーへの移行を無効にしてください（チャネルをPBXに戻します）',
+    'mod_cti_CrmNone' => 'CRMを使用しない',
+    'mod_cti_Crm1C' => '1C:Enterprise',
     'mod_cti_tab_debug' => 'モジュールサービスのデバッグ',
 ];

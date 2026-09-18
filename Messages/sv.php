@@ -33,5 +33,11 @@ return [
     'mod_cti_UpdateStatus' => 'Statusuppdatering',
     'mod_cti_ConnectionWait' => 'Vi väntar på en anslutning till MikoPBX från 1C-sidan',
     'mod_cti_tab_Settings' => 'inställningar',
+    'mod_cti_CrmGroupHeader' => 'CRM-integration',
+    'mod_cti_CrmSelectHeader' => 'Välj CRM',
+    'mod_cti_GroupOther' => 'Övriga inställningar',
+    'mod_cti_CrmNoneBlockedByRemoteOffload' => 'Inaktivera överföringen av meddelandetjänster till fjärrservern (för tillbaka kanalerna till växeln) innan du inaktiverar 1C-integrationen',
+    'mod_cti_CrmNone' => 'Ingen CRM',
+    'mod_cti_Crm1C' => '1C:Enterprise',
     'mod_cti_tab_debug' => 'Avlusningsmodultjänster',
 ];

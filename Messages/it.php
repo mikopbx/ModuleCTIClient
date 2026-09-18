@@ -33,5 +33,11 @@ return [
     'mod_cti_UpdateStatus' => 'Aggiornamento dello stato',
     'mod_cti_ConnectionWait' => 'Aspettiamo la connessione a MikoPBX dal lato 1C',
     'mod_cti_tab_Settings' => 'Impostazioni',
+    'mod_cti_CrmGroupHeader' => 'Integrazione CRM',
+    'mod_cti_CrmSelectHeader' => 'Seleziona CRM',
+    'mod_cti_GroupOther' => 'Altre impostazioni',
+    'mod_cti_CrmNoneBlockedByRemoteOffload' => 'Disattiva lo spostamento dei messenger sul server remoto (riporta i canali sul centralino) prima di disattivare l\'integrazione 1C',
+    'mod_cti_CrmNone' => 'Nessun CRM',
+    'mod_cti_Crm1C' => '1C:Enterprise',
     'mod_cti_tab_debug' => 'Servizi del modulo di debug',
 ];
