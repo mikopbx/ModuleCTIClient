@@ -11,6 +11,20 @@
         <a class="item" data-tab="remote">{{ t._('mod_cti_tab_Remote') }}</a>
         <a class="item" data-tab="debug">{{ t._('mod_cti_tab_debug') }}</a>
     </div>
+    <style>
+        {# Fomantic даёт пунктам меню flex: 0 0 auto — меню не сжимается и на узком экране выезжает за форму.
+           Разрешаем сжатие без переноса строки: вкладки остаются в один ряд, длинные подписи
+           обрезаются многоточием. display: block нужен потому, что у пунктов этого билда Fomantic
+           display: flex, а text-overflow во flex-контейнере с текстовым узлом не работает. #}
+        #module-cti-client-tabs .item {
+            display: block;
+            flex: 0 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    </style>
 
     {# general tab #}
     <div class="ui bottom attached tab segment" data-tab="settings">
