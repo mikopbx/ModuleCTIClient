@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-format avatar parsing (JSON, path-only, legacy base64)
 - `isPhalcon512Version()` check for PBX version 2025.1.1+
 - `/pbx/users` provisioning: external SIP/TLS ports for clients connecting through the PBX external address (`X-Client-Host`), single normalized transport honouring the client's current choice (`X-Client-Transport`), and `tls_login` (`<number>-TLS`) on cores that generate parallel TLS endpoints (MikoPBX 2026.2.118+); clients without the headers keep the previous raw `transport` value
+- "CTI application" tab: download links for the Miko CTI desktop client (Windows, macOS Intel, macOS Apple Silicon) and a gallery of client screenshots
 
 ### Changed
 - Messenger proxy settings split per service; MTProxy accepts proxy links and base64 secrets with automatic normalization
@@ -31,5 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PHP 7.4 compatibility: replaced `str_starts_with()` with `strpos()` equivalent
 - Null-safety for avatar field when passing to typed string parameters
 - PSR-12 formatting in AmigoDaemons
+- Settings tabs no longer overflow the form on narrow screens: long tab titles are truncated with an ellipsis
 
 [Unreleased]: https://github.com/mikopbx/ModuleCTIClient/compare/master...develop
