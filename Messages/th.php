@@ -52,4 +52,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep4' => 'กด Ctrl+O (หรือ File&#8594;Open) และเลือกไฟล์ "Installer.epf"',
     'mod_cti_EnableSetCallerID' => 'ติดตั้ง CallerID จาก 1C',
     'mod_cti_TransliterateCallerID' => 'ดำเนินการแปลอักษรของ CallerID ที่ได้รับจาก 1C',
+    'mod_cti_DownloadClientHeader' => 'ไคลเอนต์แผงโทรศัพท์ Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'หากต้องการโทรออกและใช้งานแชท โปรดดาวน์โหลดแผงโทรศัพท์ Miko CTI',
+    'mod_cti_DownloadClientButton' => 'ดาวน์โหลด',
+    'mod_cti_tab_Client' => 'แอปพลิเคชัน CTI',
+    'mod_cti_ClientScreenshotAlt' => 'ภาพหน้าจอแผงโทรศัพท์ Miko CTI',
 ];

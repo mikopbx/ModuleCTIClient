@@ -52,4 +52,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep1' => 'Maak een back-upkopie van uw 1C-database',
     'mod_cti_EnableSetCallerID' => 'CallerID installeren vanuit 1C',
     'mod_cti_TransliterateCallerID' => 'Transliteratie uitvoeren van de beller-ID ontvangen van 1C',
+    'mod_cti_DownloadClientHeader' => 'Client van het Miko CTI telefoniepaneel',
+    'mod_cti_DownloadClientMessage' => 'Om gesprekken te voeren en met chats te werken, downloadt u het telefoniepaneel Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Downloaden',
+    'mod_cti_tab_Client' => 'CTI-toepassing',
+    'mod_cti_ClientScreenshotAlt' => 'Screenshot van het Miko CTI telefoniepaneel',
 ];

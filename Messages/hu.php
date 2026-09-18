@@ -52,4 +52,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep4' => 'Nyomja meg a Ctrl+O (vagy a Fájl&#8594;Open) billentyűkombinációt, és válassza ki az "Installer.epf" fájlt.',
     'mod_cti_EnableSetCallerID' => 'Telepítse a hívóazonosítót az 1C-ből',
     'mod_cti_TransliterateCallerID' => 'Végezze el az 1C-től kapott hívóazonosító átírását',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI telefonpanel kliens',
+    'mod_cti_DownloadClientMessage' => 'Hívások kezdeményezéséhez és a csevegők használatához töltse le a Miko CTI telefonpanelt',
+    'mod_cti_DownloadClientButton' => 'Letöltés',
+    'mod_cti_tab_Client' => 'CTI alkalmazás',
+    'mod_cti_ClientScreenshotAlt' => 'A Miko CTI telefonpanel képernyőképe',
 ];

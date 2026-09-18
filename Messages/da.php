@@ -41,4 +41,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep3' => 'Download udvidelsesinstallationsprogrammet &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> fra linket <i class="cloud download icon"></i></a>',
     'mod_cti_OdinEsSetupMessageStep1' => 'Lav en sikkerhedskopi af din 1C-database',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Installer telefoniundersystemet i 1C:Enterprise 8',
+    'mod_cti_DownloadClientHeader' => 'Klient til Miko CTI-telefonipanelet',
+    'mod_cti_DownloadClientMessage' => 'For at foretage opkald og arbejde med chats skal du downloade telefonipanelet Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Download',
+    'mod_cti_tab_Client' => 'CTI-program',
+    'mod_cti_ClientScreenshotAlt' => 'Skærmbillede af telefonipanelet Miko CTI',
 ];

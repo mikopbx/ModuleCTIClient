@@ -34,4 +34,9 @@ return [
     'mod_cti_Connected' => 'Modul funguje správně',
     'mod_cti_AutoSettingsData' => 'Data pro automatickou konfiguraci',
     'mod_cti_PublicationOverLongPool' => 'přes připojení LongPool (1C se připojuje k MikoPBX)',
+    'mod_cti_DownloadClientHeader' => 'Klient telefonního panelu Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Pro uskutečňování hovorů a práci s chaty si stáhněte telefonní panel Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Stáhnout',
+    'mod_cti_tab_Client' => 'Aplikace CTI',
+    'mod_cti_ClientScreenshotAlt' => 'Snímek obrazovky telefonního panelu Miko CTI',
 ];

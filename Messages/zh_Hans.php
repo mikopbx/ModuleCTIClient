@@ -34,4 +34,9 @@ return [
     'mod_cti_ConnectionWait' => '我们正在等待从 1C 侧连接到 MikoPBX',
     'mod_cti_tab_Settings' => '设置',
     'mod_cti_tab_debug' => '调试模块服务',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI 电话面板客户端',
+    'mod_cti_DownloadClientMessage' => '如需拨打电话和使用聊天功能，请下载 Miko CTI 电话面板',
+    'mod_cti_DownloadClientButton' => '下载',
+    'mod_cti_tab_Client' => 'CTI 应用程序',
+    'mod_cti_ClientScreenshotAlt' => 'Miko CTI 电话面板截图',
 ];

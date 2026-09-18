@@ -28,6 +28,7 @@ use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Common\Models\Providers;
 use MikoPBX\Common\Models\Sip;
 use MikoPBX\Common\Models\Users;
+use MikoPBX\Common\Providers\LanguageProvider;
 use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
 use Modules\ModuleCTIClient\Lib\AmigoDaemons;
@@ -116,8 +117,39 @@ class ModuleCTIClientController extends BaseController
         $this->view->form = new ModuleCTIClientForm($settings);
         $this->view->autoSettingsValue = $this->generateAutoSettingsString($settings);
 
+        // Client screenshots gallery on the CTI tab: 'ru' screenshots for the
+        // Russian UI, 'en' for every other language. A folder without images
+        // falls back to the other one; an empty list hides the gallery.
+        $screenshotLang = $this->di->getShared(LanguageProvider::SERVICE_NAME) === 'ru' ? 'ru' : 'en';
+        $screenshotNames = $this->scanClientScreenshots($screenshotLang);
+        if ($screenshotNames === []) {
+            $screenshotLang = $screenshotLang === 'ru' ? 'en' : 'ru';
+            $screenshotNames = $this->scanClientScreenshots($screenshotLang);
+        }
+        $this->view->clientScreenshots = $screenshotNames;
+        $this->view->clientImgPath = "{$this->url->get()}assets/img/cache/{$this->moduleUniqueID}/cti-client/{$screenshotLang}";
+
         // Set the view template
         $this->view->pick("{$this->moduleDir}/App/Views/index");
+    }
+
+    /**
+     * Base names (without extension) of the client screenshots in the given
+     * language folder. A screenshot is a <name>.png with a <name>-thumb.png
+     * thumbnail next to it.
+     */
+    private function scanClientScreenshots(string $lang): array
+    {
+        $dir = "{$this->moduleDir}/public/assets/img/cti-client/{$lang}";
+        $names = [];
+        foreach (glob($dir . '/*-thumb.png') ?: [] as $thumbFile) {
+            $name = basename($thumbFile, '-thumb.png');
+            if (file_exists($dir . '/' . $name . '.png')) {
+                $names[] = $name;
+            }
+        }
+        sort($names, SORT_NATURAL);
+        return $names;
     }
 
     /**

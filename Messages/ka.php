@@ -41,4 +41,9 @@ return [
     'mod_cti_OdinEsSetupMessageStep3' => 'ჩამოტვირთეთ გაფართოების ინსტალერი &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank"> ბმულიდან <i class="cloud download icon"></i></a>',
     'mod_cti_OdinEsSetupMessageStep1' => 'გააკეთეთ თქვენი 1C მონაცემთა ბაზის სარეზერვო ასლი',
     'mod_cti_OdinEsSetupHeaderMessage' => 'დააინსტალირეთ ტელეფონის ქვესისტემა 1C:Enterprise 8-ში',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI ტელეფონიის პანელის კლიენტი',
+    'mod_cti_DownloadClientMessage' => 'ზარების განსახორციელებლად და ჩატებთან მუშაობისთვის ჩამოტვირთეთ ტელეფონიის პანელი Miko CTI',
+    'mod_cti_DownloadClientButton' => 'ჩამოტვირთვა',
+    'mod_cti_tab_Client' => 'CTI აპლიკაცია',
+    'mod_cti_ClientScreenshotAlt' => 'Miko CTI ტელეფონიის პანელის ეკრანის სურათი',
 ];

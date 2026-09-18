@@ -52,4 +52,9 @@ return [
     'mod_cti_TransliterateCallerID' => 'Suorita 1C:ltä vastaanotetun soittajan tunnuksen translitterointi',
     'SubHeaderModuleCTIClient' => 'Moduuli puheluiden hallintaan tietokoneelta',
     'fw_modulecticlientDescription' => 'CTI CLIENT - Puhelinpaneeli 4.0 1C:lle',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI -puhelupaneelin asiakasohjelma',
+    'mod_cti_DownloadClientMessage' => 'Soittaaksesi puheluita ja käyttääksesi keskusteluja lataa Miko CTI -puhelupaneeli',
+    'mod_cti_DownloadClientButton' => 'Lataa',
+    'mod_cti_tab_Client' => 'CTI-sovellus',
+    'mod_cti_ClientScreenshotAlt' => 'Kuvakaappaus Miko CTI -puhelupaneelista',
 ];

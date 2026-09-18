@@ -52,4 +52,9 @@ return [
     'mod_cti_ConnectionWait' => '1C-dən MikoPBX-ə qoşulmanı gözləyirik',
     'mod_cti_tab_debug' => 'Sazlama modulu xidmətləri',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Telefoniya alt sistemini 1C: Enterprise 8-də quraşdırın',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI telefon panelinin müştərisi',
+    'mod_cti_DownloadClientMessage' => 'Zənglər etmək və çatlarla işləmək üçün Miko CTI telefon panelini yükləyin',
+    'mod_cti_DownloadClientButton' => 'Yüklə',
+    'mod_cti_tab_Client' => 'CTI tətbiqi',
+    'mod_cti_ClientScreenshotAlt' => 'Miko CTI telefon panelinin ekran görüntüsü',
 ];

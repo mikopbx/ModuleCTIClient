@@ -34,4 +34,9 @@ return [
     'mod_cti_ConnectionWait' => '1C側からMikoPBXへの接続をお待ちしております',
     'mod_cti_tab_Settings' => '設定',
     'mod_cti_tab_debug' => 'モジュールサービスのデバッグ',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI 電話パネルクライアント',
+    'mod_cti_DownloadClientMessage' => '通話やチャットを利用するには、Miko CTI 電話パネルをダウンロードしてください',
+    'mod_cti_DownloadClientButton' => 'ダウンロード',
+    'mod_cti_tab_Client' => 'CTIアプリケーション',
+    'mod_cti_ClientScreenshotAlt' => 'Miko CTI 電話パネルのスクリーンショット',
 ];

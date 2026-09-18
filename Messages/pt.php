@@ -41,4 +41,9 @@ return [
     'mod_cti_OdinEsSetupHeaderMessage' => 'Instale o subsistema de telefonia em 1C:Enterprise 8',
     'mod_cti_OdinEsSetupMessageStep1' => 'Faça uma cópia de backup do seu banco de dados 1C',
     'mod_cti_OdinEsSetupMessageStep2' => 'Execute 1C exclusivamente no modo empresarial',
+    'mod_cti_DownloadClientHeader' => 'Cliente do painel de telefonia Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Para fazer chamadas e trabalhar com os chats, descarregue o painel de telefonia Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Descarregar',
+    'mod_cti_tab_Client' => 'Aplicação CTI',
+    'mod_cti_ClientScreenshotAlt' => 'Captura de ecrã do painel de telefonia Miko CTI',
 ];

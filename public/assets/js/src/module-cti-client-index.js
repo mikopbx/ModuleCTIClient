@@ -69,6 +69,8 @@ const moduleCTIClient = {
 		},
 	},
 	initialize() {
+		moduleCTIClient.initializeDownloadClientDropdown();
+		moduleCTIClient.initializeClientScreenshotGallery();
 		$('#module-cti-client-form .item').tab();
 		if (moduleCTIClient.$debugToggle.checkbox('is unchecked')){
 			moduleCTIClient.$debugTab.hide()
@@ -139,6 +141,45 @@ const moduleCTIClient = {
 		moduleCTIClient.initializeRemoteConnectionTest();
 		moduleCTIClient.initializeRemoteFailback();
 		window.addEventListener('ModuleStatusChanged', moduleCTIClient.checkStatusToggle);
+	},
+	/**
+	 * Галерея скриншотов клиента: клик по миниатюре подменяет большое превью.
+	 */
+	initializeClientScreenshotGallery() {
+		const $thumbs = $('#cti-client-screenshots .cti-screenshot-thumb');
+		const $preview = $('#cti-screenshot-preview');
+		if ($thumbs.length === 0 || $preview.length === 0) {
+			return;
+		}
+		$thumbs.off('click.ctiGallery').on('click.ctiGallery', (e) => {
+			const $thumb = $(e.currentTarget);
+			$thumbs.removeClass('active');
+			$thumb.addClass('active');
+			$preview.attr('src', $thumb.attr('data-full'));
+		});
+	},
+	/**
+	 * Дропдаун «Скачать» с вечными ссылками на клиент Miko CTI.
+	 * Слушатель вешается до .tab() — тот тоже вешает click на все .item формы,
+	 * stopImmediatePropagation не даёт ему перехватить переход по ссылке.
+	 */
+	initializeDownloadClientDropdown() {
+		const $dropdown = $('#cti-download-client');
+		if ($dropdown.length === 0) {
+			return;
+		}
+		$dropdown.find('.menu a.item')
+			.off('click.ctiDownload')
+			.on('click.ctiDownload', (e) => {
+				e.preventDefault();
+				e.stopImmediatePropagation();
+				const url = $(e.currentTarget).attr('href');
+				if (url) {
+					window.open(url, '_blank', 'noopener');
+				}
+				$dropdown.dropdown('hide');
+			});
+		$dropdown.dropdown({ action: 'nothing' });
 	},
 	/**
 	 * Подписка на статус активной миграции мессенджеров.

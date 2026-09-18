@@ -135,4 +135,9 @@ return [
     'mod_cti_state_qrcode'           => 'Awaiting QR-code authorization',
     'mod_cti_state_reauth'           => 'Authorization required',
     'mod_cti_state_suppressed'       => 'Migrating',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI desktop client',
+    'mod_cti_DownloadClientMessage' => 'To make calls and work with chats, download the Miko CTI telephony panel',
+    'mod_cti_DownloadClientButton' => 'Download',
+    'mod_cti_tab_Client' => 'CTI application',
+    'mod_cti_ClientScreenshotAlt' => 'Screenshot of the Miko CTI telephony panel',
 ];
