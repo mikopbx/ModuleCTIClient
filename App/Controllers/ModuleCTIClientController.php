@@ -411,12 +411,42 @@ class ModuleCTIClientController extends BaseController
             return;
         }
 
+        // Выключать CRM можно только при полностью свёрнутом offload: иначе
+        // каналы продолжат работать на VPS (их держит удалённый monitord), а
+        // вкладки «Мессенджеры» и «Remote» скроются — управлять ими и сделать
+        // failback будет невозможно. Активная миграция тоже блокирует переключение.
+        $switchesToCrmNone = array_key_exists('crm_type', $data)
+            && $data['crm_type'] === ModuleCTIClient::CRM_TYPE_NONE
+            && ModuleCTIClient::isCrm1cType($record->crm_type);
+        if ($switchesToCrmNone
+            && (
+                !empty($amigoDaemons->getActiveRemoteMigrationServices())
+                || !empty($amigoDaemons->getRemoteServices())
+                || !empty($amigoDaemons->getRoutedRemoteServices())
+            )
+        ) {
+            $message = $this->translation->_('mod_cti_CrmNoneBlockedByRemoteOffload');
+            $this->flash->error($message);
+            $this->view->success = false;
+
+            return;
+        }
+
         // Update the record with the form data
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
                 case 'ami_password':
                 case 'nats_password':
+                    break;
+                case 'crm_type':
+                    // Радио всегда отправляет одно из значений; частичный POST мастера 1С
+                    // поля не содержит — хранимое значение не трогаем.
+                    if (array_key_exists($key, $data)) {
+                        $record->$key = ($data[$key] === ModuleCTIClient::CRM_TYPE_NONE)
+                            ? ModuleCTIClient::CRM_TYPE_NONE
+                            : ModuleCTIClient::CRM_TYPE_1C;
+                    }
                     break;
                 case 'debug_mode':
                 case 'web_service_mode':

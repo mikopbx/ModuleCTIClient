@@ -39,4 +39,10 @@ return [
     'mod_cti_DownloadClientButton' => 'Descargar',
     'mod_cti_tab_Client' => 'Aplicación CTI',
     'mod_cti_ClientScreenshotAlt' => 'Captura de pantalla del panel de telefonía Miko CTI',
+    'mod_cti_CrmGroupHeader' => 'Integración CRM',
+    'mod_cti_CrmSelectHeader' => 'Seleccione CRM',
+    'mod_cti_GroupOther' => 'Otros ajustes',
+    'mod_cti_CrmNoneBlockedByRemoteOffload' => 'Desactive el traslado de mensajería al servidor remoto (devuelva los canales a la central) antes de desactivar la integración con 1C',
+    'mod_cti_CrmNone' => 'Sin CRM',
+    'mod_cti_Crm1C' => '1C:Enterprise',
 ];

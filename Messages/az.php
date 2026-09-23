@@ -9,6 +9,12 @@ return [
     'mod_cti_EnableSetCallerID' => 'CallerID-i 1C-dən quraşdırın',
     'mod_cti_TransliterateCallerID' => '1C-dən alınan CallerID-nin transliterasiyasını həyata keçirin',
     'mod_cti_tab_Settings' => 'Parametrlər',
+    'mod_cti_CrmGroupHeader' => 'CRM inteqrasiyası',
+    'mod_cti_CrmSelectHeader' => 'CRM seçin',
+    'mod_cti_GroupOther' => 'Digər parametrlər',
+    'mod_cti_CrmNoneBlockedByRemoteOffload' => '1C inteqrasiyasını deaktiv etməzdən əvvəl messencerlərin uzaq serverə köçürülməsini deaktiv edin (kanalları PBX-ə qaytarın)',
+    'mod_cti_CrmNone' => 'CRM istifadə etmirəm',
+    'mod_cti_Crm1C' => '1C:Enterprise',
     'mod_cti_PublicationNameForAuth' => 'ƏS identifikasiyası ilə nəşr adı (isteğe bağlı)',
     /*
  * MikoPBX - free phone system for small business

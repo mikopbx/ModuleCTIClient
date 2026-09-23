@@ -18,6 +18,9 @@ var moduleCTIClient = {
   $remoteMigrationLockMessage: $('#cti-remote-migration-lock-message'),
   $debugToggle: $('#debug-mode-toggle'),
   $autoSettingsToggle: $('#auto-settings-mode-toggle'),
+  $crmTypeRadios: $('#module-cti-client-form .crm-type-radio'),
+  $crmSettingsBlock: $('#crm-1c-settings-block'),
+  $crmHiddenTabs: $('#module-cti-client-tabs .item[data-tab="messengers"], #module-cti-client-tabs .item[data-tab="remote"]'),
   $onlyAutoSettingsVisible: $('#module-cti-client-form .only-auto-settings'),
   $onlyManualSettingsVisible: $('#module-cti-client-form .only-manual-settings'),
   $wsOnlyFields: $('.ws-only'),
@@ -72,6 +75,14 @@ var moduleCTIClient = {
       },
       onUnchecked: function onUnchecked() {
         moduleCTIClient.$debugTab.hide();
+      }
+    });
+    moduleCTIClient.crmTypeToggle();
+    moduleCTIClient.$crmTypeRadios.checkbox({
+      onChecked: function onChecked() {
+        moduleCTIClient.$dirrtyField.val(Math.random());
+        moduleCTIClient.$dirrtyField.trigger('change');
+        moduleCTIClient.crmTypeToggle();
       }
     });
     moduleCTIClient.$callerIdSetupToggle.checkbox({
@@ -469,6 +480,26 @@ var moduleCTIClient = {
   },
 
   /**
+   * Выбор CRM: скрыть/показать блок настроек 1С
+   */
+  isCrm1cSelected: function isCrm1cSelected() {
+    return $('#crm_type_1c').prop('checked') === true;
+  },
+  crmTypeToggle: function crmTypeToggle() {
+    if (moduleCTIClient.isCrm1cSelected()) {
+      moduleCTIClient.$crmSettingsBlock.show();
+      moduleCTIClient.$crmHiddenTabs.show();
+    } else {
+      moduleCTIClient.$crmSettingsBlock.hide();
+      moduleCTIClient.$crmHiddenTabs.hide();
+      // Не оставляем активной скрытую вкладку мессенджеров.
+      if (moduleCTIClient.$crmHiddenTabs.hasClass('active')) {
+        $('#module-cti-client-tabs .item').tab('change tab', 'settings');
+      }
+    }
+  },
+
+  /**
    * Включение режима работы через WS
    */
   enableWsFields: function enableWsFields() {
@@ -521,6 +552,10 @@ var moduleCTIClient = {
 };
 
 $.fn.form.settings.rules.emptyCustomRule = function (value) {
+  if (!moduleCTIClient.isCrm1cSelected()) {
+    return true;
+  }
+
   if (moduleCTIClient.$autoSettingsToggle.checkbox('is unchecked') && moduleCTIClient.$wsToggle.checkbox('is checked') && value === '') {
     return false;
   }
@@ -529,6 +564,10 @@ $.fn.form.settings.rules.emptyCustomRule = function (value) {
 };
 
 $.fn.form.settings.rules.wrongPortCustomRule = function (value) {
+  if (!moduleCTIClient.isCrm1cSelected()) {
+    return true;
+  }
+
   if (moduleCTIClient.$autoSettingsToggle.checkbox('is unchecked') && moduleCTIClient.$wsToggle.checkbox('is checked')) {
     return $.fn.form.settings.rules.integer(value, '1..65535');
   }

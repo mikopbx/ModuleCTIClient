@@ -397,13 +397,25 @@ class CTIClientConf extends ConfigClass
         $conf .= "\t" . 'same => n,UserEvent(InterceptionCTI2,CALLERID: ${CALLERID(num)},chan1c: ${CHANNEL},FROM_DID: ${FROM_DID})' . "\n\t";
 
         $module_settings = ModuleCTIClient::findFirst();
-        if ($module_settings === null
-            || intval($module_settings->setup_caller_id) === 1) {
-            if (intval($module_settings->transliterate_caller_id) === 1) {
-                $agiFile = "set-caller-id-with-transliteration.php";
-            } else {
-                $agiFile = "set-caller-id.php";
-            }
+        // Strict opt-in: the AGI runs only when the 1C integration is selected
+        // (legacy null/'' records count as the '1c' default). Without crmd the
+        // AGI curl to port 8224 would add a 5-second timeout to every call.
+        // toArray() вместо чтения свойства: воркер мог загрузить класс модели
+        // ещё до обновления модуля, без поля crm_type (см. CrmTypes).
+        $crmEnabled = CrmTypes::isCrm1c(
+            $module_settings !== null
+                ? ($module_settings->toArray()['crm_type'] ?? null)
+                : null
+        );
+        if ($crmEnabled
+            && ($module_settings === null || intval($module_settings->setup_caller_id) === 1)) {
+            // Нет записи настроек — вариант без транслитерации (раньше здесь
+            // был доступ к свойству null).
+            $transliterate = $module_settings !== null
+                && intval($module_settings->transliterate_caller_id) === 1;
+            $agiFile = $transliterate
+                ? "set-caller-id-with-transliteration.php"
+                : "set-caller-id.php";
             $conf .= "\t" . "same => n,AGI({$this->moduleDir}/agi-bin/{$agiFile})" . "\n\t";
         }
 
