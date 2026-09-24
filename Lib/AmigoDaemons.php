@@ -432,23 +432,30 @@ class AmigoDaemons extends Injectable
      * List of messenger services (manager.api names) that must run on the remote VPS,
      * derived from the per-service toggles. Empty when remote offload is off/unconfigured.
      *
-     * @return string[]
+     * @param array $settings Настройки для расчёта: сохранённое состояние
+     *                        ($this->module_settings) либо «эффективное»
+     *                        (сохранённое + POST) для защиты в saveAction.
      */
-    public function getRemoteServices(): array
+    public function getRemoteServicesFromSettings(array $settings): array
     {
         // No remote host configured => everything stays local.
-        if (empty($this->module_settings['remote_host'])) {
+        if (empty($settings['remote_host'])) {
             return [];
         }
 
         $services = [];
         foreach ($this->getRemoteServiceMap() as $toggle => $service) {
-            if (intval($this->module_settings[$toggle] ?? 0) === 1) {
+            if (intval($settings[$toggle] ?? 0) === 1) {
                 $services[] = $service;
             }
         }
 
         return $services;
+    }
+
+    public function getRemoteServices(): array
+    {
+        return $this->getRemoteServicesFromSettings($this->module_settings);
     }
 
     /**
