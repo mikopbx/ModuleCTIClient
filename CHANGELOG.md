@@ -33,5 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Null-safety for avatar field when passing to typed string parameters
 - PSR-12 formatting in AmigoDaemons
 - Settings tabs no longer overflow the form on narrow screens: long tab titles are truncated with an ellipsis
+- Switching CRM integration off is checked against the settings being saved, not only the stored ones: a single save request can no longer turn CRM off while enabling messenger offload, and offload cannot be enabled while CRM is off
 
 [Unreleased]: https://github.com/mikopbx/ModuleCTIClient/compare/master...develop
