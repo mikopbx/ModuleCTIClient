@@ -44,6 +44,7 @@ return [
     'mod_cti_Crm1C' => '1C:Enterprise',
     'mod_cti_GroupOther' => 'Other settings',
     'mod_cti_CrmNoneBlockedByRemoteOffload' => 'Disable the remote messenger offload (bring the channels back to this PBX) before disabling the 1C integration',
+    'mod_cti_CrmNoneBlockOffloadEnable' => 'Messenger channels cannot be offloaded to the remote server while the 1C integration is disabled. Select the 1C integration first',
     'mod_cti_ConnectionWait' => 'We are waiting for connection to MikoPBX from 1C',
     'mod_cti_AutoSettingsData' => 'Data for automatic tuning',
     'mod_cti_PublicationOverLongPool' => 'via LongPool connection (1C connects to MikoPBX)',

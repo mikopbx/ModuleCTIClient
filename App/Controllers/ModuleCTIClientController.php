@@ -414,18 +414,58 @@ class ModuleCTIClientController extends BaseController
         // Выключать CRM можно только при полностью свёрнутом offload: иначе
         // каналы продолжат работать на VPS (их держит удалённый monitord), а
         // вкладки «Мессенджеры» и «Remote» скроются — управлять ими и сделать
-        // failback будет невозможно. Активная миграция тоже блокирует переключение.
-        $switchesToCrmNone = array_key_exists('crm_type', $data)
-            && $data['crm_type'] === ModuleCTIClient::CRM_TYPE_NONE
-            && ModuleCTIClient::isCrm1cType($record->crm_type);
-        if ($switchesToCrmNone
+        // failback будет невозможно. Активная миграция тоже блокирует
+        // переключение. Offload оцениваем по ЭФФЕКТИВНОМУ состоянию
+        // (сохранённое + переопределения из текущего POST, с той же
+        // нормализацией, что и при записи ниже): иначе один POST «Не использую
+        // CRM» + включённый чекбокс выноса обходит защиту.
+        $effective = $record->toArray();
+        foreach (self::REMOTE_TOGGLE_FIELDS as $toggleKey) {
+            // isset, не array_key_exists: зеркало цикла записи ниже, иначе
+            // partial POST с toggle-ом без значения гвард считает выключенным,
+            // а запись сохранит старое значение.
+            if (isset($data[$toggleKey])) {
+                $effective[$toggleKey] = ($data[$toggleKey] === 'on') ? '1' : '0';
+            } elseif ($isFullForm) {
+                $effective[$toggleKey] = '0';
+            }
+        }
+        if (array_key_exists('remote_host', $data) && is_string($data['remote_host'])) {
+            // Зеркало default-ветки свича записи: raw string, без trim.
+            $effective['remote_host'] = $data['remote_host'];
+        }
+        $oldCrmNone = !ModuleCTIClient::isCrm1cType($record->crm_type);
+        $effectiveCrmNone = array_key_exists('crm_type', $data)
+            ? $data['crm_type'] === ModuleCTIClient::CRM_TYPE_NONE
+            : $oldCrmNone;
+        $oldRemoteServices = $amigoDaemons->getRemoteServices();
+        $effectiveRemoteServices = $effectiveCrmNone
+            ? $amigoDaemons->getRemoteServicesFromSettings($effective)
+            : [];
+        $newlyEnabledServices = array_diff($effectiveRemoteServices, $oldRemoteServices);
+
+        // (а) Переход «CRM была включена» → «CRM выключена».
+        if (!$oldCrmNone && $effectiveCrmNone
             && (
-                !empty($amigoDaemons->getActiveRemoteMigrationServices())
-                || !empty($amigoDaemons->getRemoteServices())
+                !empty($effectiveRemoteServices)
+                || !empty($amigoDaemons->getActiveRemoteMigrationServices())
                 || !empty($amigoDaemons->getRoutedRemoteServices())
             )
         ) {
             $message = $this->translation->_('mod_cti_CrmNoneBlockedByRemoteOffload');
+            $this->flash->error($message);
+            $this->view->success = false;
+
+            return;
+        }
+
+        // (б) CRM уже выключена: не даём включить вынос даже hand-crafted POST-ом.
+        // Блокируем только РОСТ множества сервисов: нарушенное состояние могло
+        // остаться в БД с прежних сборок, и сливать его обратно должно быть можно.
+        if ($oldCrmNone && $effectiveCrmNone
+            && !empty($newlyEnabledServices)
+        ) {
+            $message = $this->translation->_('mod_cti_CrmNoneBlockOffloadEnable');
             $this->flash->error($message);
             $this->view->success = false;
 
