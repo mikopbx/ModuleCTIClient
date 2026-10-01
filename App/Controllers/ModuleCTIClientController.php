@@ -126,6 +126,8 @@ class ModuleCTIClientController extends BaseController
             $screenshotLang = $screenshotLang === 'ru' ? 'en' : 'ru';
             $screenshotNames = $this->scanClientScreenshots($screenshotLang);
         }
+        // Chats are only available with the 1C CRM type — the gallery visibility
+        // for that screenshot is toggled on the client side in crmTypeToggle()
         $this->view->clientScreenshots = $screenshotNames;
         $this->view->clientImgPath = "{$this->url->get()}assets/img/cache/{$this->moduleUniqueID}/cti-client/{$screenshotLang}";
 

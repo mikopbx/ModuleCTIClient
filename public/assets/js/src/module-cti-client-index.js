@@ -476,17 +476,46 @@ const moduleCTIClient = {
 		return $('#crm_type_1c').prop('checked') === true;
 	},
 	crmTypeToggle() {
+		// Скриншот с чатами показывается только при типе CRM «1С»
+		const $chatThumbs = $('#cti-client-screenshots .cti-screenshot-thumb[data-full*="/chat"]');
 		if (moduleCTIClient.isCrm1cSelected()) {
 			moduleCTIClient.$crmSettingsBlock.show();
 			moduleCTIClient.$crmHiddenTabs.show();
+			$chatThumbs.show();
 		} else {
 			moduleCTIClient.$crmSettingsBlock.hide();
 			moduleCTIClient.$crmHiddenTabs.hide();
+			$chatThumbs.hide();
+			// Если превью показывает чаты — переключаем на первый доступный скриншот
+			moduleCTIClient.switchChatScreenshotPreviewAway($chatThumbs);
 			// Не оставляем активной скрытую вкладку мессенджеров.
 			if (moduleCTIClient.$crmHiddenTabs.hasClass('active')) {
 				$('#module-cti-client-tabs .item').tab('change tab', 'settings');
 			}
 		}
+	},
+	/**
+	 * Если большое превью показывает скриншот чатов, переключает его
+	 * на первый скриншот, не связанный с чатами.
+	 */
+	switchChatScreenshotPreviewAway($chatThumbs) {
+		const $preview = $('#cti-screenshot-preview');
+		if ($preview.length === 0) {
+			return;
+		}
+		const previewSrc = $preview.attr('src');
+		const chatActive = $chatThumbs.hasClass('active')
+			|| $chatThumbs.filter(`[data-full="${previewSrc}"]`).length > 0;
+		if (!chatActive) {
+			return;
+		}
+		const $firstOther = $('#cti-client-screenshots .cti-screenshot-thumb').not($chatThumbs).first();
+		if ($firstOther.length === 0) {
+			return;
+		}
+		$('#cti-client-screenshots .cti-screenshot-thumb').removeClass('active');
+		$firstOther.addClass('active');
+		$preview.attr('src', $firstOther.attr('data-full'));
 	},
 	/**
 	 * Включение режима работы через WS
