@@ -17,6 +17,9 @@ const moduleCTIClient = {
 	$remoteMigrationLockMessage: $('#cti-remote-migration-lock-message'),
 	$debugToggle: $('#debug-mode-toggle'),
 	$autoSettingsToggle: $('#auto-settings-mode-toggle'),
+	$crmTypeRadios: $('#module-cti-client-form .crm-type-radio'),
+	$crmSettingsBlock: $('#crm-1c-settings-block'),
+	$crmHiddenTabs: $('#module-cti-client-tabs .item[data-tab="messengers"], #module-cti-client-tabs .item[data-tab="remote"]'),
 	$onlyAutoSettingsVisible: $('#module-cti-client-form .only-auto-settings'),
 	$onlyManualSettingsVisible: $('#module-cti-client-form .only-manual-settings'),
 	$wsOnlyFields: $('.ws-only'),
@@ -69,6 +72,8 @@ const moduleCTIClient = {
 		},
 	},
 	initialize() {
+		moduleCTIClient.initializeDownloadClientDropdown();
+		moduleCTIClient.initializeClientScreenshotGallery();
 		$('#module-cti-client-form .item').tab();
 		if (moduleCTIClient.$debugToggle.checkbox('is unchecked')){
 			moduleCTIClient.$debugTab.hide()
@@ -80,6 +85,16 @@ const moduleCTIClient = {
 				},
 				onUnchecked() {
 					moduleCTIClient.$debugTab.hide()
+				},
+			});
+
+		moduleCTIClient.crmTypeToggle();
+		moduleCTIClient.$crmTypeRadios
+			.checkbox({
+				onChecked() {
+					moduleCTIClient.$dirrtyField.val(Math.random());
+					moduleCTIClient.$dirrtyField.trigger('change');
+					moduleCTIClient.crmTypeToggle();
 				},
 			});
 
@@ -139,6 +154,45 @@ const moduleCTIClient = {
 		moduleCTIClient.initializeRemoteConnectionTest();
 		moduleCTIClient.initializeRemoteFailback();
 		window.addEventListener('ModuleStatusChanged', moduleCTIClient.checkStatusToggle);
+	},
+	/**
+	 * Галерея скриншотов клиента: клик по миниатюре подменяет большое превью.
+	 */
+	initializeClientScreenshotGallery() {
+		const $thumbs = $('#cti-client-screenshots .cti-screenshot-thumb');
+		const $preview = $('#cti-screenshot-preview');
+		if ($thumbs.length === 0 || $preview.length === 0) {
+			return;
+		}
+		$thumbs.off('click.ctiGallery').on('click.ctiGallery', (e) => {
+			const $thumb = $(e.currentTarget);
+			$thumbs.removeClass('active');
+			$thumb.addClass('active');
+			$preview.attr('src', $thumb.attr('data-full'));
+		});
+	},
+	/**
+	 * Дропдаун «Скачать» с вечными ссылками на клиент Miko CTI.
+	 * Слушатель вешается до .tab() — тот тоже вешает click на все .item формы,
+	 * stopImmediatePropagation не даёт ему перехватить переход по ссылке.
+	 */
+	initializeDownloadClientDropdown() {
+		const $dropdown = $('#cti-download-client');
+		if ($dropdown.length === 0) {
+			return;
+		}
+		$dropdown.find('.menu a.item')
+			.off('click.ctiDownload')
+			.on('click.ctiDownload', (e) => {
+				e.preventDefault();
+				e.stopImmediatePropagation();
+				const url = $(e.currentTarget).attr('href');
+				if (url) {
+					window.open(url, '_blank', 'noopener');
+				}
+				$dropdown.dropdown('hide');
+			});
+		$dropdown.dropdown({ action: 'nothing' });
 	},
 	/**
 	 * Подписка на статус активной миграции мессенджеров.
@@ -416,6 +470,25 @@ const moduleCTIClient = {
 		}
 	},
 	/**
+	 * Выбор CRM: скрыть/показать блок настроек 1С
+	 */
+	isCrm1cSelected() {
+		return $('#crm_type_1c').prop('checked') === true;
+	},
+	crmTypeToggle() {
+		if (moduleCTIClient.isCrm1cSelected()) {
+			moduleCTIClient.$crmSettingsBlock.show();
+			moduleCTIClient.$crmHiddenTabs.show();
+		} else {
+			moduleCTIClient.$crmSettingsBlock.hide();
+			moduleCTIClient.$crmHiddenTabs.hide();
+			// Не оставляем активной скрытую вкладку мессенджеров.
+			if (moduleCTIClient.$crmHiddenTabs.hasClass('active')) {
+				$('#module-cti-client-tabs .item').tab('change tab', 'settings');
+			}
+		}
+	},
+	/**
 	 * Включение режима работы через WS
 	 */
 	enableWsFields() {
@@ -464,6 +537,9 @@ const moduleCTIClient = {
 
 
 $.fn.form.settings.rules.emptyCustomRule = function (value) {
+	if (!moduleCTIClient.isCrm1cSelected()) {
+		return true;
+	}
 	if (moduleCTIClient.$autoSettingsToggle.checkbox('is unchecked')
 		&& moduleCTIClient.$wsToggle.checkbox('is checked')
 		&& value === '') {
@@ -473,6 +549,9 @@ $.fn.form.settings.rules.emptyCustomRule = function (value) {
 };
 
 $.fn.form.settings.rules.wrongPortCustomRule = function (value) {
+	if (!moduleCTIClient.isCrm1cSelected()) {
+		return true;
+	}
 	if (moduleCTIClient.$autoSettingsToggle.checkbox('is unchecked')
 		&& moduleCTIClient.$wsToggle.checkbox('is checked')
 	) {

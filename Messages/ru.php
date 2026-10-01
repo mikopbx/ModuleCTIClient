@@ -47,6 +47,13 @@ return [
     'mod_cti_ConnectionWait'      => 'Ожидаем подключения к MikoPBX со стороны 1С',
 
     'mod_cti_tab_Settings'             => 'Настройки',
+    'mod_cti_CrmGroupHeader'          => 'Интеграция с CRM',
+    'mod_cti_CrmSelectHeader'         => 'Выберите CRM',
+    'mod_cti_CrmNone'                  => 'Не использую CRM',
+    'mod_cti_Crm1C'                    => '1С: Предприятие',
+    'mod_cti_GroupOther'               => 'Прочие настройки',
+    'mod_cti_CrmNoneBlockedByRemoteOffload' => 'Отключите перенос мессенджеров на удалённый сервер (верните каналы на АТС), прежде чем отключать интеграцию с 1С',
+    'mod_cti_CrmNoneBlockOffloadEnable' => 'Нельзя выносить мессенджеры на удалённый сервер, пока интеграция с CRM отключена. Сначала выберите интеграцию с 1С',
     'mod_cti_tab_debug'                => 'Отладка сервисов модуля',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Установите подсистему телефонии в 1С:Предприятие 8',
     'mod_cti_OdinEsSetupMessageStep1'  => 'Сделайте резервную копию вашей базы 1С',
@@ -150,4 +157,9 @@ return [
     'mod_cti_state_qrcode'             => 'Ожидает авторизации по QR-коду',
     'mod_cti_state_reauth'             => 'Требуется авторизация',
     'mod_cti_state_suppressed'         => 'Переносится',
+    'mod_cti_DownloadClientHeader' => 'Клиент панели телефонии Miko CTI',
+    'mod_cti_DownloadClientMessage' => 'Для совершения звонков и работы с чатами используйте панель телефонии Miko CTI',
+    'mod_cti_DownloadClientButton' => 'Скачать',
+    'mod_cti_tab_Client' => 'CTI приложение',
+    'mod_cti_ClientScreenshotAlt' => 'Скриншот панели телефонии Miko CTI',
 ];

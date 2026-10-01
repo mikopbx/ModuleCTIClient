@@ -9,6 +9,12 @@ return [
     'mod_cti_EnableSetCallerID' => 'CallerID-i 1C-dən quraşdırın',
     'mod_cti_TransliterateCallerID' => '1C-dən alınan CallerID-nin transliterasiyasını həyata keçirin',
     'mod_cti_tab_Settings' => 'Parametrlər',
+    'mod_cti_CrmGroupHeader' => 'CRM inteqrasiyası',
+    'mod_cti_CrmSelectHeader' => 'CRM seçin',
+    'mod_cti_GroupOther' => 'Digər parametrlər',
+    'mod_cti_CrmNoneBlockedByRemoteOffload' => '1C inteqrasiyasını deaktiv etməzdən əvvəl messencerlərin uzaq serverə köçürülməsini deaktiv edin (kanalları PBX-ə qaytarın)',
+    'mod_cti_CrmNone' => 'CRM istifadə etmirəm',
+    'mod_cti_Crm1C' => '1C:Enterprise',
     'mod_cti_PublicationNameForAuth' => 'ƏS identifikasiyası ilə nəşr adı (isteğe bağlı)',
     /*
  * MikoPBX - free phone system for small business
@@ -52,4 +58,9 @@ return [
     'mod_cti_ConnectionWait' => '1C-dən MikoPBX-ə qoşulmanı gözləyirik',
     'mod_cti_tab_debug' => 'Sazlama modulu xidmətləri',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Telefoniya alt sistemini 1C: Enterprise 8-də quraşdırın',
+    'mod_cti_DownloadClientHeader' => 'Miko CTI telefon panelinin müştərisi',
+    'mod_cti_DownloadClientMessage' => 'Zənglər etmək və çatlarla işləmək üçün Miko CTI telefon panelini yükləyin',
+    'mod_cti_DownloadClientButton' => 'Yüklə',
+    'mod_cti_tab_Client' => 'CTI tətbiqi',
+    'mod_cti_ClientScreenshotAlt' => 'Miko CTI telefon panelinin ekran görüntüsü',
 ];

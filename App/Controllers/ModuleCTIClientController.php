@@ -28,6 +28,7 @@ use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Common\Models\Providers;
 use MikoPBX\Common\Models\Sip;
 use MikoPBX\Common\Models\Users;
+use MikoPBX\Common\Providers\LanguageProvider;
 use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
 use Modules\ModuleCTIClient\Lib\AmigoDaemons;
@@ -116,8 +117,39 @@ class ModuleCTIClientController extends BaseController
         $this->view->form = new ModuleCTIClientForm($settings);
         $this->view->autoSettingsValue = $this->generateAutoSettingsString($settings);
 
+        // Client screenshots gallery on the CTI tab: 'ru' screenshots for the
+        // Russian UI, 'en' for every other language. A folder without images
+        // falls back to the other one; an empty list hides the gallery.
+        $screenshotLang = $this->di->getShared(LanguageProvider::SERVICE_NAME) === 'ru' ? 'ru' : 'en';
+        $screenshotNames = $this->scanClientScreenshots($screenshotLang);
+        if ($screenshotNames === []) {
+            $screenshotLang = $screenshotLang === 'ru' ? 'en' : 'ru';
+            $screenshotNames = $this->scanClientScreenshots($screenshotLang);
+        }
+        $this->view->clientScreenshots = $screenshotNames;
+        $this->view->clientImgPath = "{$this->url->get()}assets/img/cache/{$this->moduleUniqueID}/cti-client/{$screenshotLang}";
+
         // Set the view template
         $this->view->pick("{$this->moduleDir}/App/Views/index");
+    }
+
+    /**
+     * Base names (without extension) of the client screenshots in the given
+     * language folder. A screenshot is a <name>.png with a <name>-thumb.png
+     * thumbnail next to it.
+     */
+    private function scanClientScreenshots(string $lang): array
+    {
+        $dir = "{$this->moduleDir}/public/assets/img/cti-client/{$lang}";
+        $names = [];
+        foreach (glob($dir . '/*-thumb.png') ?: [] as $thumbFile) {
+            $name = basename($thumbFile, '-thumb.png');
+            if (file_exists($dir . '/' . $name . '.png')) {
+                $names[] = $name;
+            }
+        }
+        sort($names, SORT_NATURAL);
+        return $names;
     }
 
     /**
@@ -379,12 +411,82 @@ class ModuleCTIClientController extends BaseController
             return;
         }
 
+        // Выключать CRM можно только при полностью свёрнутом offload: иначе
+        // каналы продолжат работать на VPS (их держит удалённый monitord), а
+        // вкладки «Мессенджеры» и «Remote» скроются — управлять ими и сделать
+        // failback будет невозможно. Активная миграция тоже блокирует
+        // переключение. Offload оцениваем по ЭФФЕКТИВНОМУ состоянию
+        // (сохранённое + переопределения из текущего POST, с той же
+        // нормализацией, что и при записи ниже): иначе один POST «Не использую
+        // CRM» + включённый чекбокс выноса обходит защиту.
+        $effective = $record->toArray();
+        foreach (self::REMOTE_TOGGLE_FIELDS as $toggleKey) {
+            // isset, не array_key_exists: зеркало цикла записи ниже, иначе
+            // partial POST с toggle-ом без значения гвард считает выключенным,
+            // а запись сохранит старое значение.
+            if (isset($data[$toggleKey])) {
+                $effective[$toggleKey] = ($data[$toggleKey] === 'on') ? '1' : '0';
+            } elseif ($isFullForm) {
+                $effective[$toggleKey] = '0';
+            }
+        }
+        if (array_key_exists('remote_host', $data) && is_string($data['remote_host'])) {
+            // Зеркало default-ветки свича записи: raw string, без trim.
+            $effective['remote_host'] = $data['remote_host'];
+        }
+        $oldCrmNone = !ModuleCTIClient::isCrm1cType($record->crm_type);
+        $effectiveCrmNone = array_key_exists('crm_type', $data)
+            ? $data['crm_type'] === ModuleCTIClient::CRM_TYPE_NONE
+            : $oldCrmNone;
+        $oldRemoteServices = $amigoDaemons->getRemoteServices();
+        $effectiveRemoteServices = $effectiveCrmNone
+            ? $amigoDaemons->getRemoteServicesFromSettings($effective)
+            : [];
+        $newlyEnabledServices = array_diff($effectiveRemoteServices, $oldRemoteServices);
+
+        // (а) Переход «CRM была включена» → «CRM выключена».
+        if (!$oldCrmNone && $effectiveCrmNone
+            && (
+                !empty($effectiveRemoteServices)
+                || !empty($amigoDaemons->getActiveRemoteMigrationServices())
+                || !empty($amigoDaemons->getRoutedRemoteServices())
+            )
+        ) {
+            $message = $this->translation->_('mod_cti_CrmNoneBlockedByRemoteOffload');
+            $this->flash->error($message);
+            $this->view->success = false;
+
+            return;
+        }
+
+        // (б) CRM уже выключена: не даём включить вынос даже hand-crafted POST-ом.
+        // Блокируем только РОСТ множества сервисов: нарушенное состояние могло
+        // остаться в БД с прежних сборок, и сливать его обратно должно быть можно.
+        if ($oldCrmNone && $effectiveCrmNone
+            && !empty($newlyEnabledServices)
+        ) {
+            $message = $this->translation->_('mod_cti_CrmNoneBlockOffloadEnable');
+            $this->flash->error($message);
+            $this->view->success = false;
+
+            return;
+        }
+
         // Update the record with the form data
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
                 case 'ami_password':
                 case 'nats_password':
+                    break;
+                case 'crm_type':
+                    // Радио всегда отправляет одно из значений; частичный POST мастера 1С
+                    // поля не содержит — хранимое значение не трогаем.
+                    if (array_key_exists($key, $data)) {
+                        $record->$key = ($data[$key] === ModuleCTIClient::CRM_TYPE_NONE)
+                            ? ModuleCTIClient::CRM_TYPE_NONE
+                            : ModuleCTIClient::CRM_TYPE_1C;
+                    }
                     break;
                 case 'debug_mode':
                 case 'web_service_mode':
@@ -494,6 +596,24 @@ class ModuleCTIClientController extends BaseController
         $resultTable = [];
         $pjsipPort = PbxSettings::getValueByKey('SIPPort');
         $tlsPort = PbxSettings::getValueByKey('TLS_PORT');
+
+        // АТС за NAT: клиент, подключившийся по внешнему адресу, должен
+        // использовать внешние SIP-порты из настроек сети MikoPBX.
+        $isExternalClient = $this->isExternalClientHost();
+        $externalSipPort = (string)PbxSettings::getValueByKey('externalSIPPort');
+        $externalTlsPort = (string)PbxSettings::getValueByKey('externalTLSPort');
+        $plainPort = ($isExternalClient && $externalSipPort !== '') ? $externalSipPort : $pjsipPort;
+        $securePort = ($isExternalClient && $externalTlsPort !== '') ? $externalTlsPort : $tlsPort;
+
+        // Текущий транспорт клиента: если он разрешён сотруднику — сохраним выбор.
+        $clientTransport = strtolower(trim((string)$this->request->getHeader('X-Client-Transport')));
+
+        // Логин для TLS-регистрации: ядро ≥ 2026.2.118 генерирует параллельный
+        // эндпоинт [<номер>-TLS] (только при наличии сертификатов), на старых
+        // ядрах его нет и REGISTER от <номер>-TLS даёт 401/404 — там клиент
+        // регистрируется голым номером, как раньше.
+        $tlsLoginSuffix = $this->hasTlsEndpoints() ? '-TLS' : '';
+
         $parameters = [
             'models' => [
                 'Extensions' => Extensions::class,
@@ -537,8 +657,15 @@ class ModuleCTIClientController extends BaseController
                     $extensionTable[$extension->userid]['number'] = $extension->number;
                     $extensionTable[$extension->userid]['username'] = $extension->username;
                     $extensionTable[$extension->userid]['email'] = $extension->email;
-                    $extensionTable[$extension->userid]['port'] = ($extension->transport === 'tls') ? $tlsPort : $pjsipPort;
-                    $extensionTable[$extension->userid]['transport'] = $extension->transport;
+                    // Без X-Client-Transport (старый клиент) отдаём Sip.transport как есть:
+                    // прежние клиенты сами разбирают список "udp,tcp" и поднимают UDP,
+                    // нормализация здесь молча переводила бы их на TCP.
+                    $transport = $clientTransport !== ''
+                        ? $this->normalizeTransport((string)$extension->transport, $clientTransport)
+                        : (string)$extension->transport;
+                    // Порт — по нормализованному значению: сырая строка может прийти в любом регистре.
+                    $extensionTable[$extension->userid]['port'] = (strtolower(trim($transport)) === 'tls') ? $securePort : $plainPort;
+                    $extensionTable[$extension->userid]['transport'] = $transport;
                     $extensionTable[$extension->userid]['dtmfmode'] = $extension->dtmfmode;
                     if (!empty($extension->avatar)) {
                         $parsed = $this->parseAvatarData($extension->avatar);
@@ -573,6 +700,8 @@ class ModuleCTIClientController extends BaseController
                 'port' => $extension['port'],
                 'transport' => $extension['transport'],
                 'dtmfmode' => $extension['dtmfmode'],
+                // Пусто — регистрироваться по TLS голым номером (старое ядро).
+                'tls_login' => $tlsLoginSuffix !== '' ? $extension['number'] . $tlsLoginSuffix : '',
             ];
         }
 
@@ -581,6 +710,103 @@ class ModuleCTIClientController extends BaseController
         $this->response->setContentType('application/json', 'UTF-8');
         $data = json_encode($resultTable);
         $this->response->setContent($data);
+    }
+
+    /**
+     * Генерирует ли ядро эндпоинты [<номер>-TLS]. Метод SIPConf::hasCertificates()
+     * появился в том же коммите, что и сами эндпоинты (2026.2.118) — на старых
+     * ядрах его нет, и это надёжнее сравнения версий. Сам метод НЕ вызываем:
+     * он идёт в SslCertificateService::prepareAsteriskCertificates(), который
+     * может сгенерировать сертификат и при каждом вызове пишет файлы в
+     * /etc/asterisk/ssl — из веб-запроса такого делать нельзя. Ядро при
+     * генерации pjsip.conf кладёт сертификат по константам сервиса — проверяем
+     * его наличие только чтением.
+     */
+    private function hasTlsEndpoints(): bool
+    {
+        if (!is_callable(['\\MikoPBX\\Core\\Asterisk\\Configs\\SIPConf', 'hasCertificates'])) {
+            return false;
+        }
+        $ssl = '\\MikoPBX\\Core\\System\\SslCertificateService';
+        $certFile = defined("$ssl::ASTERISK_CERT_FILE") ? constant("$ssl::ASTERISK_CERT_FILE") : '/etc/asterisk/ssl/asterisk.crt';
+        $keyFile = defined("$ssl::ASTERISK_KEY_FILE") ? constant("$ssl::ASTERISK_KEY_FILE") : '/etc/asterisk/ssl/asterisk.key';
+        return is_file($certFile) && is_file($keyFile);
+    }
+
+    /**
+     * Клиент подключился по внешнему адресу АТС («АТС за NAT»)?
+     * Сравнивает X-Client-Host с extipaddr/exthostname сетевых интерфейсов
+     * (точное совпадание, без DNS-резолва). Нет заголовка или совпадения — false.
+     */
+    private function isExternalClientHost(): bool
+    {
+        $clientHost = $this->extractHost((string)$this->request->getHeader('X-Client-Host'));
+        if ($clientHost === '') {
+            return false;
+        }
+        $interfaces = LanInterfaces::find(['hydration' => Resultset::HYDRATE_ARRAYS]);
+        foreach ($interfaces as $interface) {
+            foreach (['extipaddr', 'exthostname'] as $field) {
+                $value = $this->extractHost((string)($interface[$field] ?? ''));
+                if ($value !== '' && $value === $clientHost) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Нормализует адрес/домен для сравнения: снимает схему, порт и квадратные
+     * скобки IPv6, приводит к нижнему регистру. Голый IPv6 без скобок parse_url
+     * не разбирает — возвращаем его как есть (порта в такой записи не бывает).
+     */
+    private function extractHost(string $raw): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return '';
+        }
+        if (strpos($raw, ']') === false && strpos($raw, '/') === false && substr_count($raw, ':') > 1) {
+            return strtolower($raw);
+        }
+        // parse_url достаёт host только при наличии "//" или схемы.
+        if (strpos($raw, '//') !== 0 && strpos($raw, '://') === false) {
+            $raw = '//' . $raw;
+        }
+        $parsedUrl = parse_url($raw);
+        // IPv6 от parse_url приходит в квадратных скобках.
+        return strtolower(trim((string)($parsedUrl['host'] ?? ''), '[]'));
+    }
+
+    /**
+     * Sip.transport сотрудника хранит список разрешённых транспортов ("udp,tcp"),
+     * софтфон понимает одиночное значение. Приоритет tls > tcp > udp;
+     * если текущий транспорт клиента разрешён — возвращаем его.
+     */
+    private function normalizeTransport(string $raw, string $preferred = ''): string
+    {
+        $list = [];
+        foreach (explode(',', $raw) as $item) {
+            $item = strtolower(trim($item));
+            if (in_array($item, ['udp', 'tcp', 'tls'], true)) {
+                $list[] = $item;
+            }
+        }
+        if (empty($list)) {
+            return 'udp';
+        }
+        if ($preferred !== '' && in_array($preferred, $list, true)) {
+            return $preferred;
+        }
+        foreach (['tls', 'tcp'] as $candidate) {
+            if (in_array($candidate, $list, true)) {
+                return $candidate;
+            }
+        }
+
+        return $list[0];
     }
 
     /**
