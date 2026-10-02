@@ -39,7 +39,7 @@ return [
     'mod_cti_CrmNoneBlockedByRemoteOffload' => 'Вимкніть перенесення месенджерів на віддалений сервер (поверніть канали на АТС), перш ніж вимикати інтеграцію з 1С',
     'mod_cti_CrmNone' => 'Не використовую CRM',
     'mod_cti_Crm1C' => '1С: Підприємство',
-    'mod_cti_tab_debug' => 'Налагодження сервісів модуля',
+    'mod_cti_tab_debug' => 'Налагодження',
     'mod_cti_TransliterateCallerID' => 'Виконувати транслітерацію CallerID, отриманого з 1С',
     'mod_cti_EnableSetCallerID' => 'Встановлювати CallerID із 1С',
     'mod_cti_OdinEsSetupMessageStep4' => 'Натисніть Ctrl+O (або Файл&#8594;Відкрити) та виберіть файл "Установщик.epf"',
@@ -50,6 +50,6 @@ return [
     'mod_cti_DownloadClientHeader' => 'Клієнт панелі телефонії Miko CTI',
     'mod_cti_DownloadClientMessage' => 'Для здійснення дзвінків та роботи з чатами завантажте панель телефонії Miko CTI',
     'mod_cti_DownloadClientButton' => 'Завантажити',
-    'mod_cti_tab_Client' => 'CTI-застосунок',
+    'mod_cti_tab_Client' => 'CTI клієнт',
     'mod_cti_ClientScreenshotAlt' => 'Скриншот панелі телефонії Miko CTI',
 ];
