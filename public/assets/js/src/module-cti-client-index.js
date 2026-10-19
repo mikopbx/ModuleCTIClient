@@ -368,6 +368,11 @@ const moduleCTIClient = {
 					renderResult(probe, msg);
 				},
 				error(xhr) {
+					// Core#1166: newer cores send a failed probe as HTTP 4xx with the same JSON body.
+					if (xhr.responseJSON && typeof xhr.responseJSON === 'object') {
+						this.success(xhr.responseJSON);
+						return;
+					}
 					renderResult(null, `HTTP ${xhr.status || 'error'}`);
 				},
 			});
@@ -436,6 +441,11 @@ const moduleCTIClient = {
 						window.alert(msg ? `${failLabel}: ${msg}` : failLabel);
 					},
 					error(xhr) {
+						// Core#1166: newer cores send a refused failback as HTTP 4xx with the same JSON body.
+						if (xhr.responseJSON && typeof xhr.responseJSON === 'object') {
+							this.success(xhr.responseJSON);
+							return;
+						}
 						$btn.removeClass('loading disabled');
 						// eslint-disable-next-line no-alert
 						window.alert(`${failLabel}: HTTP ${xhr.status || 'error'}`);

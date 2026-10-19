@@ -83,6 +83,8 @@ const moduleCTIClientConnectionCheckWorker = {
 
 	worker() {
 		if (moduleCTIClientConnectionCheckWorker.$statusToggle.checkbox('is checked')) {
+			// Per request: a parallel poll (restartWorker after a form save) must not mark this one.
+			let rendered = false;
 			$.api({
 				url: `${Config.pbxUrl}/pbxcore/api/modules/ModuleCTIClient/check`,
 				on: 'now',
@@ -94,33 +96,8 @@ const moduleCTIClientConnectionCheckWorker = {
 					);
 				},
 				onResponse(response) {
-					$('.message.ajax').remove();
-					if (typeof (response.data) === 'undefined') {
-						moduleCTIClientConnectionCheckWorker.notifyRemoteMigrationLock(null);
-						return;
-					}
-
-					// Render services status panel for both success and partial responses.
-					moduleCTIClientConnectionCheckWorker.renderServicesStatus(response.data);
-					moduleCTIClientConnectionCheckWorker.notifyRemoteMigrationLock(response.data);
-
-					// Debug JSON pane (legacy debug tab).
-					let visualErrorString = JSON.stringify(response.data, null, 2);
-					if (typeof visualErrorString === 'string') {
-						visualErrorString = visualErrorString.replace(/\n/g, '<br/>');
-						if (Object.keys(response).length > 0 && response.result === true) {
-							moduleCTIClientConnectionCheckWorker.$debugInfo
-								.after(`<div class="ui message ajax">
-									<pre style='white-space: pre-wrap'> ${visualErrorString}</pre>
-								</div>`);
-						} else {
-							moduleCTIClientConnectionCheckWorker.$debugInfo
-								.after(`<div class="ui message ajax">
-									<i class="spinner loading icon"></i>
-									<pre style='white-space: pre-wrap'>${visualErrorString}</pre>
-								</div>`);
-						}
-					}
+					rendered = true;
+					moduleCTIClientConnectionCheckWorker.renderCheckResponse(response);
 				},
 				onSuccess() {
 					moduleCTIClientConnectionCheckWorker.changeStatus('Connected');
@@ -128,6 +105,13 @@ const moduleCTIClientConnectionCheckWorker = {
 					window.clearTimeout(moduleCTIClientConnectionCheckWorker.timeOutHandle);
 				},
 				onFailure(response) {
+					// Core#1166: newer cores answer a failed check with HTTP 4xx/5xx, and $.api
+					// skips onResponse on a non-2xx status, so the panel is drawn here instead.
+					if (!rendered
+						&& response && typeof response === 'object'
+						&& typeof response.data !== 'undefined') {
+						moduleCTIClientConnectionCheckWorker.renderCheckResponse(response);
+					}
 					moduleCTIClientConnectionCheckWorker.errorCounts += 1;
 					const data = (response && response.data) ? response.data : null;
 					const statuses = (data && Array.isArray(data.statuses))
@@ -202,6 +186,32 @@ const moduleCTIClientConnectionCheckWorker = {
 			moduleCTIClientConnectionCheckWorker.notifyRemoteMigrationLock(null);
 			moduleCTIClientConnectionCheckWorker.changeStatus('Disabled');
 			moduleCTIClientConnectionCheckWorker.renderDisabledPanel();
+		}
+	},
+
+	/**
+	 * Draw the services panel, the remote lock and the debug pane from a check answer.
+	 */
+	renderCheckResponse(response) {
+		$('.message.ajax').remove();
+		if (typeof (response.data) === 'undefined') {
+			moduleCTIClientConnectionCheckWorker.notifyRemoteMigrationLock(null);
+			return;
+		}
+
+		// Render services status panel for both success and partial responses.
+		moduleCTIClientConnectionCheckWorker.renderServicesStatus(response.data);
+		moduleCTIClientConnectionCheckWorker.notifyRemoteMigrationLock(response.data);
+
+		// Debug JSON pane (legacy debug tab). Daemon strings go in as text, never as markup.
+		const visualErrorString = JSON.stringify(response.data, null, 2);
+		if (typeof visualErrorString === 'string') {
+			const $pane = $('<div class="ui message ajax"></div>');
+			if (!(Object.keys(response).length > 0 && response.result === true)) {
+				$pane.append('<i class="spinner loading icon"></i>');
+			}
+			$pane.append($('<pre style="white-space: pre-wrap"></pre>').text(visualErrorString));
+			moduleCTIClientConnectionCheckWorker.$debugInfo.after($pane);
 		}
 	},
 
