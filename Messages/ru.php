@@ -54,7 +54,7 @@ return [
     'mod_cti_GroupOther'               => 'Прочие настройки',
     'mod_cti_CrmNoneBlockedByRemoteOffload' => 'Отключите перенос мессенджеров на удалённый сервер (верните каналы на АТС), прежде чем отключать интеграцию с 1С',
     'mod_cti_CrmNoneBlockOffloadEnable' => 'Нельзя выносить мессенджеры на удалённый сервер, пока интеграция с CRM отключена. Сначала выберите интеграцию с 1С',
-    'mod_cti_tab_debug'                => 'Отладка сервисов модуля',
+    'mod_cti_tab_debug'                => 'Отладка',
     'mod_cti_OdinEsSetupHeaderMessage' => 'Установите подсистему телефонии в 1С:Предприятие 8',
     'mod_cti_OdinEsSetupMessageStep1'  => 'Сделайте резервную копию вашей базы 1С',
     'mod_cti_OdinEsSetupMessageStep3'  => 'Скачайте установщик расширений &nbsp;<a href="https://releases.mikopbx.com/releases/v1/1c/getModuleFile/PT40_Installer/latest" target="_blank">по ссылке <i class="cloud download icon"></i></a>',
@@ -65,7 +65,7 @@ return [
     'mod_cti_InterceptionTimeout'      => 'Длительность вызова ответственного сотрудника, сек',
     'mod_cti_InterceptionTimeoutHint'  => 'Сколько секунд дозваниваться ответственному сотруднику при входящем звонке из 1С, прежде чем прекратить перехват. Допустимо от 10 до 600 секунд.',
     'mod_cti_ChatsProxyAddress'        => 'Прокси-сервер для WhatsApp и Telegram (Socks5 или https)',
-    'mod_cti_tab_Messengers'           => 'Прокси-серверы мессенджеров',
+    'mod_cti_tab_Messengers'           => 'Прокси для мессенджеров',
     'mod_cti_MtProxyAddress'           => 'Адрес',
     'mod_cti_MtProxySecret'            => 'Секрет',
     'mod_cti_ProxyHeader'              => 'Прокси-серверы мессенджеров',
@@ -110,7 +110,7 @@ return [
     'mod_cti_MirrorNever'             => 'локальной копии ещё нет',
 
     // Панель статуса сервисов
-    'mod_cti_tab_Status'               => 'Статус сервисов',
+    'mod_cti_tab_Status'               => 'Статусы',
     'mod_cti_StatusHeader'             => 'Состояние сервисов модуля',
     'mod_cti_StatusLoading'            => 'Загружаем статус сервисов…',
     'mod_cti_StatusUnavailable'        => 'Статус сервисов недоступен',
@@ -160,6 +160,6 @@ return [
     'mod_cti_DownloadClientHeader' => 'Клиент панели телефонии Miko CTI',
     'mod_cti_DownloadClientMessage' => 'Для совершения звонков и работы с чатами используйте панель телефонии Miko CTI',
     'mod_cti_DownloadClientButton' => 'Скачать',
-    'mod_cti_tab_Client' => 'CTI приложение',
+    'mod_cti_tab_Client' => 'CTI клиент',
     'mod_cti_ClientScreenshotAlt' => 'Скриншот панели телефонии Miko CTI',
 ];

@@ -20,6 +20,8 @@
             display: block;
             flex: 0 1 auto;
             min-width: 0;
+            padding-left: 0.75em;
+            padding-right: 0.75em;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
