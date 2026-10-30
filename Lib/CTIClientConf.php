@@ -332,14 +332,6 @@ class CTIClientConf extends ConfigClass
                         'portToKey'   => '',
                     ],
                     [
-                        'portfrom'    => 8000,
-                        'portto'      => 8000,
-                        'protocol'    => 'tcp',
-                        'name'        => 'CDRCTIPort',
-                        'portFromKey' => '',
-                        'portToKey'   => '',
-                    ],
-                    [
                         'portfrom'    => 8002,
                         'portto'      => 8002,
                         'protocol'    => 'tcp',

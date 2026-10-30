@@ -63,6 +63,11 @@ var moduleCTIClient = {
     }
   },
   initialize: function initialize() {
+    $('#allow-legacy-clients-toggle').checkbox({
+      beforeChecked: function beforeChecked() {
+        return window.confirm(globalTranslate.mod_cti_LegacyClientsWarning);
+      }
+    });
     moduleCTIClient.initializeDownloadClientDropdown();
     moduleCTIClient.initializeClientScreenshotGallery();
     $('#module-cti-client-form .item').tab();

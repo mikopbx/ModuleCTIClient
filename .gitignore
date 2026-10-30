@@ -1,3 +1,6 @@
 .idea
 /.idea/
 .DS_Store
+
+# Локальные планы и спецификации агентов
+/docs/superpowers/

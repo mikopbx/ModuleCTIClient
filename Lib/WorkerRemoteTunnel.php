@@ -217,6 +217,9 @@ class WorkerRemoteTunnel extends WorkerBase
             //     launchRemoteMonitord() at step 3 respawns monitord, which
             //     re-supervises its children from the new binaries.
             $cti->restartChangedRemoteBinaries($prov['changed'] ?? []);
+            if (!empty($prov['manager_config_changed'])) {
+                $cti->stopRemoteServices();
+            }
 
             // 2. Wait for the monitord-owned tunnel to come up before launching
             //    the remote monitord (its chatsd needs NATS over the -R forward).
@@ -320,6 +323,10 @@ class WorkerRemoteTunnel extends WorkerBase
                     // then finds it gone and relaunches. One POLL_INTERVAL of
                     // remote-down, self-healing — acceptable for a rare upgrade.
                     $ctiCheck->restartChangedRemoteBinaries($reProv['changed'] ?? []);
+                    if (!empty($reProv['manager_config_changed'])) {
+                        // Новый manager_token читается только при старте процесса.
+                        $ctiCheck->stopRemoteServices();
+                    }
                     $lastProvision = time();
                 }
 

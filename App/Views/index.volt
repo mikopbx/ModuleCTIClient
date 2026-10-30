@@ -78,6 +78,28 @@
             </div>
         </div>
         <div class="ui hidden divider"></div>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox" id="allow-legacy-clients-toggle">
+                    {{ form.render('allow_legacy_clients') }}
+                    <label for="allow_legacy_clients">{{ t._('mod_cti_AllowLegacyClients') }}</label>
+                </div>
+                <div class="ui message">
+                    {{ t._('mod_cti_SecurityApplyStatus') }}:
+                    {{ securityApplyStatus|escape }} ({{ securityAppliedMode|escape }})
+                </div>
+                <div class="ui warning message">
+                    {{ t._('mod_cti_LegacyClientsWarning') }}
+                </div>
+                {% if legacyTelemetry is not null and legacyTelemetry['legacy_connects_total'] is defined %}
+                <div class="ui info message" id="legacy-telemetry">
+                    {{ t._('mod_cti_LegacyClientsCount') }}:
+                    {{ legacyTelemetry['legacy_connects_total']|escape }}
+                    ({{ t._('mod_cti_LegacyClientsActive') }}: {{ legacyTelemetry['legacy_connections']|escape }})
+                </div>
+                {% endif %}
+            </div>
+        </div>
 
         <div class="field only-auto-settings">
             <label for="auto_settings_value">{{ t._('mod_cti_AutoSettingsData') }}</label>

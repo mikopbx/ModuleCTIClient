@@ -70,7 +70,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             }
 
             if (empty($settings->nats_password)) {
-                $settings->nats_password = hash('md5', date('Y-m-D H:i:s:u'));
+                $settings->nats_password = bin2hex(random_bytes(32));
             }
 
             // Приложение для авторизации внешней панели.

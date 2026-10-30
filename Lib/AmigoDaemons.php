@@ -359,11 +359,21 @@ class AmigoDaemons extends Injectable
             'log_size_limit' => 10485760, //10Mb
             'pbx' => "MikoPBX",
             'module_version' => '"' . $moduleVersion . '"',
+            'security_mode' => '"' . SecurityMode::normalize($this->module_settings['security_mode'] ?? null) . '"',
         ];
 
-        if (intval($this->module_settings['auto_settings_mode']) === 1) {
-            $settings['nats_password'] = '"' . $this->module_settings['nats_password'] . '"';
-        }
+        $natsPassword = NatsPassword::ensure(
+            (string)($this->module_settings['nats_password'] ?? ''),
+            function (string $value): bool {
+                $model = Models\ModuleCTIClient::findFirst();
+                if ($model === false) { return false; }
+                $model->nats_password = $value;
+                return $model->save() === true;
+            }
+        );
+        $this->module_settings['nats_password'] = $natsPassword;
+        $settings['nats_password'] = '"' . $natsPassword . '"';
+        $settings['service_password'] = '"' . $this->getNatsServiceToken() . '"';
 
         $settings['web_port'] = PbxSettings::getValueByKey('WEBPort');
 
@@ -372,7 +382,7 @@ class AmigoDaemons extends Injectable
             $config .= "{$key}: {$val} \n";
         }
 
-        Util::fileWriteContent($this->dirs['confDir'] . '/nats.conf', $config);
+        SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
 
         $licKey = $this->mikoPBXConfig->getGeneralSettings('PBXLicense');
         file_put_contents("{$sessionsDir}/license.key", $licKey);
@@ -1249,6 +1259,14 @@ class AmigoDaemons extends Injectable
             return ['ok' => false, 'error' => 'unsupported remote arch: ' . $arch];
         }
 
+        // Проверяем flock и нужные опции до передачи секретов/изменения конфигов.
+        $lockProbe = 'command -v flock >/dev/null && p=$(mktemp) && '
+            . '{ flock --exclusive --close --wait 1 "$p" sh -c true; rc=$?; rm -f "$p"; exit "$rc"; }';
+        exec($sshArgs . ' ' . escapeshellarg($lockProbe) . ' 2>/dev/null', $probeOut, $probeRc);
+        if ($probeRc !== 0) {
+            return ['ok' => false, 'error' => 'remote util-linux flock with --close/--wait is required'];
+        }
+
         // 2. Directory layout. Per-daemon log subdirectories match the staged
         //    configs' log_path (monitord/chatsd/tgd/maxd) — without them the
         //    daemons FATAL at startup the same way the local generators
@@ -1268,6 +1286,11 @@ class AmigoDaemons extends Injectable
         exec($sshArgs . ' ' . escapeshellarg($mkdirCmd) . ' 2>/dev/null', $tmpOut, $rc);
         if ($rc !== 0) {
             return ['ok' => false, 'error' => 'ssh mkdir failed: rc=' . $rc];
+        }
+        $secureConfCmd = RemoteConfigProvisioning::secureDirectoryCommand("{$base}/conf");
+        exec($sshArgs . ' ' . escapeshellarg($secureConfCmd) . ' 2>/dev/null', $tmpOut, $rc);
+        if ($rc !== 0) {
+            return ['ok' => false, 'error' => 'ssh conf permissions failed: rc=' . $rc];
         }
 
         // 3. Binaries — monitord plus the per-service daemons we need on the VPS.
@@ -1355,6 +1378,7 @@ class AmigoDaemons extends Injectable
         //    The step-5 prune globs *.json and so never matches a *.json.new.
         $stageDir = $this->dirs['spoolDir'] . '/remote/conf';
         $stagedFiles = [];
+        $managerConfigChanged = false;
         $stagedPaths = is_dir($stageDir) ? (glob($stageDir . '/*.json') ?: []) : [];
         if (!empty($stagedPaths)) {
             // One ssh round-trip for all remote md5s. Each subcommand prints
@@ -1378,12 +1402,15 @@ class AmigoDaemons extends Injectable
                 if ($localHash !== false && $remoteHash === $localHash) {
                     continue; // remote already holds this exact config
                 }
+                if ($name === 'monitord.json') {
+                    $managerConfigChanged = true;
+                }
                 $remoteFinal = "{$base}/conf/{$name}";
-                $remoteTmp   = $remoteFinal . '.new';
+                $remoteTmp = RemoteConfigProvisioning::temporaryPath($remoteFinal);
                 if (!$this->scpPush($ssh, $stagedPath, $remoteTmp)) {
                     return ['ok' => false, 'error' => 'scp push failed: conf/' . $name];
                 }
-                $mvCmd = 'mv -f ' . escapeshellarg($remoteTmp) . ' ' . escapeshellarg($remoteFinal);
+                $mvCmd = RemoteConfigProvisioning::installCommand($remoteTmp, $remoteFinal);
                 exec($sshArgs . ' ' . escapeshellarg($mvCmd) . ' 2>/dev/null', $tmpOut, $rc);
                 if ($rc !== 0) {
                     return ['ok' => false, 'error' => 'remote mv failed: conf/' . $name];
@@ -1430,7 +1457,13 @@ class AmigoDaemons extends Injectable
             exec($sshArgs . ' ' . escapeshellarg($writeStamp) . ' 2>/dev/null', $tmpOut, $rc);
         }
 
-        return ['ok' => true, 'error' => '', 'changed' => $pushed];
+        $pendingCmd = RemoteConfigProvisioning::pendingRestartCommand("{$base}/conf/monitord.json");
+        exec($sshArgs . ' ' . escapeshellarg($pendingCmd) . ' 2>/dev/null', $pendingOut, $pendingRc);
+        if ($pendingRc !== 0 && $pendingRc !== 1) {
+            return ['ok' => false, 'error' => 'cannot check pending manager restart'];
+        }
+        return ['ok' => true, 'error' => '', 'changed' => $pushed,
+            'manager_config_changed' => $managerConfigChanged || $pendingRc === 0];
     }
 
     /**
@@ -1538,6 +1571,9 @@ class AmigoDaemons extends Injectable
         // not call launchRemoteMonitord itself) — pgrep-gated, so idempotent.
         $prov = $this->provisionRemote();
         $this->restartChangedRemoteBinaries($prov['changed'] ?? []);
+        if (!empty($prov['manager_config_changed'])) {
+            $this->stopRemoteServices();
+        }
 
         $curl = curl_init();
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
@@ -1545,6 +1581,7 @@ class AmigoDaemons extends Injectable
         curl_setopt($curl, CURLOPT_POST, true);
         curl_setopt($curl, CURLOPT_POSTFIELDS, '');
         curl_setopt($curl, CURLOPT_URL, 'http://127.0.0.1:8225/manager.api/reconcile');
+        curl_setopt($curl, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $this->getManagerToken()]);
 
         $ok = false;
         try {
@@ -3912,8 +3949,11 @@ class AmigoDaemons extends Injectable
             . 'exec ' . escapeshellarg("{$base}/bin/" . self::SERVICE_MONITOR)
             . ' -c ' . escapeshellarg("{$base}/conf/monitord.json")
             . ' >> ' . escapeshellarg("{$base}/logs/monitord.out") . ' 2>&1 </dev/null';
-        $remoteCmd = 'pgrep -x ' . escapeshellarg(self::SERVICE_MONITOR) . ' >/dev/null 2>&1 || '
-            . 'setsid sh -c ' . escapeshellarg($innerCmd) . ' >/dev/null 2>&1 </dev/null &';
+        // Pending marker переживает обрыв provisioning. Не запускать новый процесс,
+        // пока прежний не завершился; при таймауте marker сохраняется для следующей попытки.
+        $remoteCmd = RemoteConfigProvisioning::launchCommand(
+            "{$base}/conf/monitord.json", self::SERVICE_MONITOR, $innerCmd
+        );
 
         $rc = 0;
         exec('timeout 30 ' . $sshArgs . ' ' . escapeshellarg($remoteCmd) . ' 2>/dev/null', $tmpOut, $rc);
@@ -4012,6 +4052,7 @@ class AmigoDaemons extends Injectable
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_TIMEOUT, 2);
         curl_setopt($curl, CURLOPT_URL, 'http://127.0.0.1:8225/manager.api/tunnel/status');
+        curl_setopt($curl, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $this->getManagerToken()]);
 
         try {
             $response = curl_exec($curl);
@@ -4215,7 +4256,7 @@ class AmigoDaemons extends Injectable
 
         $settings_crm = [
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
@@ -4250,10 +4291,7 @@ class AmigoDaemons extends Injectable
         }
 
 
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/crm.json",
-            json_encode($settings_crm, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$this->dirs['confDir']}/crm.json", $settings_crm);
     }
 
     /**
@@ -4270,15 +4308,12 @@ class AmigoDaemons extends Injectable
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'cache_path' => "{$cachePath}/cache.db",
         ];
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/auth.json",
-            json_encode($settings_auth, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$this->dirs['confDir']}/auth.json", $settings_auth);
     }
 
 
@@ -4297,7 +4332,7 @@ class AmigoDaemons extends Injectable
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
             'log_path' => $logDir,
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'database' => [
@@ -4306,10 +4341,7 @@ class AmigoDaemons extends Injectable
             'proxy_address' => $this->getMessengerProxyAddress('whatsapp'),
         ];
 
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/chats.json",
-            json_encode($settings_chats, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$this->dirs['confDir']}/chats.json", $settings_chats);
     }
 
     /**
@@ -4327,7 +4359,7 @@ class AmigoDaemons extends Injectable
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? -1 : 2,
             'log_path' => $logDir,
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'database' => [
@@ -4345,10 +4377,7 @@ class AmigoDaemons extends Injectable
             ];
         }
 
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/tg.json",
-            json_encode($settings_tg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$this->dirs['confDir']}/tg.json", $settings_tg);
     }
 
     /**
@@ -4366,7 +4395,7 @@ class AmigoDaemons extends Injectable
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
             'log_path' => $logDir,
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'database' => [
@@ -4375,10 +4404,7 @@ class AmigoDaemons extends Injectable
             'proxy_address' => $this->getMessengerProxyAddress('max'),
         ];
 
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/max.json",
-            json_encode($settings_max, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$this->dirs['confDir']}/max.json", $settings_max);
     }
 
     /**
@@ -4395,7 +4421,7 @@ class AmigoDaemons extends Injectable
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
             'log_path' => $logDir,
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'port' => ':8002',
@@ -4404,10 +4430,7 @@ class AmigoDaemons extends Injectable
             'key' => "{$certsPath}/proxyserver.key",
         ];
 
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/proxy.json",
-            json_encode($settings_proxy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$this->dirs['confDir']}/proxy.json", $settings_proxy);
     }
 
     /**
@@ -4455,7 +4478,7 @@ class AmigoDaemons extends Injectable
                 'interception_timeout' => $this->getInterceptionTimeoutMs(),
             ],
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'interception_support' => true,
@@ -4493,10 +4516,7 @@ class AmigoDaemons extends Injectable
             $settings_amid['records']['speech_request'] = "http://127.0.0.1:$WEBPort/pbxcore/api/v3/cdr:download?view=%s&format=ogg";
         }
 
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/ami.json",
-            json_encode($settings_amid, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$this->dirs['confDir']}/ami.json", $settings_amid);
     }
 
     /**
@@ -4548,7 +4568,7 @@ class AmigoDaemons extends Injectable
 
         $arr_settings = [
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
@@ -4659,11 +4679,8 @@ class AmigoDaemons extends Injectable
             }
         }
 
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/monitord.json",
-            json_encode($arr_settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
-        file_put_contents("{$this->dirs['spoolDir']}/auth.hash", 'd41d8cd98f00b204e9800998ecf8427e');
+        $arr_settings['manager_token'] = $this->getManagerToken();
+        SecretConfigWriter::write("{$this->dirs['confDir']}/monitord.json", $arr_settings);
     }
 
     /**
@@ -4715,8 +4732,9 @@ class AmigoDaemons extends Injectable
         // Remote monitord: binds loopback (reachable only through the ssh tunnel) and supervises
         // only the messenger daemons it spawns on the VPS (added dynamically via manager.api).
         $monitord = [
+            'manager_token' => $this->getManagerToken(),
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'log_level' => $debug ? 6 : 2,
@@ -4728,10 +4746,7 @@ class AmigoDaemons extends Injectable
             'period' => 30,
             'daemons' => [],
         ];
-        Util::fileWriteContent(
-            "{$stageDir}/monitord.json",
-            json_encode($monitord, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$stageDir}/monitord.json", $monitord);
 
         // Per-service messenger configs with VPS paths. Mirror the local generators
         // (log levels, proxy_address, Telegram mt_proxy) so remote ≠ local connectivity behaviour.
@@ -4750,7 +4765,7 @@ class AmigoDaemons extends Injectable
                 'log_level' => $logLevel,
                 'log_path' => "{$base}/logs/{$service}d",
                 'mq' => [
-                    'host' => '127.0.0.1',
+                    'host' => $this->getNatsQueueHost(),
                     'port' => $this->getNatsPort(),
                 ],
                 'database' => [
@@ -4770,10 +4785,7 @@ class AmigoDaemons extends Injectable
                 }
             }
 
-            Util::fileWriteContent(
-                "{$stageDir}/{$service}.json",
-                json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-            );
+            SecretConfigWriter::write("{$stageDir}/{$service}.json", $settings);
         }
     }
 
@@ -4790,7 +4802,7 @@ class AmigoDaemons extends Injectable
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
             'mq' => [
-                'host' => '127.0.0.1',
+                'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
             ],
             'http' => [
@@ -4802,10 +4814,7 @@ class AmigoDaemons extends Injectable
                 'dictionaries' => "{$this->dirs['resourcesDir']}/pymorphy2_dicts_ru",
             ],
         ];
-        Util::fileWriteContent(
-            "{$this->dirs['confDir']}/speech.json",
-            json_encode($settings_auth, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        SecretConfigWriter::write("{$this->dirs['confDir']}/speech.json", $settings_auth);
     }
 
     /**
@@ -5305,6 +5314,22 @@ class AmigoDaemons extends Injectable
      *
      * @return array
      */
+    private function getNatsQueueHost(): string
+    {
+        // queue.Connect формирует nats://host:port; credentials остаются только в конфигах демонов.
+        return 'cti-service:' . rawurlencode($this->getNatsServiceToken()) . '@127.0.0.1';
+    }
+
+    private function getNatsServiceToken(): string
+    {
+        return ManagerCredentials::loadOrCreate($this->dirs['confDir'], 'nats-service');
+    }
+
+    private function getManagerToken(): string
+    {
+        return ManagerCredentials::loadOrCreate($this->dirs['confDir']);
+    }
+
     private function checkWorkerStatuses(): array
     {
         $statusUrl = 'http://127.0.0.1:8225/manager.api/status';
@@ -5312,6 +5337,7 @@ class AmigoDaemons extends Injectable
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_TIMEOUT, 10);
         curl_setopt($curl, CURLOPT_URL, $statusUrl);
+        curl_setopt($curl, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $this->getManagerToken()]);
 
         try {
             $response = curl_exec($curl);

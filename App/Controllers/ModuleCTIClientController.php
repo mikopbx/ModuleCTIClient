@@ -115,6 +115,14 @@ class ModuleCTIClientController extends BaseController
 
         // Initialize view variables
         $this->view->form = new ModuleCTIClientForm($settings);
+        $reportedSecurity = \Modules\ModuleCTIClient\Lib\SecurityStatus::readLocal();
+        $this->view->securityApplyStatus = \Modules\ModuleCTIClient\Lib\SecurityStatus::evaluate(
+            $settings->security_mode ?? null, $reportedSecurity
+        );
+        $this->view->securityAppliedMode = $reportedSecurity['mode'] ?? 'unknown';
+        // S-15: телеметрия legacy-клиентов из /varz gnatsd (может отсутствовать
+        // на старом бинарнике — тогда переменная null и строка в UI скрыта).
+        $this->view->legacyTelemetry = \Modules\ModuleCTIClient\Lib\SecurityStatus::readTelemetry();
         $this->view->autoSettingsValue = $this->generateAutoSettingsString($settings);
 
         // Client screenshots gallery on the CTI tab: 'ru' screenshots for the
@@ -474,12 +482,19 @@ class ModuleCTIClientController extends BaseController
             return;
         }
 
+        $record->security_mode = \Modules\ModuleCTIClient\Lib\SecurityMode::fromSubmission(
+            $record->security_mode ?? null, $data, $isFullForm
+        );
+
         // Update the record with the form data
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
                 case 'ami_password':
                 case 'nats_password':
+                    break;
+                case 'security_mode':
+                    // Отображение checkbox выполнено выше, не переопределять partial POST.
                     break;
                 case 'crm_type':
                     // Радио всегда отправляет одно из значений; частичный POST мастера 1С

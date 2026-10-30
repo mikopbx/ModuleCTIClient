@@ -72,6 +72,11 @@ const moduleCTIClient = {
 		},
 	},
 	initialize() {
+		$('#allow-legacy-clients-toggle').checkbox({
+			beforeChecked() {
+				return window.confirm(globalTranslate.mod_cti_LegacyClientsWarning);
+			},
+		});
 		moduleCTIClient.initializeDownloadClientDropdown();
 		moduleCTIClient.initializeClientScreenshotGallery();
 		$('#module-cti-client-form .item').tab();
