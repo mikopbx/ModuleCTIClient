@@ -119,11 +119,21 @@ class AmigoDaemons extends Injectable
 
     /**
      * Size threshold (bytes) past which a locally-accumulated pulled `.log` is
-     * rotated to `.log.1` (then `.log.2`…), so the existing 7-day cleanup
-     * (`find logDir -name '*.log.[0-9]*' -mtime +7`, deleteOldLogs()) reaps it.
-     * The active `.log` keeps growing via append-only tail pulls otherwise.
+     * rotated to `.log.1` (then `.log.2`…). Reaped two ways: the backup-count cap
+     * in rotateLocalPulledLog() (immediate, storm-proof) and the 7-day age sweep
+     * in deleteOldLogs(). The active `.log` keeps growing via append-only tail
+     * pulls otherwise.
      */
     private const REMOTE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
+
+    /**
+     * Hard cap on retained rotated backups (`.log.1`…`.log.N`) PER pulled log.
+     * Age-only retention (deleteOldLogs, -mtime +7) cannot bound a burst that
+     * rotates dozens of times within a single day (e.g. a VPS daemon crash-loop),
+     * so rotateLocalPulledLog() drops everything past this index on each rotate
+     * and deleteOldLogs() trims any legacy pile that pre-dates the cap.
+     */
+    private const REMOTE_LOG_MAX_BACKUPS = 5;
 
     /**
      * Bytes of a remote log's head hashed into a rotation/truncate signature.
@@ -239,6 +249,56 @@ class AmigoDaemons extends Injectable
         Processes::mwExec(
             "{$findPath} '{$this->dirs['logDir']}' -name '*.log' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
         );
+
+        // Enforce the per-log backup-count cap immediately: the age-only -mtime +7
+        // sweeps above cannot reap a same-day burst, and this also trims legacy
+        // piles left by the pre-cap rotateLocalPulledLog() (e.g. dozens of 70+ MB
+        // <uuid>-chats.log.N under <daemon>-<host>/).
+        $this->pruneRotatedBackupsOverCap();
+    }
+
+    /**
+     * Drop rotated `*.log.N` backups beyond REMOTE_LOG_MAX_BACKUPS per base log,
+     * scoped STRICTLY to the pulled-archive dirs this class writes
+     * (logDir/<daemon>-<hostTag>, see pullOneRemoteLog). The keep-lowest-index
+     * rule relies on `.log.1` being the freshest post-rotate copy, which only
+     * rotateLocalPulledLog() guarantees — so live local-daemon dirs (monitord/,
+     * amid/, gnatsd-cti/, …) and the root logDir (monitord_process.log, external
+     * rotation) are deliberately NOT touched; their own retention stands. Backups
+     * are grouped by `<base>.log` stem; gzipped rotations (`*.log.N.gz`) are left
+     * intact.
+     */
+    private function pruneRotatedBackupsOverCap(): void
+    {
+        $hostTag = $this->getRemoteLogHostTag();
+        if ($hostTag === '') {
+            return; // offload not configured — no pulled-archive dirs exist
+        }
+        $max = self::REMOTE_LOG_MAX_BACKUPS;
+        // hostTag is sanitized to [A-Za-z0-9._-] (getRemoteLogHostTag), so it
+        // carries no glob metacharacters; the pattern matches exactly the
+        // <daemon>-<hostTag> archive dirs and nothing else under logDir.
+        foreach (glob($this->dirs['logDir'] . '/*-' . $hostTag, GLOB_ONLYDIR) ?: [] as $dir) {
+            $groups = [];
+            foreach (glob($dir . '/*.log.[0-9]*') ?: [] as $f) {
+                if (!preg_match('/^(.*\.log)\.([0-9]+)$/', $f, $m)) {
+                    continue; // skip e.g. `.log.1.gz`
+                }
+                $groups[$m[1]][(int)$m[2]] = $f;
+            }
+            foreach ($groups as $files) {
+                if (count($files) <= $max) {
+                    continue;
+                }
+                ksort($files); // by index asc; keep the $max lowest, drop the rest
+                $i = 0;
+                foreach ($files as $f) {
+                    if (++$i > $max) {
+                        @unlink($f);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -2707,9 +2767,13 @@ class AmigoDaemons extends Injectable
     /**
      * Rotate a pulled local archive `.log` once it exceeds
      * REMOTE_LOG_ROTATE_BYTES: shift `.log.(N) -> .log.(N+1)` and move the active
-     * `.log -> .log.1`, leaving a fresh empty `.log` for subsequent appends. The
-     * `.log.N` names match the existing 7-day cleanup glob so they age out on
-     * their own. No-op below the threshold.
+     * `.log -> .log.1`, leaving a fresh empty `.log` for subsequent appends.
+     * No-op below the threshold.
+     *
+     * The chain is HARD-CAPPED at REMOTE_LOG_MAX_BACKUPS: anything at/above that
+     * index is unlinked on each rotate, so a burst cannot accumulate unbounded
+     * backups between hourly cleanups. deleteOldLogs() (7-day age sweep +
+     * pruneRotatedBackupsOverCap) is the secondary reaper, not the only one.
      *
      * @param string $path active local `.log` path
      * @return void
@@ -2724,19 +2788,21 @@ class AmigoDaemons extends Injectable
         if ($size < self::REMOTE_LOG_ROTATE_BYTES) {
             return;
         }
-        // Find the highest existing index so we shift from the top down and never
-        // clobber a still-unreaped older archive.
-        $top = 0;
+        // Drop any archive that would overflow the backup-count cap after the
+        // shift: a slot at or beyond REMOTE_LOG_MAX_BACKUPS cannot survive (the
+        // highest keepable source index is cap-1, which becomes cap). This bounds
+        // the chain to .log.1 … .log.N no matter how fast rotations happen, so a
+        // storm cannot accumulate unbounded backups ahead of the age sweep.
+        $max = self::REMOTE_LOG_MAX_BACKUPS;
         foreach (glob($path . '.[0-9]*') ?: [] as $rotated) {
             $suffix = substr($rotated, strlen($path) + 1);
-            if ($suffix !== '' && ctype_digit($suffix)) {
-                $n = (int)$suffix;
-                if ($n > $top) {
-                    $top = $n;
-                }
+            if ($suffix !== '' && ctype_digit($suffix) && (int)$suffix >= $max) {
+                @unlink($rotated);
             }
         }
-        for ($i = $top; $i >= 1; $i--) {
+        // Shift the survivors up (.log.(N) -> .log.(N+1)) from the top down so we
+        // never clobber a still-unreaped archive, then the active -> .log.1.
+        for ($i = $max - 1; $i >= 1; $i--) {
             @rename($path . '.' . $i, $path . '.' . ($i + 1));
         }
         @rename($path, $path . '.1');
