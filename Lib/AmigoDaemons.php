@@ -250,6 +250,22 @@ class AmigoDaemons extends Injectable
             "{$findPath} '{$this->dirs['logDir']}' -name '*.log' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
         );
 
+        // Reap rotated/stale `*.out` the same way as `*.log`. Core's hourly module
+        // rotation (WorkerLogRotate) copytruncates daemon-produced lumberjack backups
+        // (`<base>-YYYY-MM-DDTHH-MM-SS.mmm.out`) into never-recompressed `*.out.0`
+        // piles (see mikopbx/Core#1374 / ModuleCTIClient#70) that this cleanup used to
+        // miss. We sweep the `.out.N` copies and the timestamped daemon backups (plus
+        // their zeroed originals) by age; the LIVE `*.out` (no timestamp) is left alone.
+        Processes::mwExec(
+            "{$findPath} '{$this->dirs['logDir']}' -name '*.out.[0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+        );
+        Processes::mwExec(
+            "{$findPath} '{$this->dirs['logDir']}' -name '*.out.[0-9][0-9]' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+        );
+        Processes::mwExec(
+            "{$findPath} '{$this->dirs['logDir']}' -name '*T[0-9][0-9]-[0-9][0-9]-[0-9][0-9].[0-9][0-9][0-9].out' -mtime +7 | {$xargsPath} {$rmPath} > /dev/null 2> /dev/null"
+        );
+
         // Enforce the per-log backup-count cap immediately: the age-only -mtime +7
         // sweeps above cannot reap a same-day burst, and this also trims legacy
         // piles left by the pre-cap rotateLocalPulledLog() (e.g. dozens of 70+ MB
