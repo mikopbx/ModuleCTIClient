@@ -382,7 +382,25 @@ class AmigoDaemons extends Injectable
             $config .= "{$key}: {$val} \n";
         }
 
-        SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
+        
+        // Этап R2 (SC-4): HTTPS (8223) и NATS TLS-порт (4223) с per-install
+        // сертификатом. Пишем ТОЛЬКО если бинарник поддерживает (probe по
+        // строке tls_port, как с security_mode во FreePBX-модуле).
+        $gnatsBinary = $this->dirs['binDir'] . '/' . self::SERVICE_GNATS;
+        if (TlsCertificate::binarySupportsTls($gnatsBinary)) {
+            $certPath = "{$this->dirs['moduleDir']}/etc/ssl/gnatsd.crt";
+            $keyPath = "{$this->dirs['moduleDir']}/etc/ssl/gnatsd.key";
+            if (TlsCertificate::ensure($certPath, $keyPath, (string)PbxSettings::getValueByKey('PBXName'))) {
+                $config .= "https_port: 8298 \n";
+                $config .= "tls_port: 4228 \n";
+                $config .= 'tls { cert_file: "' . $certPath . '"; key_file: "' . $keyPath . '" }' . " \n";
+            } else {
+                // Фолбэк на plaintext (совместимость), но с логом.
+                error_log('ModuleCTIClient: TLS certificate generation failed, gnatsd stays plaintext');
+            }
+        }
+
+SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
 
         $licKey = $this->mikoPBXConfig->getGeneralSettings('PBXLicense');
         file_put_contents("{$sessionsDir}/license.key", $licKey);

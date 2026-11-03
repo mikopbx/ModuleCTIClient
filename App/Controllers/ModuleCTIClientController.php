@@ -33,6 +33,7 @@ use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
 use Modules\ModuleCTIClient\Lib\AmigoDaemons;
 use Modules\ModuleCTIClient\Lib\MikoPBXVersion;
+use Modules\ModuleCTIClient\Lib\UserListFilter;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 use Phalcon\Mvc\Model\Resultset;
 use Phalcon\Mvc\View;
@@ -723,10 +724,45 @@ class ModuleCTIClientController extends BaseController
         }
 
 
+        // Этап R2 (SC-2): личность из Bearer-сессии (gnatsd ставит X-CTI-User
+        // только для запросов с loopback; клиентский заголовок подделать нельзя).
+        // SIP-секреты и контакты — только владельцу номера, чужие строки —
+        // только справочник. Без сессии (админ-кабинет, провижининг) — как раньше.
+        $ctiUser = '';
+        if (UserListFilter::trustedRemote((string)$this->request->getServer('REMOTE_ADDR'))) {
+            $ctiUser = trim((string)$this->request->getHeader('X-CTI-User'));
+        }
+        $resultTable = UserListFilter::apply($resultTable, $ctiUser);
+
         $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
         $data = json_encode($resultTable);
         $this->response->setContent($data);
+    }
+
+    /**
+     * Этап R2 (SC-2): write-экшены — владелец или админ. Личность из
+     * X-CTI-User (только loopback) должна совпадать с изменяемым userid.
+     */
+    private function isOwnerOrAdmin(string $userId): bool
+    {
+        if (!UserListFilter::trustedRemote((string)$this->request->getServer('REMOTE_ADDR'))) {
+            // Не loopback: админ-кабинет с собственной аутентификацией ядра.
+            return true;
+        }
+        $ctiUser = trim((string)$this->request->getHeader('X-CTI-User'));
+        if ($ctiUser === '') {
+            // gnatsd-прокси без сессии (legacy-режим) — прежнее поведение.
+            return true;
+        }
+        // Сопоставляем userid с номером из сессии.
+        $parameters = [
+            'conditions' => 'is_general_user_number = 1 AND number = :number:',
+            'bind' => ['number' => $ctiUser],
+        ];
+        $extension = Extensions::findFirst($parameters);
+
+        return $extension !== null && (string)$extension->userid === (string)$userId;
     }
 
     /**
@@ -998,6 +1034,10 @@ class ModuleCTIClientController extends BaseController
 
         $newMobile = preg_replace('/[^0-9]/', '', $this->request->getPost('newMobile'));
         $userId = $this->request->getPost('id');
+        if (!$this->isOwnerOrAdmin((string)$userId)) {
+            $this->response->setContent(json_encode(['error' => 'not owner']));
+            return;
+        }
 
         if (MikoPBXVersion::isPhalcon512Version()) {
             $restAnswer = $this->di->get('restAPIClient', [
@@ -1233,6 +1273,10 @@ class ModuleCTIClientController extends BaseController
             return;
         }
         $userId = $this->request->getPost('id');
+        if (!$this->isOwnerOrAdmin((string)$userId)) {
+            $this->response->setContent(json_encode(['error' => 'not owner']));
+            return;
+        }
 
         if (MikoPBXVersion::isPhalcon512Version()) {
             $restAnswer = $this->di->get('restAPIClient', [
