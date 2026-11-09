@@ -375,10 +375,23 @@ class AmigoDaemons extends Injectable
         $settings['nats_password'] = '"' . $natsPassword . '"';
         $settings['service_password'] = '"' . $this->getNatsServiceToken() . '"';
 
+        // Этап R3: service_users { authd { pass: "..." } } — креды роли authd.
+        // Нужны внутреннему NATS-клиенту gnatsd для HTTP-эндпоинта /pbx/auth
+        // (bootstrap PIN в strict). Пароль детерминированно выводится из
+        // nats_password, чтобы переживать регенерации конфига без миграции БД.
+        $authdPass = hash('sha256', $natsPassword . ':authd');
+        $settings['service_users'] = '{ authd { pass: "' . $authdPass . '" } }';
+
         $settings['web_port'] = PbxSettings::getValueByKey('WEBPort');
 
         $config = '';
         foreach ($settings as $key => $val) {
+            // R3: service_users — блок (не key: value), пишем как есть.
+            if ($key === 'service_users') {
+                $config .= "service_users {$val} 
+";
+                continue;
+            }
             $config .= "{$key}: {$val} \n";
         }
 
