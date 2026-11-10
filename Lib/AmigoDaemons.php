@@ -4459,6 +4459,11 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
             'proto' => 'https',
             'pem' => "{$certsPath}/proxyserver.pem",
             'key' => "{$certsPath}/proxyserver.key",
+            // Адрес берётся только из административной конфигурации АТС.
+            'trusted_origins' => empty($this->module_settings['server1chost']) ? [] : [
+                ($this->module_settings['server1c_scheme'] ?? 'http') . '://'
+                . $this->module_settings['server1chost'] . ':' . $this->module_settings['server1cport'],
+            ],
         ];
 
         SecretConfigWriter::write("{$this->dirs['confDir']}/proxy.json", $settings_proxy);
