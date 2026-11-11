@@ -124,6 +124,14 @@ class ModuleCTIClientController extends BaseController
         // S-15: телеметрия legacy-клиентов из /varz gnatsd (может отсутствовать
         // на старом бинарнике — тогда переменная null и строка в UI скрыта).
         $this->view->legacyTelemetry = \Modules\ModuleCTIClient\Lib\SecurityStatus::readTelemetry();
+        // креды интеграции 1С для отображения администратору.
+        // Выводятся детерминированно из nats_password (как authd-роль).
+        $natsPassword = (string)($settings->nats_password ?? '');
+        $this->view->integrationCredentials = $natsPassword === '' ? null : [
+            'nats_user' => '1c-integration',
+            'nats_pass' => hash('sha256', $natsPassword . ':1c-integration'),
+            'http_key'  => hash('sha256', $natsPassword . ':1c-http'),
+        ];
         $this->view->autoSettingsValue = $this->generateAutoSettingsString($settings);
 
         // Client screenshots gallery on the CTI tab: 'ru' screenshots for the
@@ -240,8 +248,12 @@ class ModuleCTIClientController extends BaseController
             }
         }
 
+        // nats_password не покидает АТС. Вместо него — креды
+        // интеграции 1С (узкий ACL), чтобы автонастройка работала и в strict.
         $resArray = [
-            'nats_password' => $dataSet->nats_password,
+            'nats_login' => '1c-integration',
+            'nats_pass' => hash('sha256', $dataSet->nats_password . ':1c-integration'),
+            'http_key' => hash('sha256', $dataSet->nats_password . ':1c-http'),
             'ipset' => $ipAddresses,
             'pbx' => 'mikopbx',
         ];

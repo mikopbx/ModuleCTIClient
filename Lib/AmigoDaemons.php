@@ -380,7 +380,14 @@ class AmigoDaemons extends Injectable
         // (bootstrap PIN в strict). Пароль детерминированно выводится из
         // nats_password, чтобы переживать регенерации конфига без миграции БД.
         $authdPass = hash('sha256', $natsPassword . ':authd');
-        $settings['service_users'] = '{ authd { pass: "' . $authdPass . '" } }';
+        // клиент 1С (расширение ПТ4 + компонента NATS_Connector) в
+        // strict. Креды детерминированы от nats_password: ротация пароля на
+        // АТС мгновенно отзывает и интеграцию. Отображаются администратору
+        // в настройках модуля (ManagerCredentials::integrationCredentials).
+        $integrationPass = hash('sha256', $natsPassword . ':1c-integration');
+        $settings['service_users'] = '{ authd { pass: "' . $authdPass . '" } '
+            . ', 1c-integration { pass: "' . $integrationPass . '" } }';
+        $settings['integration_secret'] = '"' . hash('sha256', $natsPassword . ':1c-http') . '"';
 
         $settings['web_port'] = PbxSettings::getValueByKey('WEBPort');
 
