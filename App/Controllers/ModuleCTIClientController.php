@@ -880,6 +880,101 @@ class ModuleCTIClientController extends BaseController
      * Example:
      * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getIdMatchNamesList"
      */
+    /**
+     * Проверка логина/пароля SIP-учётной записи для входа клиента в strict-
+     * режиме. Вызывается только gnatsd (маршрут /pbx/sipauth, loopback).
+     * Пароль сверяется с секретом расширения на сервере; профиль (в том
+     * числе секрет) возвращается только после успешной проверки.
+     */
+    public function checkSipAuthAction(): void
+    {
+        $this->view->disable();
+        // Только прямой запрос локального gnatsd; forwarded-заголовки не доверены.
+        if (!in_array((string)$this->request->getServer('REMOTE_ADDR'), ['127.0.0.1', '::1'], true)) {
+            $this->response->setStatusCode(403);
+            return;
+        }
+        $login = (string)$this->request->getPost('login');
+        $password = (string)$this->request->getPost('password');
+
+        $answer = ['ok' => false];
+        if ($login === '' || strlen($login) > 32 || $password === '') {
+            echo json_encode($answer);
+            return;
+        }
+
+        $parameters = [
+            'models' => ['Extensions' => Extensions::class],
+            'conditions' => 'Extensions.number = :number: AND Extensions.is_general_user_number = 1',
+            'bind' => ['number' => $login],
+            'columns' => [
+                'userid' => 'Extensions.userid',
+                'username' => 'Users.username',
+                'secret' => 'Sip.secret',
+                'transport' => 'Sip.transport',
+                'number' => 'Extensions.number',
+                'type' => 'Extensions.type',
+                'email' => 'Users.email',
+            ],
+            'joins' => [
+                'Sip' => [
+                    0 => Sip::class,
+                    1 => 'Sip.extension=Extensions.number',
+                    2 => 'Sip',
+                    3 => 'LEFT',
+                ],
+                'Users' => [
+                    0 => Users::class,
+                    1 => 'Users.id = Extensions.userid',
+                    2 => 'Users',
+                    3 => 'INNER',
+                ],
+            ],
+        ];
+        $query = $this->di->get('modelsManager')->createBuilder($parameters)->getQuery();
+        $rows = $query->execute()->toArray();
+        $row = null;
+        foreach ($rows as $candidate) {
+            if ((string)($candidate['type'] ?? '') === 'SIP') {
+                $row = $candidate;
+                break;
+            }
+        }
+        if ($row === null || !hash_equals((string)($row['secret'] ?? ''), $password)) {
+            echo json_encode($answer);
+            return;
+        }
+
+        // Порты SIP — те же правила, что в getExtensionsAction (АТС за NAT,
+        // выбор транспорта клиента).
+        $pjsipPort = PbxSettings::getValueByKey('SIPPort');
+        $isExternalClient = $this->isExternalClientHost();
+        $externalSipPort = (string)PbxSettings::getValueByKey('externalSIPPort');
+        $plainPort = ($isExternalClient && $externalSipPort !== '') ? $externalSipPort : $pjsipPort;
+
+        $clientTransport = strtolower(trim((string)$this->request->getHeader('X-Client-Transport')));
+        $transport = $clientTransport !== ''
+            ? $this->normalizeTransport((string)$row['transport'], $clientTransport)
+            : (string)$row['transport'];
+
+        $tlsPort = (string)PbxSettings::getValueByKey('TLS_PORT');
+        $externalTlsPort = (string)PbxSettings::getValueByKey('externalTLSPort');
+        $securePort = ($isExternalClient && $externalTlsPort !== '') ? $externalTlsPort : $tlsPort;
+        $transport = $this->normalizeTransport($transport, $clientTransport);
+        $port = $transport === 'tls' ? $securePort : $plainPort;
+        $tlsLogin = $transport === 'tls' && $this->hasTlsEndpoints() ? $login . '-TLS' : '';
+        $answer = [
+            'ok' => true,
+            'userid' => (string)$row['userid'],
+            'number' => (string)$row['number'],
+            'username' => (string)$row['username'],
+            'port' => $port,
+            'transport' => $transport,
+            'tls_login' => $tlsLogin,
+        ];
+        echo json_encode($answer);
+    }
+
     public function getIdMatchNamesListAction(): void
     {
         $extensionTable = [];
