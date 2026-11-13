@@ -71,13 +71,56 @@
         <div class="ui hidden divider"></div>
         <div class="field">
             <div class="ui segment">
+                <div class="ui toggle checkbox" id="allow-legacy-clients-toggle">
+                    {{ form.render('allow_legacy_clients') }}
+                    <label for="allow_legacy_clients">{{ t._('mod_cti_AllowLegacyClients') }}</label>
+                </div>
+                <div class="ui info message">
+                    {{ t._('mod_cti_SecurityModeHint') }}
+                </div>
+                {% if securityApplyStatus == 'pending' %}
+                <div class="ui warning message">
+                    {{ t._('mod_cti_SecurityStatusPending') }}
+                </div>
+                {% elseif securityApplyStatus != 'applied' %}
+                <div class="ui warning message">
+                    {{ t._('mod_cti_SecurityStatusUnavailable') }}
+                </div>
+                {% endif %}
+                <div class="ui warning message">
+                    {{ t._('mod_cti_LegacyClientsWarning') }}
+                </div>
+                {% if integrationCredentials is not null %}
+                <div class="ui info message" id="integration-credentials">
+                    <b>{{ t._('mod_cti_Integration1cTitle') }}</b>
+                    <div class="ui hidden divider"></div>
+                    {{ t._('mod_cti_Integration1cHint') }}
+                    <div class="ui hidden divider"></div>
+                    <div style="font-family:monospace; word-break:break-all;">
+                        {{ t._('mod_cti_Integration1cLogin') }}: {{ integrationCredentials['nats_user'] }}<br>
+                        {{ t._('mod_cti_Integration1cPassword') }}: {{ integrationCredentials['nats_pass'] }}<br>
+                        {{ t._('mod_cti_Integration1cHttpKey') }}: {{ integrationCredentials['http_key'] }}
+                    </div>
+                </div>
+                {% endif %}
+                {% if legacyTelemetry is not null and legacyTelemetry['legacy_connects_total'] is defined %}
+                <div class="ui info message" id="legacy-telemetry">
+                    {{ t._('mod_cti_LegacyClientsCount') }}:
+                    {{ legacyTelemetry['legacy_connects_total']|escape }}
+                    ({{ t._('mod_cti_LegacyClientsActive') }}: {{ legacyTelemetry['legacy_connections']|escape }})
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="ui hidden divider"></div>
+        <div class="field">
+            <div class="ui segment">
                 <div class="ui toggle checkbox" id="auto-settings-mode-toggle">
                     {{ form.render('auto_settings_mode') }}
                     <label for="auto_settings_mode">{{ t._('mod_cti_UseAutoSettings') }}</label>
                 </div>
             </div>
         </div>
-        <div class="ui hidden divider"></div>
 
         <div class="field only-auto-settings">
             <label for="auto_settings_value">{{ t._('mod_cti_AutoSettingsData') }}</label>

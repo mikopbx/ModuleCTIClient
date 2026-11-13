@@ -135,6 +135,12 @@ class ModuleCTIClient extends ModulesModelsBase
     public ?string $nats_password = '';
 
     /**
+     * @var string|null strict | legacy_compatible; strict по умолчанию и при неизвестном значении
+     * @Column(type='string', nullable=true, default='strict')
+     */
+    public ?string $security_mode = 'strict';
+
+    /**
      * @var string|null Module configuration mode from the 1C side
      *
      * @Column(type='string', length=1, nullable=true, default='0')

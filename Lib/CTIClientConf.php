@@ -332,10 +332,11 @@ class CTIClientConf extends ConfigClass
                         'portToKey'   => '',
                     ],
                     [
-                        'portfrom'    => 8000,
-                        'portto'      => 8000,
+                        // Этап R2 (SC-4): HTTPS API (8223) с TLS.
+                        'portfrom'    => 8298,
+                        'portto'      => 8298,
                         'protocol'    => 'tcp',
-                        'name'        => 'CDRCTIPort',
+                        'name'        => 'NatsHttpsPort',
                         'portFromKey' => '',
                         'portToKey'   => '',
                     ],

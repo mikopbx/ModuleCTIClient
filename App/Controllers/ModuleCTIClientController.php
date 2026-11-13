@@ -33,6 +33,7 @@ use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleCTIClient\App\Forms\ModuleCTIClientForm;
 use Modules\ModuleCTIClient\Lib\AmigoDaemons;
 use Modules\ModuleCTIClient\Lib\MikoPBXVersion;
+use Modules\ModuleCTIClient\Lib\UserListFilter;
 use Modules\ModuleCTIClient\Models\ModuleCTIClient;
 use Phalcon\Mvc\Model\Resultset;
 use Phalcon\Mvc\View;
@@ -115,6 +116,22 @@ class ModuleCTIClientController extends BaseController
 
         // Initialize view variables
         $this->view->form = new ModuleCTIClientForm($settings);
+        $reportedSecurity = \Modules\ModuleCTIClient\Lib\SecurityStatus::readLocal();
+        $this->view->securityApplyStatus = \Modules\ModuleCTIClient\Lib\SecurityStatus::evaluate(
+            $settings->security_mode ?? null, $reportedSecurity
+        );
+        $this->view->securityAppliedMode = $reportedSecurity['mode'] ?? 'unknown';
+        // S-15: телеметрия legacy-клиентов из /varz gnatsd (может отсутствовать
+        // на старом бинарнике — тогда переменная null и строка в UI скрыта).
+        $this->view->legacyTelemetry = \Modules\ModuleCTIClient\Lib\SecurityStatus::readTelemetry();
+        // креды интеграции 1С для отображения администратору.
+        // Выводятся детерминированно из nats_password (как authd-роль).
+        $natsPassword = (string)($settings->nats_password ?? '');
+        $this->view->integrationCredentials = $natsPassword === '' ? null : [
+            'nats_user' => '1c-integration',
+            'nats_pass' => hash('sha256', $natsPassword . ':1c-integration'),
+            'http_key'  => hash('sha256', $natsPassword . ':1c-http'),
+        ];
         $this->view->autoSettingsValue = $this->generateAutoSettingsString($settings);
 
         // Client screenshots gallery on the CTI tab: 'ru' screenshots for the
@@ -231,8 +248,12 @@ class ModuleCTIClientController extends BaseController
             }
         }
 
+        // nats_password не покидает АТС. Вместо него — креды
+        // интеграции 1С (узкий ACL), чтобы автонастройка работала и в strict.
         $resArray = [
-            'nats_password' => $dataSet->nats_password,
+            'nats_login' => '1c-integration',
+            'nats_pass' => hash('sha256', $dataSet->nats_password . ':1c-integration'),
+            'http_key' => hash('sha256', $dataSet->nats_password . ':1c-http'),
             'ipset' => $ipAddresses,
             'pbx' => 'mikopbx',
         ];
@@ -474,12 +495,19 @@ class ModuleCTIClientController extends BaseController
             return;
         }
 
+        $record->security_mode = \Modules\ModuleCTIClient\Lib\SecurityMode::fromSubmission(
+            $record->security_mode ?? null, $data, $isFullForm
+        );
+
         // Update the record with the form data
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
                 case 'ami_password':
                 case 'nats_password':
+                    break;
+                case 'security_mode':
+                    // Отображение checkbox выполнено выше, не переопределять partial POST.
                     break;
                 case 'crm_type':
                     // Радио всегда отправляет одно из значений; частичный POST мастера 1С
@@ -708,10 +736,45 @@ class ModuleCTIClientController extends BaseController
         }
 
 
+        // Этап R2 (SC-2): личность из Bearer-сессии (gnatsd ставит X-CTI-User
+        // только для запросов с loopback; клиентский заголовок подделать нельзя).
+        // SIP-секреты и контакты — только владельцу номера, чужие строки —
+        // только справочник. Без сессии (админ-кабинет, провижининг) — как раньше.
+        $ctiUser = '';
+        if (UserListFilter::trustedRemote((string)$this->request->getServer('REMOTE_ADDR'))) {
+            $ctiUser = trim((string)$this->request->getHeader('X-CTI-User'));
+        }
+        $resultTable = UserListFilter::apply($resultTable, $ctiUser);
+
         $this->view->setRenderLevel(View::LEVEL_NO_RENDER);
         $this->response->setContentType('application/json', 'UTF-8');
         $data = json_encode($resultTable);
         $this->response->setContent($data);
+    }
+
+    /**
+     * Этап R2 (SC-2): write-экшены — владелец или админ. Личность из
+     * X-CTI-User (только loopback) должна совпадать с изменяемым userid.
+     */
+    private function isOwnerOrAdmin(string $userId): bool
+    {
+        if (!UserListFilter::trustedRemote((string)$this->request->getServer('REMOTE_ADDR'))) {
+            // Не loopback: админ-кабинет с собственной аутентификацией ядра.
+            return true;
+        }
+        $ctiUser = trim((string)$this->request->getHeader('X-CTI-User'));
+        if ($ctiUser === '') {
+            // gnatsd-прокси без сессии (legacy-режим) — прежнее поведение.
+            return true;
+        }
+        // Сопоставляем userid с номером из сессии.
+        $parameters = [
+            'conditions' => 'is_general_user_number = 1 AND number = :number:',
+            'bind' => ['number' => $ctiUser],
+        ];
+        $extension = Extensions::findFirst($parameters);
+
+        return $extension !== null && (string)$extension->userid === (string)$userId;
     }
 
     /**
@@ -817,6 +880,101 @@ class ModuleCTIClientController extends BaseController
      * Example:
      * curl "http://127.0.0.1/admin-cabinet/module-c-t-i-client/getIdMatchNamesList"
      */
+    /**
+     * Проверка логина/пароля SIP-учётной записи для входа клиента в strict-
+     * режиме. Вызывается только gnatsd (маршрут /pbx/sipauth, loopback).
+     * Пароль сверяется с секретом расширения на сервере; профиль (в том
+     * числе секрет) возвращается только после успешной проверки.
+     */
+    public function checkSipAuthAction(): void
+    {
+        $this->view->disable();
+        // Только прямой запрос локального gnatsd; forwarded-заголовки не доверены.
+        if (!in_array((string)$this->request->getServer('REMOTE_ADDR'), ['127.0.0.1', '::1'], true)) {
+            $this->response->setStatusCode(403);
+            return;
+        }
+        $login = (string)$this->request->getPost('login');
+        $password = (string)$this->request->getPost('password');
+
+        $answer = ['ok' => false];
+        if ($login === '' || strlen($login) > 32 || $password === '') {
+            echo json_encode($answer);
+            return;
+        }
+
+        $parameters = [
+            'models' => ['Extensions' => Extensions::class],
+            'conditions' => 'Extensions.number = :number: AND Extensions.is_general_user_number = 1',
+            'bind' => ['number' => $login],
+            'columns' => [
+                'userid' => 'Extensions.userid',
+                'username' => 'Users.username',
+                'secret' => 'Sip.secret',
+                'transport' => 'Sip.transport',
+                'number' => 'Extensions.number',
+                'type' => 'Extensions.type',
+                'email' => 'Users.email',
+            ],
+            'joins' => [
+                'Sip' => [
+                    0 => Sip::class,
+                    1 => 'Sip.extension=Extensions.number',
+                    2 => 'Sip',
+                    3 => 'LEFT',
+                ],
+                'Users' => [
+                    0 => Users::class,
+                    1 => 'Users.id = Extensions.userid',
+                    2 => 'Users',
+                    3 => 'INNER',
+                ],
+            ],
+        ];
+        $query = $this->di->get('modelsManager')->createBuilder($parameters)->getQuery();
+        $rows = $query->execute()->toArray();
+        $row = null;
+        foreach ($rows as $candidate) {
+            if ((string)($candidate['type'] ?? '') === 'SIP') {
+                $row = $candidate;
+                break;
+            }
+        }
+        if ($row === null || !hash_equals((string)($row['secret'] ?? ''), $password)) {
+            echo json_encode($answer);
+            return;
+        }
+
+        // Порты SIP — те же правила, что в getExtensionsAction (АТС за NAT,
+        // выбор транспорта клиента).
+        $pjsipPort = PbxSettings::getValueByKey('SIPPort');
+        $isExternalClient = $this->isExternalClientHost();
+        $externalSipPort = (string)PbxSettings::getValueByKey('externalSIPPort');
+        $plainPort = ($isExternalClient && $externalSipPort !== '') ? $externalSipPort : $pjsipPort;
+
+        $clientTransport = strtolower(trim((string)$this->request->getHeader('X-Client-Transport')));
+        $transport = $clientTransport !== ''
+            ? $this->normalizeTransport((string)$row['transport'], $clientTransport)
+            : (string)$row['transport'];
+
+        $tlsPort = (string)PbxSettings::getValueByKey('TLS_PORT');
+        $externalTlsPort = (string)PbxSettings::getValueByKey('externalTLSPort');
+        $securePort = ($isExternalClient && $externalTlsPort !== '') ? $externalTlsPort : $tlsPort;
+        $transport = $this->normalizeTransport($transport, $clientTransport);
+        $port = $transport === 'tls' ? $securePort : $plainPort;
+        $tlsLogin = $transport === 'tls' && $this->hasTlsEndpoints() ? $login . '-TLS' : '';
+        $answer = [
+            'ok' => true,
+            'userid' => (string)$row['userid'],
+            'number' => (string)$row['number'],
+            'username' => (string)$row['username'],
+            'port' => $port,
+            'transport' => $transport,
+            'tls_login' => $tlsLogin,
+        ];
+        echo json_encode($answer);
+    }
+
     public function getIdMatchNamesListAction(): void
     {
         $extensionTable = [];
@@ -983,6 +1141,10 @@ class ModuleCTIClientController extends BaseController
 
         $newMobile = preg_replace('/[^0-9]/', '', $this->request->getPost('newMobile'));
         $userId = $this->request->getPost('id');
+        if (!$this->isOwnerOrAdmin((string)$userId)) {
+            $this->response->setContent(json_encode(['error' => 'not owner']));
+            return;
+        }
 
         if (MikoPBXVersion::isPhalcon512Version()) {
             $restAnswer = $this->di->get('restAPIClient', [
@@ -1218,6 +1380,10 @@ class ModuleCTIClientController extends BaseController
             return;
         }
         $userId = $this->request->getPost('id');
+        if (!$this->isOwnerOrAdmin((string)$userId)) {
+            $this->response->setContent(json_encode(['error' => 'not owner']));
+            return;
+        }
 
         if (MikoPBXVersion::isPhalcon512Version()) {
             $restAnswer = $this->di->get('restAPIClient', [

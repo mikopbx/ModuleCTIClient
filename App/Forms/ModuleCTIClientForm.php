@@ -101,6 +101,10 @@ class ModuleCTIClientForm extends Form
 
         $this->addCheckBox('debug_mode', intval($entity->debug_mode) === 1);
         $this->addCheckBox('auto_settings_mode', intval($entity->auto_settings_mode) === 1);
+        $this->addCheckBox('allow_legacy_clients',
+            \Modules\ModuleCTIClient\Lib\SecurityMode::allowsLegacy($entity->security_mode ?? null),
+            'legacy_compatible'
+        );
 
         // Set CallerID by 1C data
         $this->addCheckBox('setup_caller_id', intval($entity->setup_caller_id) === 1);
