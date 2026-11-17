@@ -248,7 +248,7 @@ class ModuleCTIClientController extends BaseController
             }
         }
 
-        // nats_password не покидает АТС. Вместо него — креды
+        // Серверный nats_password не покидает АТС. Выдаём только креды
         // интеграции 1С (узкий ACL), чтобы автонастройка работала и в strict.
         $resArray = [
             'nats_login' => '1c-integration',
@@ -257,6 +257,10 @@ class ModuleCTIClientController extends BaseController
             'ipset' => $ipAddresses,
             'pbx' => 'mikopbx',
         ];
+        if (\Modules\ModuleCTIClient\Lib\SecurityMode::allowsLegacy($dataSet->security_mode ?? null)) {
+            // Старый 1С читает это имя и отправляет X-Password; значение — scoped HTTP-ключ, не master.
+            $resArray['nats_password'] = $resArray['http_key'];
+        }
 
         return base64_encode(json_encode($resArray));
     }
