@@ -1,83 +1,89 @@
 <?php
-/**
- * Этап R2 (SC-4): per-install self-signed сертификат для HTTPS/TLS gnatsd.
- * Генерируется модулем при первом конфигурировании; переиспользуется при
- * последующих генерациях конфига (содержимое не перезаписывается).
- * На ядре с SslCertificateService сертификат Asterisk мог бы использоваться,
- * но его пароль неизвестен gnatsd — генерируем свой отдельный.
- */
 namespace Modules\ModuleCTIClient\Lib;
 
+/** Отдельная TLS-пара gnatsd; ошибка никогда не разрешает plaintext в strict. */
 final class TlsCertificate
 {
-    private const CERT_DAYS = 3650;
-
-    /**
-     * Гарантирует наличие пары cert/key. Если файлы уже есть — ничего не делает.
-     *
-     * @param string $certPath   путь к PEM-сертификату
-     * @param string $keyPath    путь к PEM-ключу (0600)
-     * @param string $commonName CN (имя хоста/IP АТС)
-     * @return bool true если файлы готовы; false — openssl недоступен/ошибка записи
-     */
-    public static function ensure(string $certPath, string $keyPath, string $commonName): bool
+    public static function ensure($certPath, $keyPath, $commonName)
     {
-        if ($certPath === '' || $keyPath === '') {
+        if ($certPath === '' || $keyPath === '' || $certPath === $keyPath || !function_exists('openssl_pkey_new')) {
             return false;
         }
-        if (is_file($certPath) && is_file($keyPath)) {
-            return true;
+        // Один стабильный inode на пару; удаление lock создало бы независимые блокировки.
+        $mask = umask(0077);
+        try { $lock = @fopen($keyPath . '.lock', 'c'); } finally { umask($mask); }
+        if ($lock === false) { return false; }
+        try {
+            if (!@chmod($keyPath . '.lock', 0600) || !flock($lock, LOCK_EX)) { return false; }
+            try {
+                // Конкурирующий создатель мог уже опубликовать пару, пока мы ждали.
+                clearstatcache(true, $certPath);
+                clearstatcache(true, $keyPath);
+                return self::ensureLocked($certPath, $keyPath, $commonName);
+            } finally {
+                flock($lock, LOCK_UN);
+            }
+        } finally {
+            fclose($lock);
         }
-        if (!function_exists('openssl_x509_export') || !function_exists('openssl_pkey_export')) {
-            return false;
-        }
-        $privKey = openssl_pkey_new([
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ]);
-        if ($privKey === false) {
-            return false;
-        }
-        $csr = openssl_csr_new(['commonName' => $commonName], $privKey, ['digest_alg' => 'sha256']);
-        if ($csr === false) {
-            return false;
-        }
-        $cert = openssl_csr_sign($csr, null, $privKey, self::CERT_DAYS, ['digest_alg' => 'sha256']);
-        if ($cert === false) {
-            return false;
-        }
-        if (!openssl_x509_export($cert, $certOut) || !openssl_pkey_export($privKey, $keyOut)) {
-            return false;
-        }
-        if (file_put_contents($certPath, $certOut) === false) {
-            return false;
-        }
-        if (file_put_contents($keyPath, $keyOut) === false) {
-            return false;
-        }
-        @chmod($keyPath, 0600);
-        @chmod($certPath, 0640);
-        return true;
     }
 
-    /**
-     * Поддержка бинарником gnatsd полей tls_port/https_port (probe по строке,
-     * как с security_mode во FreePBX-модуле). Старый бинарник новых полей не
-     * понимает — конфиг пишется без TLS-блока.
-     */
-    public static function binarySupportsTls(string $binaryPath): bool
+    private static function ensureLocked($certPath, $keyPath, $commonName)
     {
-        if ($binaryPath === '' || !is_file($binaryPath)) {
+        if (file_exists($certPath) || file_exists($keyPath)) {
+            return self::validPair($certPath, $keyPath);
+        }
+        $key = openssl_pkey_new(array('private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA));
+        if ($key === false) { return false; }
+        $csr = openssl_csr_new(array('commonName' => $commonName), $key, array('digest_alg' => 'sha256'));
+        if ($csr === false) { return false; }
+        $cert = openssl_csr_sign($csr, null, $key, 3650, array('digest_alg' => 'sha256'));
+        if ($cert === false || !openssl_x509_export($cert, $certOut) || !openssl_pkey_export($key, $keyOut)) {
             return false;
         }
-        $out = null;
-        $rc = 1;
-        @exec(
-            'grep -c tls_port ' . escapeshellarg($binaryPath) . ' 2>/dev/null',
-            $out,
-            $rc
-        );
-        $count = trim(implode('', is_array($out) ? $out : []));
-        return $count !== '' && $count !== '0';
+        $keyTemp = self::writeTemporary($keyPath, $keyOut, 0600);
+        if ($keyTemp === false) { return false; }
+        $certTemp = self::writeTemporary($certPath, $certOut, 0640);
+        if ($certTemp === false) { @unlink($keyTemp); return false; }
+        try {
+            if (!@rename($keyTemp, $keyPath) || !@rename($certTemp, $certPath)) {
+                return false;
+            }
+            return self::validPair($certPath, $keyPath);
+        } finally {
+            if (is_file($keyTemp)) { @unlink($keyTemp); }
+            if (is_file($certTemp)) { @unlink($certTemp); }
+        }
+    }
+
+    private static function validPair($certPath, $keyPath)
+    {
+        if (!is_readable($certPath) || !is_readable($keyPath)) { return false; }
+        $cert = @file_get_contents($certPath);
+        $key = @file_get_contents($keyPath);
+        if ($cert === false || $key === false || !@openssl_x509_check_private_key($cert, $key)) { return false; }
+        $data = @openssl_x509_parse($cert);
+        return is_array($data) && isset($data['validFrom_time_t'], $data['validTo_time_t'])
+            && $data['validFrom_time_t'] <= time() && $data['validTo_time_t'] > time()
+            && @chmod($keyPath, 0600) && @chmod($certPath, 0640);
+    }
+
+    private static function writeTemporary($path, $content, $mode)
+    {
+        if (!is_dir(dirname($path))) { return false; }
+        // Закрываем права до первой записи секретного содержимого.
+        $mask = umask(0077);
+        try { $temp = @tempnam(dirname($path), '.cti-tls-'); } finally { umask($mask); }
+        if ($temp === false) { return false; }
+        if (!@chmod($temp, $mode) || @file_put_contents($temp, $content) !== strlen($content)) {
+            @unlink($temp);
+            return false;
+        }
+        return $temp;
+    }
+
+    public static function binarySupportsTls($binaryPath)
+    {
+        return BinaryCapabilities::containsAll($binaryPath, array('tls_port', 'https_port'));
     }
 }

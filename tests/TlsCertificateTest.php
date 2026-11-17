@@ -45,3 +45,5 @@ if (md5_file($cert) !== $before) { $fail('existing cert overwritten'); }
 if (TlsCertificate::ensure('', $key, 'x') !== false) { $fail('empty cert path accepted'); }
 
 echo "PASS TlsCertificate\n";
+
+unlink($cert); unlink($key); unlink($key . '.lock'); rmdir($dir);

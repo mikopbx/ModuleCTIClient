@@ -406,6 +406,8 @@ class AmigoDaemons extends Injectable
      */
     private function generateNatsConf(): void
     {
+        $securityMode = SecurityMode::normalize($this->module_settings['security_mode'] ?? null);
+        $this->requireStrictBinaries();
         $sessionsDir = "{$this->dirs['spoolDir']}/sessions";
         Util::mwMkdir($sessionsDir);
 
@@ -435,8 +437,13 @@ class AmigoDaemons extends Injectable
             'log_size_limit' => 10485760, //10Mb
             'pbx' => "MikoPBX",
             'module_version' => '"' . $moduleVersion . '"',
-            'security_mode' => '"' . SecurityMode::normalize($this->module_settings['security_mode'] ?? null) . '"',
+            'security_mode' => '"' . $securityMode . '"',
         ];
+
+        if ($securityMode === SecurityMode::STRICT) {
+            $settings['allow_legacy_auth'] = 'false';
+            $settings['legacy_unsigned'] = 'false';
+        }
 
         $natsPassword = NatsPassword::ensure(
             (string)($this->module_settings['nats_password'] ?? ''),
@@ -478,25 +485,16 @@ class AmigoDaemons extends Injectable
             $config .= "{$key}: {$val} \n";
         }
 
-        
-        // Этап R2 (SC-4): HTTPS (8223) и NATS TLS-порт (4223) с per-install
-        // сертификатом. Пишем ТОЛЬКО если бинарник поддерживает (probe по
-        // строке tls_port, как с security_mode во FreePBX-модуле).
+        // Strict требует проверенный TLS; не публикуем неполную конфигурацию.
         $gnatsBinary = $this->dirs['binDir'] . '/' . self::SERVICE_GNATS;
-        if (TlsCertificate::binarySupportsTls($gnatsBinary)) {
-            $certPath = "{$this->dirs['moduleDir']}/etc/ssl/gnatsd.crt";
-            $keyPath = "{$this->dirs['moduleDir']}/etc/ssl/gnatsd.key";
-            if (TlsCertificate::ensure($certPath, $keyPath, (string)PbxSettings::getValueByKey('PBXName'))) {
-                $config .= "https_port: 8298 \n";
-                $config .= "tls_port: 4228 \n";
-                $config .= 'tls { cert_file: "' . $certPath . '"; key_file: "' . $keyPath . '" }' . " \n";
-            } else {
-                // Фолбэк на plaintext (совместимость), но с логом.
-                error_log('ModuleCTIClient: TLS certificate generation failed, gnatsd stays plaintext');
-            }
+        if ($securityMode === SecurityMode::STRICT || TlsCertificate::binarySupportsTls($gnatsBinary)) {
+            $tlsCertificate = $this->prepareGnatsTlsCertificate();
+            $config .= "https_port: 8298 \n";
+            $config .= "tls_port: 4228 \n";
+            $config .= 'tls { cert_file: "' . $tlsCertificate['cert'] . '"; key_file: "' . $tlsCertificate['key'] . '" }' . " \n";
         }
 
-SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
+        SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
 
         $licKey = $this->mikoPBXConfig->getGeneralSettings('PBXLicense');
         file_put_contents("{$sessionsDir}/license.key", $licKey);
@@ -4371,10 +4369,15 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
      */
     private function generateCrmdConf(): void
     {
+        $securityMode = SecurityMode::normalize($this->module_settings['security_mode'] ?? null);
+        if ($securityMode === SecurityMode::STRICT) {
+            BinaryCapabilities::requireStrict($this->dirs['binDir'] . '/' . self::SERVICE_CRM, self::SERVICE_CRM);
+        }
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_CRM;
         Util::mwMkdir($logDir);
 
         $settings_crm = [
+            'security_mode' => $securityMode,
             'mq' => [
                 'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
@@ -4527,15 +4530,38 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
         SecretConfigWriter::write("{$this->dirs['confDir']}/max.json", $settings_max);
     }
 
+    /** Автономный прокси не должен публиковать strict со старыми демонами. */
+    private function requireStrictBinaries(): void
+    {
+        $securityMode = SecurityMode::normalize($this->module_settings['security_mode'] ?? null);
+        if ($securityMode === SecurityMode::STRICT) {
+            BinaryCapabilities::requireStrict($this->dirs['binDir'] . '/' . self::SERVICE_CRM, self::SERVICE_CRM);
+            BinaryCapabilities::requireStrict($this->dirs['binDir'] . '/' . self::SERVICE_GNATS, self::SERVICE_GNATS);
+        }
+    }
+
+    /** Одна проверенная TLS-личность для HTTPS, NATS и HTTPS-прокси на одном хосте. */
+    private function prepareGnatsTlsCertificate(): array
+    {
+        $tlsDir = "{$this->dirs['moduleDir']}/etc/ssl";
+        Util::mwMkdir($tlsDir);
+        $certPath = $tlsDir . '/gnatsd.crt';
+        $keyPath = $tlsDir . '/gnatsd.key';
+        if (!TlsCertificate::ensure($certPath, $keyPath, (string)PbxSettings::getValueByKey('PBXName'))) {
+            throw new \RuntimeException('Не удалось подготовить TLS-сертификат gnatsd');
+        }
+        return ['cert' => $certPath, 'key' => $keyPath];
+    }
+
     /**
      * Generate the configuration file for proxyd.
      */
     private function generateProxyConf(): void
     {
+        $this->requireStrictBinaries();
+        $tlsCertificate = $this->prepareGnatsTlsCertificate();
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_PROXY;
         Util::mwMkdir($logDir);
-
-        $certsPath = "{$this->dirs['moduleDir']}/etc/ssl";
 
         $settings_proxy = [
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
@@ -4546,8 +4572,8 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
             ],
             'port' => ':8002',
             'proto' => 'https',
-            'pem' => "{$certsPath}/proxyserver.pem",
-            'key' => "{$certsPath}/proxyserver.key",
+            'pem' => $tlsCertificate['cert'],
+            'key' => $tlsCertificate['key'],
             // Адрес берётся только из административной конфигурации АТС.
             'trusted_origins' => empty($this->module_settings['server1chost']) ? [] : [
                 ($this->module_settings['server1c_scheme'] ?? 'http') . '://'
