@@ -461,6 +461,17 @@ class CTIClientConf extends ConfigClass
         $conf .= '[miko-cti2-goto]' . "\n";
         $conf .= 'exten => _[0-9*#+a-zA-Z]!,1,Wait(0.2)' . "\n\t";
         $conf .= 'same => n,ExecIf($["${mikoContext}x" = "x"]?Set(mikoContext=all_peers))' . "\n\t";
+        // Answer via PickupChan (e.g. a push softphone dialing *8XXX): the core
+        // [originate-answer-channel] then stores ORIGINATE_SRC_CHANNEL on the picker
+        // itself, not on this Local;1. Take the answered channel from the Local;2 bridge;
+        // if the bridge is not formed yet (loaded PBX), wait a bit and try once more.
+        $answeredFromBridge = 'same => n,ExecIf($["${ORIGINATE_SRC_CHANNEL}x" = "x"]?Set(ORIGINATE_SRC_CHANNEL=${IMPORT(${CUT(CHANNEL,\;,1)}\;2,BRIDGEPEER)}))' . "\n\t";
+        $conf .= $answeredFromBridge;
+        $conf .= 'same => n,ExecIf($["${ORIGINATE_SRC_CHANNEL}x" = "x"]?Wait(0.3))' . "\n\t";
+        $conf .= $answeredFromBridge;
+        // Clear the stale self-reference on the answered channel, otherwise all_peers
+        // keeps redirecting it to itself (ChannelRedirect(self,all_peers,,1) loop).
+        $conf .= 'same => n,ExecIf($["${ORIGINATE_SRC_CHANNEL}x" != "x"]?Set(EXPORT(${ORIGINATE_SRC_CHANNEL},ORIGINATE_SRC_CHANNEL)=))' . "\n\t";
         $conf .= 'same => n,ExecIf($["${ORIGINATE_SRC_CHANNEL}x" != "x"]?ChannelRedirect(${ORIGINATE_SRC_CHANNEL},${mikoContext},${EXTEN},1))' . "\n\t";
         $conf .= 'same => n,Hangup' . "\n";
         $conf .= 'exten => failed,1,Hangup' . "\n";
