@@ -3,7 +3,7 @@
   "moduleUniqueID": "ModuleCTIClient",
   "support_email": "help@miko.ru",
   "version": "%ModuleVersion%",
-  "min_pbx_version": "2023.2.206",
+  "min_pbx_version": "2026.1.223",
   "lic_product_id": 85,
   "lic_feature_id": 0,
   "wiki_links": {
