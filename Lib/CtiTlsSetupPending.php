@@ -25,8 +25,7 @@ final class CtiTlsSetupPending extends \RuntimeException
         if (self::recorded($confDir) === $code) { return; }
         $temp = @tempnam($confDir, '.tls-outcome-');
         if ($temp === false) { return; }
-        if (@chmod($temp, 0644) && @file_put_contents($temp, $code . "
-") === strlen($code) + 1 && @rename($temp, $path)) { return; }
+        if (@chmod($temp, 0644) && @file_put_contents($temp, $code . "\n") === strlen($code) + 1 && @rename($temp, $path)) { return; }
         @unlink($temp);
     }
 
@@ -36,8 +35,7 @@ final class CtiTlsSetupPending extends \RuntimeException
         $path = $confDir . '/' . self::OUTCOME_FILE;
         if (is_link($path) || !is_file($path) || filesize($path) > 64) { return null; }
         $value = @file_get_contents($path, false, null, 0, 65);
-        $value = is_string($value) ? rtrim($value, "
-") : '';
+        $value = is_string($value) ? rtrim($value, "\r\n") : '';
         return in_array($value, self::CODES, true) ? $value : null;
     }
 
