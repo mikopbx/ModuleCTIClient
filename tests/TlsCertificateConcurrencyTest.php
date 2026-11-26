@@ -21,7 +21,7 @@ if (isset($argv[1]) && $argv[1] === 'worker') {
     $dir = $argv[2]; $id = $argv[3];
     $GLOBALS['tlsConcurrencyDir'] = $dir; $GLOBALS['tlsConcurrencyId'] = $id;
     file_put_contents($dir . '/started-' . $id, '1');
-    $ok = TlsCertificate::ensure($dir . '/server.crt', $dir . '/server.key', 'creator-' . $id);
+    $ok = TlsCertificate::ensure($dir . '/server.crt', $dir . '/server.key', 'pbx.test');
     $cert = is_file($dir . '/server.crt') ? file_get_contents($dir . '/server.crt') : '';
     $key = is_file($dir . '/server.key') ? file_get_contents($dir . '/server.key') : '';
     file_put_contents($dir . '/result-' . $id . '.tmp', json_encode(array(

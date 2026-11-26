@@ -42,6 +42,118 @@ use function MikoPBX\Common\Config\appPath;
 
 class ModuleCTIClientController extends BaseController
 {
+    /** Собственный ответ: BaseController иначе заменяет PEM/JSON данными view при AJAX. */
+    private $tlsCertificateResponse = false;
+
+    public function afterExecuteRoute(\Phalcon\Mvc\Dispatcher $dispatcher): \Phalcon\Http\ResponseInterface
+    {
+        if ($this->tlsCertificateResponse) {
+            return $this->response->send();
+        }
+        return parent::afterExecuteRoute($dispatcher);
+    }
+
+    /** Только живая GUI-сессия + ACL модуля; localhost и integration/API token не являются администратором. */
+    private function tlsAdminPrincipal($action)
+    {
+        $role = null;
+        $principal = null;
+        if ($this->di->has('jwt')) {
+            if (!$this->cookies->has('refreshToken')) {
+                return null;
+            }
+            try {
+                $token = $this->cookies->get('refreshToken')->getValue();
+                $jwt = $this->di->getShared('jwt');
+                $role = $jwt->extractRoleFromRefreshToken($token);
+                $user = $jwt->extractUserIdFromRefreshToken($token);
+                if (!is_string($user) || $user === '' || !is_string($token) || $token === '') {
+                    return null;
+                }
+                $principal = hash('sha256', $token);
+            } catch (\Throwable $e) {
+                return null;
+            }
+        } else {
+            $auth = $this->session->get(\MikoPBX\AdminCabinet\Controllers\SessionController::SESSION_ID);
+            if (!is_array($auth) || !isset($auth['role'])) {
+                return null;
+            }
+            $role = $auth['role'];
+            $principal = hash('sha256', json_encode($auth));
+        }
+        if (!is_string($role) || $role === '' || $role === 'guests') {
+            return null;
+        }
+        $acl = $this->di->get(\MikoPBX\Common\Providers\AclProvider::SERVICE_NAME);
+        if (!$acl->isAllowed($role, self::class, 'index') || !$acl->isAllowed($role, self::class, $action)) {
+            return null;
+        }
+        return $principal;
+    }
+
+    private function tlsCertificateJson($code, $data): void
+    {
+        $this->tlsCertificateResponse = true;
+        $this->view->disable();
+        $this->response->setStatusCode($code);
+        $this->response->setHeader('Cache-Control', 'private, no-store');
+        $this->response->setJsonContent($data);
+    }
+
+    private function tlsCertificateError($code, $error): void
+    {
+        $this->tlsCertificateJson($code, ['ok' => false, 'errorCode' => $error]);
+    }
+
+    /** The saved CTI address via the ordinary model read (no narrow projection before schema metadata is usable). */
+    private function tlsCertificateContext(): array
+    {
+        $settings = ModuleCTIClient::findFirst();
+        $address = $settings === null ? '' : (string)($settings->cti_tls_hostname ?? '');
+        return [new \Modules\ModuleCTIClient\Lib\CtiTlsStatus('/etc/custom_modules/ModuleCTIClient',
+            PbxExtensionUtils::getModuleDir($this->moduleUniqueID)), $address];
+    }
+
+    public function tlsCertificateInfoAction(): void
+    {
+        if ($this->tlsAdminPrincipal('tlsCertificateInfo') === null) { $this->tlsCertificateError(403, 'admin_required'); return; }
+        if (!$this->request->isGet()) { $this->tlsCertificateError(405, 'method_not_allowed'); return; }
+        list($status, $address) = $this->tlsCertificateContext();
+        $this->tlsCertificateJson(200, ['ok' => true, 'certificateStatus' => $status->read($address)]);
+    }
+
+    /** The one existing action: public PEM only (self-signed leaf, or the CA that signed it); never a key. */
+    public function downloadTlsCertificateAction(): void
+    {
+        if ($this->tlsAdminPrincipal('downloadTlsCertificate') === null) {
+            $this->tlsCertificateError(403, 'admin_required'); return;
+        }
+        if (!$this->request->isGet()) { $this->tlsCertificateError(405, 'method_not_allowed'); return; }
+        $kind = $this->request->getQuery('kind');
+        $sha = $this->request->getQuery('leafSHA');
+        if (!in_array($kind, ['server', 'intermediates', 'root'], true)
+            || !is_string($sha) || !preg_match('/^[a-f0-9]{64}$/D', $sha)) {
+            $this->tlsCertificateError(400, 'invalid_certificate_request'); return;
+        }
+        list($status, $address) = $this->tlsCertificateContext();
+        try {
+            $pem = \Modules\ModuleCTIClient\Lib\TlsCertificateInspector::exportPublic($status->download($kind, $sha, $address));
+            if ($pem === '') { throw new \RuntimeException('certificate_unavailable'); }
+        } catch (\RuntimeException $e) {
+            $this->tlsCertificateError(409, 'certificate_conflict');
+            return;
+        }
+        $this->tlsCertificateResponse = true;
+        $this->view->disable();
+        $this->response->setContentType('application/x-pem-file');
+        $extension = $kind === 'intermediates' ? '.pem' : '.cer';
+        $this->response->setHeader('Content-Disposition', 'attachment; filename="cti-' . $kind . '-' . $sha . $extension . '"');
+        $this->response->setHeader('Cache-Control', 'private, no-store');
+        $this->response->setHeader('X-Content-Type-Options', 'nosniff');
+        $this->response->setContent($pem);
+    }
+
     private const SECRET_MASK = '******';
 
     // Ring duration (seconds) for calling the responsible employee. The UI and DB
@@ -417,6 +529,22 @@ class ModuleCTIClientController extends BaseController
         // "host:port" + HEX shape the Go telegram daemon expects.
         $data = $this->normalizeMtProxySettings($data);
 
+        // The CTI address is a DNS name or a bare IP (stored in binary-canonical form). Administrative input permits
+        // exactly one DNS root-dot, not whitespace/URLs/zones/ports/Host inference.
+        // Empty is saved deliberately: apply reports the missing address (not a partial wizard POST).
+        if (array_key_exists('cti_tls_hostname', $data)) {
+            $hostname = $data['cti_tls_hostname'];
+            if ($hostname !== '') {
+                $hostname = \Modules\ModuleCTIClient\Lib\TlsCertificateInspector::normalizeEndpoint($hostname, true);
+            }
+            if ($hostname === null) {
+                $this->flash->error('invalid_hostname');
+                $this->view->success = false;
+                return;
+            }
+            $data['cti_tls_hostname'] = $hostname;
+        }
+
         // Find or create a ModuleCTIClient record
         $record = ModuleCTIClient::findFirst();
         if (!$record) {
@@ -503,12 +631,20 @@ class ModuleCTIClientController extends BaseController
             $record->security_mode ?? null, $data, $isFullForm
         );
 
+        // An omitted hostname is never cleared, even when the full-form marker is present.
+        if (array_key_exists('cti_tls_hostname', $data)) {
+            $record->cti_tls_hostname = $data['cti_tls_hostname'];
+        }
+
         // Update the record with the form data
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
                 case 'ami_password':
                 case 'nats_password':
+                    break;
+                case 'cti_tls_hostname':
+                    // Canonicalized and assigned explicitly above; never pass through the generic writer.
                     break;
                 case 'security_mode':
                     // Отображение checkbox выполнено выше, не переопределять partial POST.

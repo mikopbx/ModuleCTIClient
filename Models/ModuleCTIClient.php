@@ -141,6 +141,13 @@ class ModuleCTIClient extends ModulesModelsBase
     public ?string $security_mode = 'strict';
 
     /**
+     * Explicit CTI TLS ASCII FQDN; empty until configured by the administrator.
+     *
+     * @Column(type='string', length=253, nullable=true, default='')
+     */
+    public ?string $cti_tls_hostname = '';
+
+    /**
      * @var string|null Module configuration mode from the 1C side
      *
      * @Column(type='string', length=1, nullable=true, default='0')

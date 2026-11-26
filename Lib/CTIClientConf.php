@@ -22,6 +22,7 @@ namespace Modules\ModuleCTIClient\Lib;
 use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\System\System;
+use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore as WorkerSafeScriptsCore;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
@@ -38,8 +39,21 @@ class CTIClientConf extends ConfigClass
      */
     public function onAfterPbxStarted(): void
     {
-        $amigoDaemons = new AmigoDaemons();
-        $amigoDaemons->startAllServices();
+        $this->startServicesUnlessTlsSetupPending(new AmigoDaemons());
+    }
+
+    /**
+     * Ожидаемая незавершённая настройка TLS (адрес не задан или сертификат ему не подходит) не прерывает hook:
+     * демоны не запущены, причину показывает панель сертификата, а обычное сохранение/применение
+     * после исправления запустит службы. Любое другое исключение остаётся реальным сбоем.
+     */
+    private function startServicesUnlessTlsSetupPending(AmigoDaemons $amigoDaemons, bool $restart = false): void
+    {
+        try {
+            $amigoDaemons->startAllServices($restart);
+        } catch (CtiTlsSetupPending $pending) {
+            Util::sysLogMsg('ModuleCTIClient', 'CTI start deferred, TLS setup pending: ' . $pending->getMessage(), LOG_WARNING);
+        }
     }
 
     /**
@@ -108,8 +122,7 @@ class CTIClientConf extends ConfigClass
         }
 
         if ($needRestartServices) {
-            $amigoDaemons = new AmigoDaemons();
-            $amigoDaemons->startAllServices(true);
+            $this->startServicesUnlessTlsSetupPending(new AmigoDaemons(), true);
         }
     }
 
@@ -380,8 +393,7 @@ class CTIClientConf extends ConfigClass
     public function onAfterModuleEnable(): void
     {
         System::invokeActions(['manager' => 0]);
-        $amigoDaemons = new AmigoDaemons();
-        $amigoDaemons->startAllServices();
+        $this->startServicesUnlessTlsSetupPending(new AmigoDaemons());
         PBX::dialplanReload();
     }
 

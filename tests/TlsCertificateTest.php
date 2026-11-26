@@ -38,7 +38,7 @@ if ($pubKey !== $privDetails['key']) { $fail('key/cert mismatch'); }
 // Повторный вызов не перезаписывает.
 $before = md5_file($cert);
 usleep(1100000); // mtime может совпасть — проверяем содержимое
-if (!TlsCertificate::ensure($cert, $key, 'other')) { $fail('second ensure() = false'); }
+if (!TlsCertificate::ensure($cert, $key, 'pbx.test.local')) { $fail('second ensure() = false'); }
 if (md5_file($cert) !== $before) { $fail('existing cert overwritten'); }
 
 // Пустые имена файлов — отказ без падений.

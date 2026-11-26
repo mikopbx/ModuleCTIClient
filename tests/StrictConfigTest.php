@@ -2,13 +2,17 @@
 namespace Phalcon\Di { class Injectable {} }
 namespace MikoPBX\Common\Models {
     class PbxExtensionModules { static function findFirstByUniqid($id) { return false; } }
-    class PbxSettings { static function getValueByKey($key) { return $key === 'PBXName' ? 'pbx.test' : '80'; } }
+    class PbxSettings { static function getValueByKey($key) { if ($key === 'PBXName') { throw new \RuntimeException('F3 old hostname caller'); } return '80'; } }
 }
 namespace MikoPBX\Core\System {
     class Util { static function mwMkdir($dir) { if (!is_dir($dir)) { mkdir($dir, 0700, true); } } }
     class MikoPBXConfig { function getGeneralSettings($key) { return 'synthetic-license'; } }
 }
+namespace Modules\ModuleCTIClient\Lib {
+    class PbxCertificateSource { static function read() { return array('state' => 'absent'); } }
+}
 namespace {
+define('CTI_TLS_TESTING', true);
 spl_autoload_register(function ($name) {
     $prefix = 'Modules\\ModuleCTIClient\\Lib\\';
     if (strpos($name, $prefix) === 0) { require dirname(__DIR__) . '/Lib/' . substr($name, strlen($prefix)) . '.php'; }
@@ -20,6 +24,7 @@ $dirs = array();
 foreach (array('spoolDir','logDir','pidDir','confDir','binDir','moduleDir') as $key) { $dirs[$key] = $dir . '/' . $key; mkdir($dirs[$key], 0700); }
 $d->dirs = $dirs;
 $p = $r->getProperty('mikoPBXConfig'); $p->setAccessible(true); $p->setValue($d, new \MikoPBX\Core\System\MikoPBXConfig());
+function removeTree($p) { if (is_link($p) || !is_dir($p)) { @unlink($p); return; } foreach (scandir($p) as $f) { if ($f !== '.' && $f !== '..') { removeTree($p . '/' . $f); } } @rmdir($p); }
 function invokeGenerator($object, $name) { $m = new ReflectionMethod($object, $name); $m->setAccessible(true); $m->invoke($object); }
 function setGeneratorSettings($object, $settings) { $p = new ReflectionProperty($object, 'module_settings'); $p->setAccessible(true); $p->setValue($object, $settings); }
 $markers = array(
@@ -34,12 +39,21 @@ try {
         if ($case === 'old-gnats') { file_put_contents($dirs['binDir'] . '/gnatsd-cti', 'security_mode tls_port service_users'); }
         if ($case === 'partial-gnats') { file_put_contents($dirs['binDir'] . '/gnatsd-cti', str_replace('cti-device-v2', '', $markers['gnatsd-cti'])); }
         if ($case === 'old-crm') { file_put_contents($dirs['binDir'] . '/crmd', 'security_mode'); }
-        $settings = array('security_mode' => $case === 'legacy-ok' ? 'legacy_compatible' : 'strict', 'debug_mode' => 0, 'nats_password' => str_repeat('a', 64), 'auto_settings_mode' => 1, 'web_service_mode' => 0, 'saaskey' => 'synthetic');
+        $settings = array('cti_tls_hostname' => 'pbx.test', 'security_mode' => $case === 'legacy-ok' ? 'legacy_compatible' : 'strict', 'debug_mode' => 0, 'nats_password' => str_repeat('a', 64), 'auto_settings_mode' => 1, 'web_service_mode' => 0, 'saaskey' => 'synthetic');
         setGeneratorSettings($d, $settings);
-        $tlsDir = $dirs['moduleDir'] . '/etc/ssl';
-        if (!is_dir($tlsDir)) { mkdir($tlsDir, 0700, true); }
-        foreach (glob($tlsDir . '/*') as $file) { unlink($file); }
-        if ($case === 'tls-failure') { file_put_contents($tlsDir . '/gnatsd.crt', 'invalid'); file_put_contents($tlsDir . '/gnatsd.key', 'invalid'); }
+        // Synthetic pair per case, no identity lifecycle: a healthy previous-layout pair (<moduleDir>/etc/ssl/gnatsd.*) for the
+        // accepted cases; for 'tls-failure' an INSTALLED own pair (<confDir>/tls/cti.*) whose certificate is then corrupted,
+        // which is never overwritten and must stop generation before any config write.
+        $cached = $r->getProperty('tlsPair'); $cached->setAccessible(true); $cached->setValue($d, null);
+        foreach (array($dirs['moduleDir'] . '/etc', $dirs['confDir'] . '/tls') as $old) { removeTree($old); }
+        @unlink($dirs['confDir'] . '/tls-outcome');
+        $pairDir = $case === 'tls-failure' ? $dirs['confDir'] . '/tls' : $dirs['moduleDir'] . '/etc/ssl';
+        $pairName = $case === 'tls-failure' ? 'cti' : 'gnatsd';
+        if (extension_loaded('openssl')) {
+            mkdir($pairDir, 0700, true);
+            if (!\Modules\ModuleCTIClient\Lib\TlsCertificate::ensure($pairDir . '/' . $pairName . '.crt', $pairDir . '/' . $pairName . '.key', 'pbx.test', 0640)) { $failures[] = "$case: synthetic pair fixture"; continue; }
+            if ($case === 'tls-failure') { file_put_contents($pairDir . '/' . $pairName . '.crt', 'invalid'); }
+        }
         $nats = $dirs['confDir'] . '/nats.conf'; $crm = $dirs['confDir'] . '/crm.json';
         file_put_contents($nats, 'previous-nats'); file_put_contents($crm, 'previous-crm');
         $denied = !in_array($case, array('strict-ok','legacy-ok'), true) || !extension_loaded('openssl');
@@ -58,6 +72,9 @@ try {
             foreach (array('allow_legacy_auth: false', 'legacy_unsigned: false', 'https_port: 8298', 'tls_port: 4228') as $required) {
                 if (strpos($text, $required) === false) { $failures[] = "$case: missing $required"; }
             }
+            // The config is bound to the one checked pair, by its exact finite paths.
+            $tlsLine = 'tls { cert_file: "' . $pairDir . '/gnatsd.crt"; key_file: "' . $pairDir . '/gnatsd.key" }';
+            if (strpos($text, $tlsLine) === false) { $failures[] = "$case: NATS config not bound to the checked pair paths"; }
         }
     }
     // Изолированный генератор CRM также обязан отказать старому бинарнику.

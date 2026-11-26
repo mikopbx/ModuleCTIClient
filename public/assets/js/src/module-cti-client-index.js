@@ -72,6 +72,7 @@ const moduleCTIClient = {
 		},
 	},
 	initialize() {
+		ctiTlsPanel.initialize();
 		$('#allow-legacy-clients-toggle').checkbox({
 			beforeChecked() {
 				return window.confirm(globalTranslate.mod_cti_LegacyClientsWarning);
@@ -568,6 +569,8 @@ const moduleCTIClient = {
 	},
 	cbAfterSendForm() {
 		moduleCTIClient.initialize();
+		// Применение после «Сохранить» асинхронно: ограниченно перечитываем статус сертификата, пока не «работает».
+		ctiTlsPanel.refresh(3);
 	},
 	initializeForm() {
 		Form.$formObj = moduleCTIClient.$formObj;
@@ -602,6 +605,215 @@ $.fn.form.settings.rules.wrongPortCustomRule = function (value) {
 		return $.fn.form.settings.rules.integer(value, '1..65535');
 	}
 	return true;
+};
+
+/**
+ * Компактная панель сертификата CTI: поле адреса, одна строка статуса и свёрнутое «Подробнее».
+ * Только публичные сведения (никогда не ключ); текст не интерпретируется как HTML. Код записан в ES5-совместимом
+ * виде, поэтому собранный файл содержит тот же текст.
+ */
+var ctiTlsPanel = {
+  epoch: 0,
+  snapshot: null,
+  timer: null,
+  node: function (id) { return document.getElementById('cti-tls-' + id); },
+  label: function (key) {
+    var name = 'mod_cti_Tls' + key;
+    var value = globalTranslate[name];
+    return typeof value === 'string' && value !== name ? value : '';
+  },
+  text: function (id, value) { this.node(id).textContent = value === null || value === undefined ? '' : String(value); },
+  show: function (id, visible) { this.node(id).style.display = visible ? '' : 'none'; },
+  digest: function (value) { return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value); },
+  url: function (action) { return globalRootUrl + 'module-c-t-i-client/' + action; },
+  initialize: function () {
+    var self = this;
+    if (!this.node('panel')) { return; }
+    this.node('refresh').onclick = function () { return self.refresh(); };
+    ['server', 'intermediates', 'root'].forEach(function (kind) {
+      self.node(kind).onclick = function () { return self.download(kind); };
+    });
+    this.refresh();
+  },
+  /** Показываем только применимые скачивания (публичный PEM, привязанный к показанному листу). */
+  controls: function (enabled) {
+    var self = this;
+    var c = this.snapshot && this.snapshot.certificateStatus;
+    ['server', 'intermediates', 'root'].forEach(function (kind) {
+      self.show(kind, !!(enabled && c && c.configured && self.digest(c.configured.sha256)
+        && Array.isArray(c.downloads) && c.downloads.indexOf(kind) !== -1));
+    });
+  },
+  clear: function () {
+    var self = this;
+    this.snapshot = null;
+    this.controls(false);
+    ['summary', 'next-step', 'details', 'trust', 'manual'].forEach(function (id) { return self.text(id, ''); });
+    this.show('next-step', false);
+    this.show('trust', false);
+    this.show('more', false);
+    this.show('refresh', false);
+    this.show('manual-block', false);
+    this.node('panel').setAttribute('data-state', 'unknown');
+  },
+  request: function (action, method, data, done) {
+    var xhr = new XMLHttpRequest();
+    var url = this.url(action);
+    var body = Object.keys(data || {}).map(function (key) { return encodeURIComponent(key) + '=' + encodeURIComponent(data[key]); }).join('&');
+    if (body) { url += (url.indexOf('?') === -1 ? '?' : '&') + body; }
+    xhr.open('GET', url, true);
+    xhr.timeout = 15000;
+    xhr.onload = function () { return done(xhr); };
+    xhr.onerror = xhr.ontimeout = function () { return done({status: 0, responseText: ''}); };
+    xhr.send(null);
+  },
+  json: function (xhr) {
+    try { return JSON.parse(xhr.responseText); } catch (e) { return null; }
+  },
+  failure: function () {
+    this.clear();
+    this.text('summary', this.label('RefreshRequired'));
+    var hint = this.label('RefreshHint');
+    this.text('next-step', hint);
+    this.show('next-step', hint !== '');
+    this.show('refresh', true);
+    this.show('more', true);
+  },
+  /**
+   * @param {number} [settle] после «Сохранить» запуск идёт асинхронно: ограниченно (не более settle раз) перечитываем
+   *   статус, пока он не станет «работает»; при обычной загрузке страницы повторов нет.
+   */
+  refresh: function (settle) {
+    var self = this;
+    var ticket = ++this.epoch;
+    window.clearTimeout(this.timer);
+    if (!settle) {
+      this.clear();
+      this.text('summary', this.label('Loading'));
+    }
+    this.request('tlsCertificateInfo', 'GET', {}, function (xhr) {
+      if (ticket !== self.epoch) { return; }
+      var data = self.json(xhr);
+      if (xhr.status !== 200 || !data || data.ok !== true || !data.certificateStatus) {
+        self.failure(); return;
+      }
+      self.snapshot = data;
+      self.render(data.certificateStatus);
+      self.controls(true);
+      if (settle > 0 && self.node('panel').getAttribute('data-state') !== 'running') {
+        self.timer = window.setTimeout(function () { return self.refresh(settle - 1); }, 4000);
+      }
+    });
+  },
+  certificate: function (c, generation) {
+    var unknown = this.label('Unknown');
+    if (!c) { return unknown; }
+    var date = function (value) {
+      var d = typeof value === 'number' ? new Date(value * 1000) : null;
+      return d && !isNaN(d.getTime()) ? d.toISOString() : unknown;
+    };
+    return [this.label('Subject') + ': ' + (c.subject || unknown),
+      this.label('Issuer') + ': ' + (c.issuer || unknown),
+      'SAN: ' + (Array.isArray(c.san) ? c.san.join(', ') : unknown),
+      this.label('From') + ': ' + date(c.notBefore), this.label('Until') + ': ' + date(c.notAfter),
+      'SHA256: ' + (c.sha256 || generation || unknown)].join('\n');
+  },
+  /** Одна короткая правдивая строка: успех только для известного «работает», иначе — что не так и что делать. */
+  headline: function (c, state) {
+    // A recorded refusal is never hidden: running on the previous certificate and "selection failed" read differently.
+    if (c.applyError) { return this.label(state === 'running' ? 'RefusedRunning' : 'Refused'); }
+    if (state === 'running') { return this.label('Running'); }
+    if (state === 'mixed') { return this.label('Mixed'); }
+    if (c.errorCode === 'invalid_hostname') { return this.label('AddressMissing') || 'Connection address not set'; }
+    if (c.errorCode === 'tls_apply_required') { return this.label('AwaitingApply') || 'Certificate not applied'; }
+    if (c.errorCode) { return this.label('NotReady'); }
+    return this.label(state === 'pending' ? 'Pending' : 'StatusUnknown');
+  },
+  setupHint: function (code) {
+    var missing = code === 'invalid_hostname';
+    if (!missing && code !== 'tls_apply_required') { return ''; }
+    var key = missing ? 'MissingDomain' : 'SaveToApply';
+    var instruction = this.node('panel').getAttribute(missing ? 'data-missing-address' : 'data-save-to-apply');
+    return this.label(key) || (instruction && instruction !== 'mod_cti_Tls' + key ? instruction
+      : (missing ? 'Enter the PBX IP address or domain.' : 'Save the settings to apply the certificate.'));
+  },
+  render: function (c) {
+    var runtime = c.runtime || {};
+    var peers = ['api', 'nats', 'proxy'];
+    var state = c.state;
+    if (c.errorCode) { state = 'error'; }
+    else if (c.applyError && state !== 'running' && state !== 'mixed') { state = 'error'; }
+    else if (peers.some(function (name) { return runtime[name] && runtime[name].state === 'different'; })) { state = 'mixed'; }
+    else if (state === 'running' && (!c.configured || peers.some(function (name) {
+      return !runtime[name] || (runtime[name].required !== false && runtime[name].state !== 'match');
+    }))) { state = 'unknown'; }
+    if (['running', 'pending', 'mixed', 'error', 'unknown'].indexOf(state) === -1) { state = 'unknown'; }
+    this.node('panel').setAttribute('data-state', state);
+    this.text('summary', this.headline(c, state));
+    var hint = this.setupHint(c.errorCode) || (c.manualPaths ? this.label('SetupDetails') : '');
+    this.text('next-step', hint);
+    this.show('next-step', hint !== '');
+    this.show('refresh', false);
+    var lines = [];
+    if (c.configured) {
+      if (c.source === 'previous' || c.source === 'own') {
+        lines.push(this.label(c.source === 'previous' ? 'SourcePrevious' : 'SourceOwn'));
+      }
+      if (typeof c.configured.selfSigned === 'boolean') {
+        lines.push(this.label(c.configured.selfSigned ? 'TypeSelfSigned' : 'TypeCaIssued'));
+      }
+      lines.push(this.certificate(c.configured, c.configuredGeneration));
+    }
+    lines = lines.filter(Boolean);
+    this.text('details', lines.join('\n'));
+    this.show('more', lines.length > 0);
+    // Подсказка по доверию: самоподписанный лист или ПРОВЕРЕННЫЙ корень CA; для одних промежуточных её нет.
+    var offered = Array.isArray(c.downloads) ? c.downloads : [];
+    var kind = c.trust && c.trust.kind;
+    var advice = offered.indexOf('server') !== -1 && kind === 'self_signed' ? 'TrustServer' : (offered.indexOf('root') !== -1 ? 'TrustRoot' : '');
+    this.text('trust', advice ? this.label(advice) : '');
+    this.show('trust', advice !== '');
+    // Точные пути для ручной подготовки — только когда безопасное чтение/создание обычным пользователем невозможно.
+    var manual = c.manualPaths;
+    this.show('manual-block', !!manual);
+    // Access/copy problems, an unusable installed pair and a fresh destination need different, separate instructions.
+    var code = c.errorCode || c.applyError;
+    var kind = 'ManualFresh';
+    if (code === 'source_unreadable') { kind = 'ManualSource'; }
+    else if (code === 'tls_prepare_failed' || code === 'unsafe_state') { kind = 'ManualAccess'; }
+    else if (code === 'installed_pair_unusable') { kind = 'ManualReplace'; }
+    this.text('manual', manual ? this.label(kind) + '\n' + manual.cert + '\n' + manual.key : '');
+    if (manual) { this.show('more', true); }
+  },
+  download: function (kind) {
+    var self = this;
+    if (this.node(kind).style.display === 'none' || !this.snapshot) { return; }
+    var c = this.snapshot.certificateStatus;
+    var ticket = ++this.epoch;
+    var leaf = c.configured.sha256;
+    this.request('downloadTlsCertificate', 'GET', {kind: kind, leafSHA: leaf}, function (xhr) {
+      if (ticket !== self.epoch) { return; }
+      var mime = xhr.getResponseHeader ? xhr.getResponseHeader('Content-Type') || '' : '';
+      var pem = xhr.responseText || '';
+      // Не сохранять JSON/HTML, ключи или неполный PEM даже с ошибочным HTTP 200.
+      if (xhr.status !== 200 || mime.split(';')[0].trim().toLowerCase() !== 'application/x-pem-file'
+        || !/^(?:\s*-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----\s*)+$/.test(pem)) {
+        self.failure(); return;
+      }
+      var blob = new Blob([pem], {type: 'application/x-pem-file'});
+      var filename = 'cti-' + kind + '-' + leaf + (kind === 'intermediates' ? '.pem' : '.cer');
+      if (window.navigator.msSaveBlob) { window.navigator.msSaveBlob(blob, filename); return; }
+      if (!window.URL || !window.URL.createObjectURL) { self.failure({status: 0}, null); return; }
+      var url = window.URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(function () { return window.URL.revokeObjectURL(url); }, 1000);
+    });
+  }
 };
 
 $(document).ready(() => {

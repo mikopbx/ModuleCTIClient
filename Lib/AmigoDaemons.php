@@ -387,6 +387,17 @@ class AmigoDaemons extends Injectable
      */
     private function generateConfFiles(): void
     {
+        // One pair is chosen by the first generator (before any write) and shared by NATS/API and the proxy.
+        $this->tlsPair = null;
+        try {
+            $this->generateAllConfFiles();
+        } finally {
+            $this->tlsPair = null;
+        }
+    }
+
+    private function generateAllConfFiles(): void
+    {
         $this->generateNatsConf();
         $this->generateHeadersConf();
         $this->generateCrmdConf();
@@ -408,6 +419,11 @@ class AmigoDaemons extends Injectable
     {
         $securityMode = SecurityMode::normalize($this->module_settings['security_mode'] ?? null);
         $this->requireStrictBinaries();
+        if (!TlsCertificate::binarySupportsTls($this->dirs['binDir'] . '/' . self::SERVICE_GNATS)) {
+            throw new \RuntimeException('tls_binary_unsupported');
+        }
+        // Choose and validate the pair before the first config write or stop.
+        $this->prepareGnatsTlsCertificate();
         $sessionsDir = "{$this->dirs['spoolDir']}/sessions";
         Util::mwMkdir($sessionsDir);
 
@@ -1605,6 +1621,21 @@ class AmigoDaemons extends Injectable
     }
 
     /**
+     * Restart for the tunnel bootstrap/teardown paths. The TLS pair is chosen and checked before anything is stopped,
+     * so an expected setup state (no usable pair/address) leaves the running stack untouched and is not an exception.
+     */
+    private function restartAllServicesUnlessTlsPending(): bool
+    {
+        try {
+            $this->startAllServices(true);
+        } catch (CtiTlsSetupPending $pending) {
+            Util::sysLogMsg(self::class, 'CTI restart deferred, TLS setup pending: ' . $pending->getMessage(), LOG_WARNING);
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * In-place reconcile (§3.5): regenerate monitord.json with the new
      * suppressed/remote_services, restage + push VPS configs, then fire the
      * local monitord's /reconcile so Go's doReconcile relocates per area.
@@ -1651,8 +1682,7 @@ class AmigoDaemons extends Injectable
         if ($this->isInfraNeeded() && $this->getRemoteSshParams() !== null) {
             $tunnel = $this->getMonitordTunnelStatus();
             if ($tunnel !== null && empty($tunnel['configured'])) {
-                $this->startAllServices(true);
-                return true;
+                return $this->restartAllServicesUnlessTlsPending();
             }
         } elseif (!$this->isInfraNeeded()) {
             // Symmetric teardown (Codex P2): offload is OFF (no toggle, no remote
@@ -1666,8 +1696,7 @@ class AmigoDaemons extends Injectable
             // bounce configured:false, so it never loops.
             $tunnel = $this->getMonitordTunnelStatus();
             if ($tunnel !== null && !empty($tunnel['configured'])) {
-                $this->startAllServices(true);
-                return true;
+                return $this->restartAllServicesUnlessTlsPending();
             }
         }
 
@@ -4540,17 +4569,27 @@ class AmigoDaemons extends Injectable
         }
     }
 
-    /** Одна проверенная TLS-личность для HTTPS, NATS и HTTPS-прокси на одном хосте. */
+    /** @var array|null Выбранная пара на время одной генерации конфигурации. */
+    private $tlsPair = null;
+
+    /**
+     * Одна проверенная TLS-пара для HTTPS, NATS и HTTPS-прокси. Адрес CTI задаёт только администратор (пустой — допустим,
+     * пока есть пригодная пара); его не выводят из запроса/PBXName. Нет пары и адреса — ожидаемое состояние настройки.
+     */
     private function prepareGnatsTlsCertificate(): array
     {
-        $tlsDir = "{$this->dirs['moduleDir']}/etc/ssl";
-        Util::mwMkdir($tlsDir);
-        $certPath = $tlsDir . '/gnatsd.crt';
-        $keyPath = $tlsDir . '/gnatsd.key';
-        if (!TlsCertificate::ensure($certPath, $keyPath, (string)PbxSettings::getValueByKey('PBXName'))) {
-            throw new \RuntimeException('Не удалось подготовить TLS-сертификат gnatsd');
+        if ($this->tlsPair === null) {
+            $address = (string)($this->module_settings['cti_tls_hostname'] ?? '');
+            $pair = CtiTlsPair::prepare($address, CtiTlsPair::paths($this->dirs['moduleDir'], $this->dirs['confDir']),
+                $this->dirs['moduleDir']);
+            // The real outcome, as one fixed sanitized code, is what the settings panel shows (cleared on success).
+            CtiTlsSetupPending::record($this->dirs['confDir'], $pair['ok'] ? null : $pair['errorCode']);
+            if (!$pair['ok']) {
+                throw CtiTlsSetupPending::exception($pair['errorCode']);
+            }
+            $this->tlsPair = ['cert' => $pair['certPath'], 'key' => $pair['keyPath']];
         }
-        return ['cert' => $certPath, 'key' => $keyPath];
+        return $this->tlsPair;
     }
 
     /**
