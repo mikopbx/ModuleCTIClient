@@ -387,6 +387,17 @@ class AmigoDaemons extends Injectable
      */
     private function generateConfFiles(): void
     {
+        // One pair is chosen by the first generator (before any write) and shared by NATS/API and the proxy.
+        $this->tlsPair = null;
+        try {
+            $this->generateAllConfFiles();
+        } finally {
+            $this->tlsPair = null;
+        }
+    }
+
+    private function generateAllConfFiles(): void
+    {
         $this->generateNatsConf();
         $this->generateHeadersConf();
         $this->generateCrmdConf();
@@ -406,6 +417,13 @@ class AmigoDaemons extends Injectable
      */
     private function generateNatsConf(): void
     {
+        $securityMode = SecurityMode::normalize($this->module_settings['security_mode'] ?? null);
+        $this->requireStrictBinaries();
+        if (!TlsCertificate::binarySupportsTls($this->dirs['binDir'] . '/' . self::SERVICE_GNATS)) {
+            throw new \RuntimeException('tls_binary_unsupported');
+        }
+        // Choose and validate the pair before the first config write or stop.
+        $this->prepareGnatsTlsCertificate();
         $sessionsDir = "{$this->dirs['spoolDir']}/sessions";
         Util::mwMkdir($sessionsDir);
 
@@ -435,8 +453,13 @@ class AmigoDaemons extends Injectable
             'log_size_limit' => 10485760, //10Mb
             'pbx' => "MikoPBX",
             'module_version' => '"' . $moduleVersion . '"',
-            'security_mode' => '"' . SecurityMode::normalize($this->module_settings['security_mode'] ?? null) . '"',
+            'security_mode' => '"' . $securityMode . '"',
         ];
+
+        if ($securityMode === SecurityMode::STRICT) {
+            $settings['allow_legacy_auth'] = 'false';
+            $settings['legacy_unsigned'] = 'false';
+        }
 
         $natsPassword = NatsPassword::ensure(
             (string)($this->module_settings['nats_password'] ?? ''),
@@ -478,25 +501,16 @@ class AmigoDaemons extends Injectable
             $config .= "{$key}: {$val} \n";
         }
 
-        
-        // Этап R2 (SC-4): HTTPS (8223) и NATS TLS-порт (4223) с per-install
-        // сертификатом. Пишем ТОЛЬКО если бинарник поддерживает (probe по
-        // строке tls_port, как с security_mode во FreePBX-модуле).
+        // Strict требует проверенный TLS; не публикуем неполную конфигурацию.
         $gnatsBinary = $this->dirs['binDir'] . '/' . self::SERVICE_GNATS;
-        if (TlsCertificate::binarySupportsTls($gnatsBinary)) {
-            $certPath = "{$this->dirs['moduleDir']}/etc/ssl/gnatsd.crt";
-            $keyPath = "{$this->dirs['moduleDir']}/etc/ssl/gnatsd.key";
-            if (TlsCertificate::ensure($certPath, $keyPath, (string)PbxSettings::getValueByKey('PBXName'))) {
-                $config .= "https_port: 8298 \n";
-                $config .= "tls_port: 4228 \n";
-                $config .= 'tls { cert_file: "' . $certPath . '"; key_file: "' . $keyPath . '" }' . " \n";
-            } else {
-                // Фолбэк на plaintext (совместимость), но с логом.
-                error_log('ModuleCTIClient: TLS certificate generation failed, gnatsd stays plaintext');
-            }
+        if ($securityMode === SecurityMode::STRICT || TlsCertificate::binarySupportsTls($gnatsBinary)) {
+            $tlsCertificate = $this->prepareGnatsTlsCertificate();
+            $config .= "https_port: 8298 \n";
+            $config .= "tls_port: 4228 \n";
+            $config .= 'tls { cert_file: "' . $tlsCertificate['cert'] . '"; key_file: "' . $tlsCertificate['key'] . '" }' . " \n";
         }
 
-SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
+        SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
 
         $licKey = $this->mikoPBXConfig->getGeneralSettings('PBXLicense');
         file_put_contents("{$sessionsDir}/license.key", $licKey);
@@ -1607,6 +1621,21 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
     }
 
     /**
+     * Restart for the tunnel bootstrap/teardown paths. The TLS pair is chosen and checked before anything is stopped,
+     * so an expected setup state (no usable pair/address) leaves the running stack untouched and is not an exception.
+     */
+    private function restartAllServicesUnlessTlsPending(): bool
+    {
+        try {
+            $this->startAllServices(true);
+        } catch (CtiTlsSetupPending $pending) {
+            Util::sysLogMsg(self::class, 'CTI restart deferred, TLS setup pending: ' . $pending->getMessage(), LOG_WARNING);
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * In-place reconcile (§3.5): regenerate monitord.json with the new
      * suppressed/remote_services, restage + push VPS configs, then fire the
      * local monitord's /reconcile so Go's doReconcile relocates per area.
@@ -1653,8 +1682,7 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
         if ($this->isInfraNeeded() && $this->getRemoteSshParams() !== null) {
             $tunnel = $this->getMonitordTunnelStatus();
             if ($tunnel !== null && empty($tunnel['configured'])) {
-                $this->startAllServices(true);
-                return true;
+                return $this->restartAllServicesUnlessTlsPending();
             }
         } elseif (!$this->isInfraNeeded()) {
             // Symmetric teardown (Codex P2): offload is OFF (no toggle, no remote
@@ -1668,8 +1696,7 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
             // bounce configured:false, so it never loops.
             $tunnel = $this->getMonitordTunnelStatus();
             if ($tunnel !== null && !empty($tunnel['configured'])) {
-                $this->startAllServices(true);
-                return true;
+                return $this->restartAllServicesUnlessTlsPending();
             }
         }
 
@@ -4371,10 +4398,15 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
      */
     private function generateCrmdConf(): void
     {
+        $securityMode = SecurityMode::normalize($this->module_settings['security_mode'] ?? null);
+        if ($securityMode === SecurityMode::STRICT) {
+            BinaryCapabilities::requireStrict($this->dirs['binDir'] . '/' . self::SERVICE_CRM, self::SERVICE_CRM);
+        }
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_CRM;
         Util::mwMkdir($logDir);
 
         $settings_crm = [
+            'security_mode' => $securityMode,
             'mq' => [
                 'host' => $this->getNatsQueueHost(),
                 'port' => $this->getNatsPort(),
@@ -4527,15 +4559,48 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
         SecretConfigWriter::write("{$this->dirs['confDir']}/max.json", $settings_max);
     }
 
+    /** Автономный прокси не должен публиковать strict со старыми демонами. */
+    private function requireStrictBinaries(): void
+    {
+        $securityMode = SecurityMode::normalize($this->module_settings['security_mode'] ?? null);
+        if ($securityMode === SecurityMode::STRICT) {
+            BinaryCapabilities::requireStrict($this->dirs['binDir'] . '/' . self::SERVICE_CRM, self::SERVICE_CRM);
+            BinaryCapabilities::requireStrict($this->dirs['binDir'] . '/' . self::SERVICE_GNATS, self::SERVICE_GNATS);
+        }
+    }
+
+    /** @var array|null Выбранная пара на время одной генерации конфигурации. */
+    private $tlsPair = null;
+
+    /**
+     * Одна проверенная TLS-пара для HTTPS, NATS и HTTPS-прокси. Адрес CTI задаёт только администратор (пустой — допустим,
+     * пока есть пригодная пара); его не выводят из запроса/PBXName. Нет пары и адреса — ожидаемое состояние настройки.
+     */
+    private function prepareGnatsTlsCertificate(): array
+    {
+        if ($this->tlsPair === null) {
+            $address = (string)($this->module_settings['cti_tls_hostname'] ?? '');
+            $pair = CtiTlsPair::prepare($address, CtiTlsPair::paths($this->dirs['moduleDir'], $this->dirs['confDir']),
+                $this->dirs['moduleDir']);
+            // The real outcome, as one fixed sanitized code, is what the settings panel shows (cleared on success).
+            CtiTlsSetupPending::record($this->dirs['confDir'], $pair['ok'] ? null : $pair['errorCode']);
+            if (!$pair['ok']) {
+                throw CtiTlsSetupPending::exception($pair['errorCode']);
+            }
+            $this->tlsPair = ['cert' => $pair['certPath'], 'key' => $pair['keyPath']];
+        }
+        return $this->tlsPair;
+    }
+
     /**
      * Generate the configuration file for proxyd.
      */
     private function generateProxyConf(): void
     {
+        $this->requireStrictBinaries();
+        $tlsCertificate = $this->prepareGnatsTlsCertificate();
         $logDir = "{$this->dirs['logDir']}/" . self::SERVICE_PROXY;
         Util::mwMkdir($logDir);
-
-        $certsPath = "{$this->dirs['moduleDir']}/etc/ssl";
 
         $settings_proxy = [
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
@@ -4546,8 +4611,8 @@ SecretConfigWriter::writeText($this->dirs['confDir'] . '/nats.conf', $config);
             ],
             'port' => ':8002',
             'proto' => 'https',
-            'pem' => "{$certsPath}/proxyserver.pem",
-            'key' => "{$certsPath}/proxyserver.key",
+            'pem' => $tlsCertificate['cert'],
+            'key' => $tlsCertificate['key'],
             // Адрес берётся только из административной конфигурации АТС.
             'trusted_origins' => empty($this->module_settings['server1chost']) ? [] : [
                 ($this->module_settings['server1c_scheme'] ?? 'http') . '://'

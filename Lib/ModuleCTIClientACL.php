@@ -41,6 +41,8 @@ class ModuleCTIClientACL implements ACLInterface
                     self::API_MODULE_CTI_CLIENT => '*',
                     ModuleCTIClientController::class => [
                         'save',
+                        'tlsCertificateInfo',
+                        'downloadTlsCertificate',
                     ]
                 ],
             ]

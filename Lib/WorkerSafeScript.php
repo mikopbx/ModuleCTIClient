@@ -20,6 +20,7 @@
 namespace Modules\ModuleCTIClient\Lib;
 
 use MikoPBX\Common\Handlers\CriticalErrorsHandler;
+use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 
 require_once 'Globals.php';
@@ -29,7 +30,12 @@ class WorkerSafeScript extends WorkerBase
     public function start($argv): void
     {
         $cti = new AmigoDaemons();
-        $cti->startAllServices();
+        try {
+            $cti->startAllServices();
+        } catch (CtiTlsSetupPending $pending) {
+            // Expected "CTI certificate not ready": nothing was started; the settings panel shows the next step.
+            Util::sysLogMsg('ModuleCTIClient', 'CTI start deferred, TLS setup pending: ' . $pending->getMessage(), LOG_WARNING);
+        }
     }
 
 }

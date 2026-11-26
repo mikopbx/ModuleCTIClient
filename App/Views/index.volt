@@ -51,6 +51,72 @@
             </div>
         </div>
         <div class="ui hidden divider"></div>
+        <div id="cti-tls-panel" data-state="unknown" data-missing-address="{{ t._('mod_cti_TlsMissingDomain') }}"
+             data-save-to-apply="{{ t._('mod_cti_TlsSaveToApply') }}">
+            <div class="ui top attached header cti-tls-header">
+                <h4 class="cti-tls-title">{{ t._('mod_cti_TlsTitle') }}</h4>
+                <div class="cti-tls-status">
+                    <span class="cti-tls-status-dot" aria-hidden="true"></span>
+                    <span id="cti-tls-summary" role="status" aria-live="polite">{{ t._('mod_cti_TlsLoading') }}</span>
+                </div>
+            </div>
+            <div class="ui attached segment">
+                <div class="field">
+                    <label for="cti_tls_hostname">{{ t._('mod_cti_TlsHostname') }}</label>
+                    {{ form.render('cti_tls_hostname') }}
+                    <small>{{ t._('mod_cti_TlsHostnameHint') }}</small>
+                </div>
+                <p id="cti-tls-next-step" style="display:none;"></p>
+                <button type="button" id="cti-tls-server" class="ui basic button" style="display:none;">
+                    <i class="download icon" aria-hidden="true"></i>
+                    {{ t._('mod_cti_TlsServer') }}
+                </button>
+                {# Дополнительные сведения остаются нативным раскрывающимся блоком. #}
+                <details id="cti-tls-more" style="display:none;">
+                    <summary>{{ t._('mod_cti_TlsMore') }}</summary>
+                    <div id="cti-tls-details" style="white-space:pre-line;overflow-wrap:anywhere;"></div>
+                    <div id="cti-tls-trust" class="ui info message" style="display:none;"></div>
+                    <div id="cti-tls-manual-block" class="ui warning message" style="display:none;">
+                        <p id="cti-tls-manual" style="white-space:pre-wrap;"></p>
+                    </div>
+                    <button type="button" id="cti-tls-refresh" class="ui basic button" style="display:none;">{{ t._('mod_cti_TlsRefresh') }}</button>
+                    <button type="button" id="cti-tls-intermediates" class="ui basic button" style="display:none;">{{ t._('mod_cti_TlsIntermediates') }}</button>
+                    <button type="button" id="cti-tls-root" class="ui basic button" style="display:none;">{{ t._('mod_cti_TlsRoot') }}</button>
+                </details>
+            </div>
+        </div>
+        <style>
+            #cti-tls-panel > .cti-tls-header {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                justify-content: space-between;
+                gap: 0.4em 1.25em;
+            }
+            .cti-tls-title { margin: 0; font-size: inherit; }
+            .cti-tls-status {
+                display: flex;
+                align-items: center;
+                gap: 0.55em;
+                font-size: 0.9em;
+                font-weight: normal;
+            }
+            .cti-tls-status-dot {
+                flex: 0 0 auto;
+                width: 0.65em;
+                height: 0.65em;
+                border-radius: 50%;
+                background: #767676;
+            }
+            #cti-tls-panel[data-state="running"] .cti-tls-status-dot { background: #21ba45; }
+            #cti-tls-panel[data-state="pending"] .cti-tls-status-dot,
+            #cti-tls-panel[data-state="mixed"] .cti-tls-status-dot,
+            #cti-tls-panel[data-state="error"] .cti-tls-status-dot { background: #fbbd08; }
+            #cti-tls-more { margin-top: 0.75em; }
+            #cti-tls-more > summary { color: #2185d0; cursor: pointer; }
+            #cti-tls-details:not(:empty) { margin-top: 0.5em; }
+        </style>
+        <div class="ui hidden divider"></div>
         <div id="crm-1c-settings-block">
         <h4 class="ui top attached header">{{ t._('mod_cti_Crm1C') }}</h4>
         <div class="ui attached segment">

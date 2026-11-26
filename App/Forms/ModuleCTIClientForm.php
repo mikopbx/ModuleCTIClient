@@ -51,6 +51,7 @@ class ModuleCTIClientForm extends Form
         $this->add(new Radio('crm_type_none', $noneAttrs));
         $this->add(new Radio('crm_type_1c', $oneCAttrs));
 
+        $this->add(new Text('cti_tls_hostname', ['maxlength' => '254', 'placeholder' => 'pbx.example.com']));
         $this->add(new Text('server1chost'));
         $this->add(new Numeric('server1cport'));
 

@@ -120,6 +120,13 @@ const moduleCTIClientConnectionCheckWorker = {
 						moduleCTIClientConnectionCheckWorker.changeStatus('ConnectionError');
 						return;
 					}
+					// Known setup state, not a boot in progress: nothing was started and the
+					// certificate panel already says why. Stop the spinner with a plain state;
+					// the next poll after a normal Save falls through to the checks below.
+					if (moduleCTIClientConnectionCheckWorker.tlsNotStarted(statuses)) {
+						moduleCTIClientConnectionCheckWorker.changeStatus('TlsNotStarted');
+						return;
+					}
 					// Module startup grace: the backend has already downgraded any
 					// hard error to "starting" while the stack boots, so show one
 					// calm progress badge and never escalate to a failure here —
@@ -187,6 +194,22 @@ const moduleCTIClientConnectionCheckWorker = {
 			moduleCTIClientConnectionCheckWorker.changeStatus('Disabled');
 			moduleCTIClientConnectionCheckWorker.renderDisabledPanel();
 		}
+	},
+
+	/**
+	 * True when the CTI stack is known not to be started because certificate setup is incomplete:
+	 * the certificate panel reports a problem (data-state=error) and monitord is not running.
+	 * Without that panel verdict an empty stack is still treated as starting up.
+	 *
+	 * @param {Array} statuses services reported by the check API.
+	 * @returns {boolean}
+	 */
+	tlsNotStarted(statuses) {
+		const panel = document.getElementById('cti-tls-panel');
+		if (!panel || panel.getAttribute('data-state') !== 'error' || !Array.isArray(statuses)) {
+			return false;
+		}
+		return !statuses.some((s) => s && s.name === 'monitord' && s.state === 'ok');
 	},
 
 	/**
@@ -304,6 +327,12 @@ const moduleCTIClientConnectionCheckWorker = {
 				? statuses
 				: self.tr('mod_cti_StatusUnavailable', 'Status unavailable');
 			showPlaceholder(text);
+			return;
+		}
+
+		// Стек не запущен из-за незавершённой настройки сертификата: не рисуем строки «starting».
+		if (self.tlsNotStarted(statuses)) {
+			showPlaceholder(self.tr('mod_cti_StatusTlsNotStarted', 'Not started: the CTI certificate setup is incomplete'));
 			return;
 		}
 
@@ -743,6 +772,12 @@ const moduleCTIClientConnectionCheckWorker = {
 				}
 				break;
 			}
+			case 'TlsNotStarted':
+				// Plain, final state: no spinner, next step is on the Settings tab.
+				cls = 'cti-summary-yellow';
+				led = 'warn';
+				text = tr('mod_cti_StatusTlsNotStarted', 'Not started: the CTI certificate setup is incomplete');
+				break;
 			case 'Disabled':
 				cls = 'cti-summary-grey';
 				led = 'unknown';

@@ -18,9 +18,9 @@ function row(array $over): array {
 
 $fail = function (string $m) { fwrite(STDERR, "FAIL: $m\n"); exit(1); };
 
-// Без личности (админ-сессия/старый клиент) — фильтр не применяется.
+// Без проверенной личности, включая integration-v2, секретов нет.
 $full = UserListFilter::apply([row([]), row(['userid' => '2', 'number' => '202', 'secret' => base64_encode('s2'), 'email' => 'c@d.e'])], '');
-if (count($full) !== 2 || $full[0]['secret'] === '' || $full[1]['secret'] === '') { $fail('no-identity must not filter'); }
+if (count($full) !== 2 || $full[0]['secret'] !== '' || $full[1]['secret'] !== '') { $fail('no-identity leaks secrets'); }
 
 // Личность 201: своя строка полная, чужая — без секретов.
 $out = UserListFilter::apply([row([]), row(['userid' => '2', 'number' => '202', 'secret' => base64_encode('s2'), 'email' => 'c@d.e', 'tls_login' => '202-TLS'])], '201');
@@ -49,3 +49,10 @@ $none = UserListFilter::apply([row([])], '999');
 if ($none[0]['secret'] !== '') { $fail('unknown identity leaks'); }
 
 echo "PASS UserListFilter\n";
+
+foreach (['127.0.0.1', '::1'] as $peer) {
+    if (!UserListFilter::trustedRemote($peer)) { $fail('literal loopback rejected'); }
+}
+foreach (['127.0.0.1:80', '[::1]:80', '::ffff:127.0.0.1', '192.0.2.1', '127.0.0.1:evil'] as $peer) {
+    if (UserListFilter::trustedRemote($peer)) { $fail('nonliteral peer trusted'); }
+}
