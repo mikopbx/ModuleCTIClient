@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../Lib/SecurityStatus.php';
+require_once __DIR__ . '/../Lib/ServiceRoleCredentials.php';
 
 use Modules\ModuleCTIClient\Lib\SecurityStatus;
 
@@ -31,15 +32,24 @@ $body = json_encode([
     ],
 ]);
 
-// Дочерний скрипт: принимает одно соединение, отдаёт JSON /varz.
+// gnatsd отвечает только роли module (Basic из nats_password).
+$natsPassword = str_repeat('b', 64);
+$auth = 'Authorization: Basic ' . base64_encode('module:' . hash('sha256', $natsPassword . ':module'));
+
+// Дочерний скрипт: принимает три соединения; 200 + JSON только с Basic роли module, иначе 401.
 $childFile = tempnam(sys_get_temp_dir(), 'cti-tel-child-') . '.php';
 file_put_contents($childFile, '<?php
 $s = stream_socket_server("tcp://127.0.0.1:' . $port . '", $e, $m) or exit(1);
-$c = stream_socket_accept($s, 5);
-if ($c !== false) {
-    fread($c, 4096);
+for ($i = 0; $i < 3; $i++) {
+    $c = stream_socket_accept($s, 5);
+    if ($c === false) { break; }
+    $req = fread($c, 4096);
     $b = ' . var_export($body, true) . ';
-    fwrite($c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($b) . "\r\n\r\n" . $b);
+    if (stripos($req, ' . var_export($auth, true) . ') === false) {
+        fwrite($c, "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+    } else {
+        fwrite($c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($b) . "\r\n\r\n" . $b);
+    }
     fclose($c);
 }
 ');
@@ -51,7 +61,10 @@ if (!is_resource($proc)) {
 }
 usleep(300000);
 
-$result = SecurityStatus::readTelemetry("http://127.0.0.1:{$port}/varz");
+check('no module Basic -> null', SecurityStatus::readTelemetry("http://127.0.0.1:{$port}/varz"), null);
+$local = SecurityStatus::readLocal($natsPassword, "http://127.0.0.1:{$port}/security/status");
+check('readLocal with module Basic', is_array($local) ? ($local['server_id'] ?? null) : null, 'test');
+$result = SecurityStatus::readTelemetry("http://127.0.0.1:{$port}/varz", $natsPassword);
 check('valid cti parsed: total', is_array($result) ? ($result['legacy_connects_total'] ?? null) : null, 7);
 check('valid cti parsed: mode', is_array($result) ? ($result['mode'] ?? null) : null, 'legacy_compatible');
 check('valid cti parsed: current', is_array($result) ? ($result['legacy_connections'] ?? null) : null, 2);

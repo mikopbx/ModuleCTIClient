@@ -47,6 +47,8 @@ namespace {
         public function getPost() { return $this->data; }
         public function getHeader($name) { ++$this->headersRead; return 'attacker.example'; }
         public function getHttpHost() { ++$this->headersRead; return 'attacker.example'; }
+        // saveAction читает только HTTP_X_CTI_SETUP_SOURCE; здесь заголовка нет.
+        public function getServer($name) { return null; }
     }
     class HostnameFlash {
         public $errors = array();

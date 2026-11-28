@@ -169,6 +169,22 @@ class ModuleCTIClientController extends BaseController
      */
     private const FULL_FORM_MARKER = 'cti_full_form';
 
+    /**
+     * Поля мастера автонастройки 1С, которые может записать ключ интеграции
+     * (запрос с X-CTI-Setup-Source: integration). Остальные поля такого POST молча отбрасываются.
+     */
+    private const INTEGRATION_SETUP_FIELDS = [
+        'auto_settings_mode',
+        'web_service_mode',
+        'server1chost',
+        'server1cport',
+        'server1c_scheme',
+        'database',
+        'login',
+        'secret',
+    ];
+    private const INTEGRATION_SETUP_SOURCE = 'integration';
+
     private const REMOTE_TOGGLE_FIELDS = ['remote_whatsapp', 'remote_telegram', 'remote_max'];
     private const REMOTE_CONNECTION_FIELDS = [
         'remote_host',
@@ -228,14 +244,16 @@ class ModuleCTIClientController extends BaseController
 
         // Initialize view variables
         $this->view->form = new ModuleCTIClientForm($settings);
-        $reportedSecurity = \Modules\ModuleCTIClient\Lib\SecurityStatus::readLocal();
+        // Статус gnatsd читается под ролью module (Basic из nats_password).
+        $natsPassword = (string)($settings->nats_password ?? '');
+        $reportedSecurity = \Modules\ModuleCTIClient\Lib\SecurityStatus::readLocal($natsPassword);
         $this->view->securityApplyStatus = \Modules\ModuleCTIClient\Lib\SecurityStatus::evaluate(
             $settings->security_mode ?? null, $reportedSecurity
         );
         $this->view->securityAppliedMode = $reportedSecurity['mode'] ?? 'unknown';
         // S-15: телеметрия legacy-клиентов из /varz gnatsd (может отсутствовать
         // на старом бинарнике — тогда переменная null и строка в UI скрыта).
-        $this->view->legacyTelemetry = \Modules\ModuleCTIClient\Lib\SecurityStatus::readTelemetry();
+        $this->view->legacyTelemetry = \Modules\ModuleCTIClient\Lib\SecurityStatus::readTelemetry(null, $natsPassword);
         // креды интеграции 1С для отображения администратору.
         // Выводятся детерминированно из nats_password (как authd-роль).
         $natsPassword = (string)($settings->nats_password ?? '');
@@ -524,6 +542,16 @@ class ModuleCTIClientController extends BaseController
         }
         // Retrieve the form data
         $data = $this->request->getPost();
+
+        // /pbx/setup по ключу интеграции 1С — только поля мастера; security_mode,
+        // allow_legacy_clients, remote_*, crm_type, cti_full_form и прочее игнорируются без ошибки
+        // (совместимость со старым мастером). Допущение доверия: заголовок ставит только
+        // gnatsd после проверки ключа (клиентский X-CTI-Setup-Source он не копирует) и сам сужает
+        // Тело; интеграция 1С достаёт save только через gnatsd. Подделка заголовка
+        // В обход gnatsd лишь сужает запись и прав не даёт.
+        if ($this->request->getServer('HTTP_X_CTI_SETUP_SOURCE') === self::INTEGRATION_SETUP_SOURCE) {
+            $data = array_intersect_key($data, array_flip(self::INTEGRATION_SETUP_FIELDS));
+        }
 
         // Normalize MTProxy input (proxy links / base64 secret) into the
         // "host:port" + HEX shape the Go telegram daemon expects.
