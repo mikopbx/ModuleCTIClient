@@ -456,10 +456,7 @@ class AmigoDaemons extends Injectable
             'security_mode' => '"' . $securityMode . '"',
         ];
 
-        if ($securityMode === SecurityMode::STRICT) {
-            $settings['allow_legacy_auth'] = 'false';
-            $settings['legacy_unsigned'] = 'false';
-        }
+        $settings = array_merge($settings, SecurityMode::natsConfigFlags($securityMode));
 
         $natsPassword = NatsPassword::ensure(
             (string)($this->module_settings['nats_password'] ?? ''),
@@ -485,7 +482,9 @@ class AmigoDaemons extends Injectable
         // в настройках модуля (ManagerCredentials::integrationCredentials).
         $integrationPass = hash('sha256', $natsPassword . ':1c-integration');
         $settings['service_users'] = '{ authd { pass: "' . $authdPass . '" } '
-            . ', 1c-integration { pass: "' . $integrationPass . '" } }';
+            . ', 1c-integration { pass: "' . $integrationPass . '" } '
+            // Роли демонов и модуля — Basic к служебным HTTP-методам gnatsd.
+            . ServiceRoleCredentials::natsUsersEntries($natsPassword) . '}';
         $settings['integration_secret'] = '"' . hash('sha256', $natsPassword . ':1c-http') . '"';
 
         $settings['web_port'] = PbxSettings::getValueByKey('WEBPort');
@@ -4407,10 +4406,7 @@ class AmigoDaemons extends Injectable
 
         $settings_crm = [
             'security_mode' => $securityMode,
-            'mq' => [
-                'host' => $this->getNatsQueueHost(),
-                'port' => $this->getNatsPort(),
-            ],
+            'mq' => $this->getServiceRoleQueue(self::SERVICE_CRM),
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
             'cleanup_period' => 10,  // Cache of links cleanup period.
@@ -4483,10 +4479,7 @@ class AmigoDaemons extends Injectable
         $settings_chats = [
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
             'log_path' => $logDir,
-            'mq' => [
-                'host' => $this->getNatsQueueHost(),
-                'port' => $this->getNatsPort(),
-            ],
+            'mq' => $this->getServiceRoleQueue('chats'),
             'database' => [
                 'path' => $chatDataBasesPath,
             ],
@@ -4510,10 +4503,7 @@ class AmigoDaemons extends Injectable
         $settings_tg = [
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? -1 : 2,
             'log_path' => $logDir,
-            'mq' => [
-                'host' => $this->getNatsQueueHost(),
-                'port' => $this->getNatsPort(),
-            ],
+            'mq' => $this->getServiceRoleQueue('tg'),
             'database' => [
                 'path' => $chatDataBasesPath,
             ],
@@ -4546,10 +4536,7 @@ class AmigoDaemons extends Injectable
         $settings_max = [
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 5 : 2,
             'log_path' => $logDir,
-            'mq' => [
-                'host' => $this->getNatsQueueHost(),
-                'port' => $this->getNatsPort(),
-            ],
+            'mq' => $this->getServiceRoleQueue('max'),
             'database' => [
                 'path' => $maxDataBasesPath,
             ],
@@ -4667,10 +4654,7 @@ class AmigoDaemons extends Injectable
                 'multiple_registration_support' => true,
                 'interception_timeout' => $this->getInterceptionTimeoutMs(),
             ],
-            'mq' => [
-                'host' => $this->getNatsQueueHost(),
-                'port' => $this->getNatsPort(),
-            ],
+            'mq' => $this->getServiceRoleQueue(self::SERVICE_AMI),
             'interception_support' => true,
             'log_level' => intval($this->module_settings['debug_mode']) === 1 ? 6 : 2,
             'log_path' => $logDir,
@@ -4860,7 +4844,12 @@ class AmigoDaemons extends Injectable
                     'owner_lock_ttl_sec' => 120,
                     'forwards'         => [
                         ['listen_addr' => '127.0.0.1:' . $natsPort, 'target_addr' => '127.0.0.1:' . $natsPort],
-                        ['listen_addr' => '127.0.0.1:' . $natsHttpPort, 'target_addr' => '127.0.0.1:' . $natsHttpPort],
+                        // HTTP API gnatsd на VPS — только allowlist (monitord, 403 на прочее).
+                        [
+                            'listen_addr' => '127.0.0.1:' . $natsHttpPort,
+                            'target_addr' => '127.0.0.1:' . $natsHttpPort,
+                            'http_allow' => ['/license.api/featureavailable', '/license.api/addtrial'],
+                        ],
                     ],
                     'local_forwards'   => [
                         ['listen_addr' => '127.0.0.1:' . self::getRemoteMonitorPort(), 'target_addr' => '127.0.0.1:8225'],
@@ -4954,10 +4943,8 @@ class AmigoDaemons extends Injectable
             $settings = [
                 'log_level' => $logLevel,
                 'log_path' => "{$base}/logs/{$service}d",
-                'mq' => [
-                    'host' => $this->getNatsQueueHost(),
-                    'port' => $this->getNatsPort(),
-                ],
+                // VPS получает креды только своей роли (chats/tg/max).
+                'mq' => $this->getServiceRoleQueue($service),
                 'database' => [
                     'path' => "{$base}/{$dbDirs[$service]}",
                 ],
@@ -5467,6 +5454,11 @@ class AmigoDaemons extends Injectable
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_TIMEOUT, 1);
         curl_setopt($curl, CURLOPT_URL, $statusUrl);
+        // Модуль читает gnatsd под ролью module.
+        $userPwd = ServiceRoleCredentials::moduleUserPwd((string)($this->module_settings['nats_password'] ?? ''));
+        if ($userPwd !== null) {
+            curl_setopt($curl, CURLOPT_USERPWD, $userPwd);
+        }
 
         try {
             $response = curl_exec($curl);
@@ -5504,6 +5496,20 @@ class AmigoDaemons extends Injectable
      *
      * @return array
      */
+    /**
+     * Блок mq демона — NATS по cti-service (userinfo host) плюс
+     * mq.user/mq.password роли для Basic к HTTP API gnatsd.
+     */
+    private function getServiceRoleQueue(string $role): array
+    {
+        return ServiceRoleCredentials::queue(
+            $this->getNatsQueueHost(),
+            $this->getNatsPort(),
+            (string)($this->module_settings['nats_password'] ?? ''),
+            $role
+        );
+    }
+
     private function getNatsQueueHost(): string
     {
         // queue.Connect формирует nats://host:port; credentials остаются только в конфигах демонов.

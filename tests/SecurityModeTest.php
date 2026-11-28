@@ -18,4 +18,13 @@ foreach ([
 ] as [$current,$data,$full,$expected]) {
     if (SecurityMode::fromSubmission($current,$data,$full)!==$expected) { throw new RuntimeException('Submission mapping failed'); }
 }
+// legacy_nats_pin: true — только в legacy_compatible; strict и неизвестный режим его не пишут.
+if (SecurityMode::natsConfigFlags('legacy_compatible') !== ['legacy_nats_pin' => 'true']) {
+    throw new RuntimeException('Legacy NATS PIN switch missing in legacy_compatible');
+}
+foreach ([null, '', 'strict', 'unknown'] as $value) {
+    if (SecurityMode::natsConfigFlags($value) !== ['allow_legacy_auth' => 'false', 'legacy_unsigned' => 'false']) {
+        throw new RuntimeException('Strict NATS flags wrong');
+    }
+}
 echo "PASS SecurityMode\n";

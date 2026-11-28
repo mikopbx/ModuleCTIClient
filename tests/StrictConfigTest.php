@@ -68,6 +68,11 @@ try {
         $text = file_get_contents($nats); $json = json_decode(file_get_contents($crm), true);
         if (!isset($json['security_mode']) || $json['security_mode'] !== $settings['security_mode']) { $failures[] = "$case: CRM mode missing/wrong"; }
         if (strpos($text, 'security_mode: "' . $settings['security_mode'] . '"') === false) { $failures[] = "$case: NATS mode wrong"; }
+        // Рубильник PIN по NATS пишется только в legacy_compatible.
+        $hasPin = strpos($text, 'legacy_nats_pin: true') !== false;
+        if ($hasPin !== ($case === 'legacy-ok') || ($case === 'strict-ok' && strpos($text, 'legacy_nats_pin') !== false)) {
+            $failures[] = "$case: legacy_nats_pin wrong";
+        }
         if ($case === 'strict-ok') {
             foreach (array('allow_legacy_auth: false', 'legacy_unsigned: false', 'https_port: 8298', 'tls_port: 4228') as $required) {
                 if (strpos($text, $required) === false) { $failures[] = "$case: missing $required"; }
